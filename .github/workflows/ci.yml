@@ -1,0 +1,140 @@
+# CI —— 三道闸门，全部在 Windows 上跑
+#
+# 为什么只用 Windows：O-Cleaner 依赖 PowerShell、盘符、%LOCALAPPDATA%、注册表无关的
+# 盘符枚举等 Windows 专有机制，在 Linux runner 上跑没有意义。
+#
+# 为什么 linter 排在功能测试之前：一条错误的识别规则会真的让用户删掉不该删的东西，
+# 而用户不会看免责声明。规则安全必须先于功能正确性。
+#
+# 提交到 GitHub 时，把整个 .github 目录放在仓库根目录即可。
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ---------- 第一道闸门：规则安全 ----------
+  lint:
+    name: 规则 linter
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 所有 .py 语法检查
+        shell: pwsh
+        run: |
+          $fail = 0
+          Get-ChildItem -Recurse -Filter *.py | ForEach-Object {
+            python -m py_compile $_.FullName
+            if ($LASTEXITCODE -ne 0) { Write-Host "语法错误: $($_.FullName)"; $fail = 1 }
+          }
+          if ($fail -eq 1) { exit 1 }
+          Write-Host "全部 Python 文件语法通过"
+
+      - name: 规则 linter（--strict，警告也算失败）
+        run: python -X utf8 tools/lint_rules.py --strict
+
+      # 防止 linter 自身退化成空转：注入已知缺陷，验证它真的抓得到
+      - name: 验证 linter 有检出能力
+        run: python -X utf8 tools/_lint_selftest.py
+
+      - name: 界面 JS 语法检查
+        shell: pwsh
+        run: |
+          $html = Get-Content web/index.html -Raw -Encoding UTF8
+          $m = [regex]::Match($html, '(?s)<script>(.*?)</script>')
+          if (-not $m.Success) { Write-Host "找不到 <script> 块"; exit 1 }
+          Set-Content -Path "$env:TEMP\oc_ci.js" -Value $m.Groups[1].Value -Encoding UTF8
+          node --check "$env:TEMP\oc_ci.js"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Write-Host "界面 JS 语法通过"
+
+  # ---------- 第二道闸门：功能自测 ----------
+  test:
+    name: 自测
+    runs-on: windows-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 自测会在 C:\_ocleaner_selftest 建沙箱并真删文件，
+      # 并临时替换 config/targets.json（结束时还原）。仅限 CI 环境。
+      - name: 运行自测（142+ 项断言）
+        run: python -X utf8 tools/selftest.py
+
+      - name: 失败时上传产物便于排查
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-leftovers
+          path: |
+            history.json
+            schedule.json
+            config/targets.json
+          if-no-files-found: ignore
+
+  # ---------- 第三道闸门：真实浏览器渲染与交互 ----------
+  ui:
+    name: 界面渲染检查
+    runs-on: windows-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 启动服务
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath python `
+            -ArgumentList "-X","utf8","app.py","--port","8801","--no-browser" `
+            -PassThru -WindowStyle Hidden
+          $p.Id | Out-File -FilePath "$env:TEMP\oc_srv.pid" -Encoding ascii
+          for ($i = 0; $i -lt 40; $i++) {
+            Start-Sleep -Milliseconds 500
+            try {
+              Invoke-RestMethod "http://127.0.0.1:8801/__oc__/state" -TimeoutSec 3 | Out-Null
+              Write-Host "服务已就绪"
+              exit 0
+            } catch { }
+          }
+          Write-Host "服务启动超时"
+          exit 1
+
+      # 用 runner 自带的 Edge 通过 CDP 检查，不安装 playwright（零安装原则）。
+      # runner 上没有数据盘，全盘扫描会跑系统盘；cdp_check 内部有 5 分钟上限，
+      # 超时只报告跳过，不判失败。
+      - name: CDP 渲染与交互检查
+        run: node tools/cdp_check.js "http://127.0.0.1:8801"
+
+      - name: 上传截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: tools/*.png
+          if-no-files-found: ignore
+
+      - name: 停止服务
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path "$env:TEMP\oc_srv.pid") {
+            $serverPid = Get-Content "$env:TEMP\oc_srv.pid"
+            Stop-Process -Id $serverPid -Force -ErrorAction SilentlyContinue
+          }
+          Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue

@@ -1,0 +1,37 @@
+# 换行与编码约定 —— 这个文件是必需的，不是装饰
+#
+# 有人以为换行符无关紧要。对本项目来说不是：
+#   * cmd.exe 对 LF 换行的 .bat 解析是坏的，会把 echo 吃进上一行（我们踩过）
+#   * PowerShell 5.1 读没有 BOM 的文件会按 GBK 解析中文，导致语法错误（我们也踩过）
+# 如果不声明这些规则，Windows 上的 Git 默认 text=auto 可能把 .bat 转成 LF，
+# 于是新克隆的仓库里启动脚本一跑就报错。
+
+# 全局：让 Git 自己判断文本文件，但下面的规则优先
+* text=auto
+
+# 批处理必须 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# PowerShell 脚本必须 CRLF（编码的 BOM 由 make-package.ps1 保证）
+*.ps1 text eol=crlf
+
+# 其余源码不强制换行，但统一按文本处理，避免二进制误判
+*.py    text
+*.json  text
+*.html  text
+*.md    text
+*.yml   text
+*.yaml  text
+
+# 这些是运行数据，不要合并、也不要规范化
+history.json   -text
+schedule.json  -text
+
+# 二进制
+*.png binary
+*.zip binary
+*.ico binary
+
+# 让 GitHub 语言统计准确：web 目录是界面但主要是单文件 HTML
+*.html linguist-detectable=true

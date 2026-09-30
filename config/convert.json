@@ -1,0 +1,92 @@
+{
+  "_comment": "换算单位表。unlimited=true 表示单位本身不设上限（用于做换算基准，例如把 TB 折算成 GB）。bytes_per_unit 可以用数字，也可以写成表达式引用其他单位（如 '1/3 * 4K电影'），从而复用到别处定义。换算时每个单位独立计算，越具体的越先展示。",
+  "display": {
+    "max_units": 6,
+    "precision_large": 2,
+    "precision_small": 1
+  },
+  "_units_help": "字段说明：label=中文单数名，plural=中文复数名，bytes_per_unit=一个该单位相当于多少字节，note=备注，unlimited=是否不参与『装得下几个』的部分展示",
+  "units": [
+    {
+      "id": "photo",
+      "label": "张手机照片",
+      "plural": "张手机照片",
+      "bytes_per_unit": 3670016,
+      "note": "按 iPhone/安卓常见的 3.5 MB 单张估算",
+      "category": "个人数据"
+    },
+    {
+      "id": "song",
+      "label": "首 MP3 歌曲",
+      "plural": "首 MP3 歌曲",
+      "bytes_per_unit": 8388608,
+      "note": "按 320 kbps 约 8 MB/首估算",
+      "category": "个人数据"
+    },
+    {
+      "id": "doc",
+      "label": "份办公文档",
+      "plural": "份办公文档",
+      "bytes_per_unit": 262144,
+      "note": "按 256 KB/份估算，含 Word/Excel/PDF 混排",
+      "category": "个人数据"
+    },
+    {
+      "id": "movie1080",
+      "label": "部 1080p 电影",
+      "plural": "部 1080p 电影",
+      "bytes_per_unit": 2147483648,
+      "note": "按 2 GB/部估算，常见流媒体画质",
+      "category": "影音"
+    },
+    {
+      "id": "movie4k",
+      "label": "部 4K 电影",
+      "plural": "部 4K 电影",
+      "bytes_per_unit": 21474836480,
+      "note": "按 20 GB/部估算，蓝光原盘级别",
+      "category": "影音"
+    },
+    {
+      "id": "game",
+      "label": "个 3A 游戏",
+      "plural": "个 3A 游戏",
+      "bytes_per_unit": 51539607552,
+      "note": "按 48 GB/个估算，近年 3A 大作安装体积",
+      "category": "游戏"
+    },
+    {
+      "id": "hour_video",
+      "label": "小时 1080p 视频",
+      "plural": "小时 1080p 视频",
+      "bytes_per_unit": 3221225472,
+      "note": "按 3 GB/小时估算",
+      "category": "影音"
+    },
+    {
+      "id": "installer",
+      "label": "个安装包",
+      "plural": "个安装包",
+      "bytes_per_unit": 536870912,
+      "note": "按 512 MB/个估算",
+      "category": "软件"
+    },
+    {
+      "id": "gb",
+      "label": "GB",
+      "plural": "GB",
+      "bytes_per_unit": 1073741824,
+      "note": "换算基准，不单独作为『装得下几个』展示",
+      "category": "基准",
+      "unlimited": true
+    },
+    {
+      "id": "hour_4k_netflix",
+      "label": "小时 4K 流媒体",
+      "plural": "小时 4K 流媒体",
+      "bytes_per_unit": "1/3 * movie4k",
+      "note": "范例：4K 流媒体约 7 GB/小时，这里用『4K 电影的 1/3』来演示表达式换算",
+      "category": "影音"
+    }
+  ]
+}

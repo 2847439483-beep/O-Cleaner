@@ -1,0 +1,31 @@
+# 运行数据 —— 不进版本库
+history.json
+schedule.json
+config/custom-rules.json
+
+# 打包产物
+dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 检查器产出的截图
+tools/_ui_check.png
+tools/_fs_check.png
+tools/_partition_check.png
+tools/_partition_deep.png
+
+# 临时/备份文件（自测与 linter 自测会临时产生）
+*.tmp
+*.bak
+config/.targets.backup.json
+config/.filetypes.linttest.bak
+config/.probe.bak
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store
