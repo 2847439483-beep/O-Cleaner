@@ -684,7 +684,7 @@ def acquire_wiztree(timeout: int = 300) -> dict:
     result["log"].append(f"从官方地址下载便携版：{WIZTREE_PORTABLE_URL}")
     try:
         req = _UrlRequest(
-            WIZTREE_PORTABLE_URL, headers={"User-Agent": "O-Cleaner/2.0"})
+            WIZTREE_PORTABLE_URL, headers={"User-Agent": "O-Cleaner/2.1"})
         with _urlopen(req, timeout=timeout) as resp:
             ctype = str(resp.headers.get("Content-Type") or "")
             raw = resp.read()
@@ -831,6 +831,22 @@ def _wiztree_children(dirs: dict[str, int], path: str, limit: int = 60) -> list[
                     "size": sz, "type": "dir"})
     out.sort(key=lambda x: -x["size"])
     return out[:limit]
+
+
+def _dir_has_any_child(path: str) -> bool:
+    """廉价探测目录里是否有任何条目（取到第一个就返回）。
+
+    无 WizTree 内存表时无法零成本预判「能否展开」，全量统计体积又太贵；
+    一次性 scandir 只花一次系统调用，整棵树几百个节点实测也就几十毫秒。
+    权限不足/路径消失一律按「不可展开」处理，绝不让探测本身抛异常。
+    """
+    try:
+        with os.scandir(path) as it:
+            for _ in it:
+                return True
+    except OSError:
+        return False
+    return False
 
 
 def _wiztree_parse(csv_path: str) -> dict:
@@ -1137,7 +1153,8 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
         elif wiz_dirs is not None:
             n["can_drill"] = bool(_wiztree_children(wiz_dirs, n["path"], 1))
         else:
-            n["can_drill"] = False
+            # 无 WizTree：退化为一次性 scandir 探测，让深层下钻在无加速环境也可用
+            n["can_drill"] = _dir_has_any_child(n["path"])
 
     disk = get_disk_info(letter)
     return {
@@ -3009,7 +3026,7 @@ def build_scan(drive: str | None = None, custom_path: str | None = None,
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OCleaner/2.0"
+    server_version = "OCleaner/2.1"
 
     def log_message(self, fmt, *args):
         pass

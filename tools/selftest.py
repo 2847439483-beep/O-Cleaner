@@ -1195,6 +1195,26 @@ def phase7_scoping_and_accel() -> None:
         app.cleanup_stale_wiztree_exports()
         check("启动时能清掉异常退出遗留的导出文件", not os.path.exists(bogus))
 
+    # ---- 4) 无 WizTree 环境下的下钻能力（2026-09-30 放开，须持续可用）----
+    make_sandbox()
+    check("无加速探测：非空目录标记为可展开",
+          app._dir_has_any_child(str(SANDBOX / "tree")))
+    empty_dir = SANDBOX / "empty"
+    empty_dir.mkdir(exist_ok=True)
+    check("无加速探测：空目录不标可展开",
+          not app._dir_has_any_child(str(empty_dir)))
+    check("无加速探测：不存在/无权限的路径不抛异常",
+          not app._dir_has_any_child(str(SANDBOX / "nope")))
+    # 用不存在的盘符 Z 保证走不到 WizTree 缓存，强制命中原生回退分支
+    sub = app.list_subdirs("Z", str(SANDBOX / "tree"))
+    check("无加速回退：list_subdirs 走原生扫描且能列出子项",
+          sub.get("engine") != "wiztree" and len(sub.get("children") or []) >= 2,
+          f"engine={sub.get('engine')} / {len(sub.get('children') or [])} 项")
+    check("无加速回退：子项体积已量出且带可读格式",
+          all(c.get("size_h") for c in sub["children"])
+          and any(c["size"] > 0 for c in sub["children"]))
+    shutil.rmtree(SANDBOX, ignore_errors=True)
+
 
 def main() -> int:
     if os.name == "nt":

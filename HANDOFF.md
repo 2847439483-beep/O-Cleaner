@@ -1,9 +1,9 @@
 # O-Cleaner 完整交接文档与需求规格书
 
-> **文档版本**：v2.0 (Post-Refactor Final)  
+> **文档版本**：v2.1 (接手方优化版)  
 > **项目定位**：Windows 原生、本地零第三方依赖、安全透明的开源磁盘清理与空间透视工具。  
-> **代码仓库位置**：`C:\Users\<user>\Documents\O-Cleaner\`  
-> **分发包路径**：`C:\Users\<user>\Documents\O-Cleaner\dist\O-Cleaner-v2.0.zip`
+> **代码仓库位置**：`C:\Users\<user>\Documents\O-Cleaner\`（已 git init，初始提交 v2.0 基线）  
+> **分发包路径**：`C:\Users\<user>\Documents\O-Cleaner\dist\O-Cleaner-v2.1.zip`
 
 ---
 
@@ -239,6 +239,14 @@
 
 > 教训：交接验收在真实用户环境跑测试时，发现过 `config/targets.json` 被测试内容覆盖的事故，最终从 `dist/O-Cleaner-v2.0.zip` 内还原。任何会改写真实配置/数据文件的测试，都必须先备份、后还原，并假设自己随时可能被强杀。
 
+### 6. 接手方优化记录（2026-09-30，v2.0 → v2.1）
+
+1. **放开无 WizTree 下钻限制**（原第八节第 4 条）：前后端改动见该节现状描述；断言规模 271 → 276 项。
+2. **版本号统一升至 2.1**：`app.py`（server_version / UA）、`config/drives.json`、`tools/make-package.ps1`。
+3. **全量门禁复验通过**：lint 0 错 / linter 自测 17 / doctor 27 / selftest 276（2 跳过）/ CDP 72。
+4. **运维注意**：在 WorkBuddy 沙箱内启动 `app.py` 做 CDP 测试会因其安全删除拦截导致 overview 接口假死（表现为 Failed to fetch），须在非沙箱环境起服务——这不是应用缺陷，进程内与独立子进程方式均验证正常。
+5. **遗留清理**：`Documents/clean-c-drive*.ps1` 与 `Documents/dsh-cleaner/` 已移入回收站，备份在 `Documents/O-Cleaner-legacy-backup-2026-09-30.zip`（8 个文件，完整性校验通过）。
+
 ---
 
 ## 七、文件资产与代码清单
@@ -264,7 +272,7 @@
 | `tools/make-package.ps1`| ~7.2 KB | 绿色压缩包构建工具（带严格预校验与临时沙箱自测） |
 | `.github/workflows/ci.yml`| ~4.8 KB | GitHub Actions 持续集成配置文件（Windows 平台：lint -> test -> ui） |
 | `HANDOFF.md` | ~16 KB | 本文档：完整需求追溯、架构规格、踩坑史与接手注意事项 |
-| `dist/O-Cleaner-v2.0.zip`| ~176 KB | 最终产出的便携分发包，开箱即用 |
+| `dist/O-Cleaner-v2.1.zip`| ~176 KB | 最终产出的便携分发包，开箱即用 |
 
 ---
 
@@ -287,10 +295,10 @@
 - **局限**：Epic / GOG / Ubisoft / 战网 等平台的游戏**无法**获得「游戏本体」标注，会被当成普通目录。`GAME_INSTALL_MARKERS` 常量里预留了这些平台的路径特征（用于避免误判安装包），但没有对应的清单读取实现。
 - **建议**：各平台清单格式（Epic 是 `.item` JSON、GOG 是注册表 + `goggame-*.info`）差异较大，逐个实现。
 
-### 4. 无 WizTree 时深层下钻能力受限
-- **现状**：`FS.subdir_ready` 为 false（未装 WizTree）时，树外目录点击后只弹详情，不做按需扫描。`loadSubLevel()` 会被跳过。
-- **原因**：当时的判断是「无内存表时逐目录现场扫描代价高」。
-- **可改进点**：实际上 `list_subdirs()` 的 PowerShell 回退分支（`os.scandir` + `_size_of_dir`）已经实现了，只是前端在 `subdir_ready=false` 时不去调用它。**放开这个限制改动很小**，代价是每个展开动作要等几百毫秒到数秒。
+### 4. ~~无 WizTree 时深层下钻能力受限~~（v2.1 已解决）
+- **现状（v2.1 起）**：前端 `fsDrill` 已放开限制——无 WizTree 时同样调用 `/__oc__/subdirs`（后端 `os.scandir` + `_size_of_dir` 原生回退），带「现场扫描，稍慢」的加载提示；拉不到子项时自动回退到详情弹窗。后端占用树节点的 `can_drill` 在无加速时改用一次性 scandir 探测（`_dir_has_any_child`），「展开 ▾」按钮如实出现。
+- **性能代价**：每个展开动作等几百毫秒到数秒（原生现扫），有 WizTree 时仍是 1~3 毫秒。
+- **回归保障**：`selftest.py` 阶段七新增 5 项「无加速」断言（探测真假/空目录/不存在路径 + list_subdirs 原生回退可用性）。
 
 ### 5. 单层超大量子项的渲染边界
 - **现状**：`/__oc__/subdirs` 默认 `limit=80`，全盘树取前 30 条，前端 `renderSubTreeHTML` 无虚拟滚动。
@@ -302,15 +310,14 @@
 - **风险**：继续膨胀会变得难以维护，且 `edit` 类工具做局部替换时容易误伤（本项目已经因脚本化批量替换**误删过 14 个核心函数、约 700 行**，且当时无备份）。
 - **建议**：若要拆分，优先把 PowerShell 脚本常量抽到独立模块，它们是最大的静态块。
 
-### 7. 早期脚本仍在项目目录之外
-- `C:\Users\<user>\Documents\clean-c-drive.ps1`（16.3 KB）与 `clean-c-drive-safe.ps1`（6.2 KB）是 O-Cleaner 的前身，位于 **O-Cleaner 文件夹之外**，未纳入版本管理与 CI。
-- 另一处 `C:\Users\<user>\Documents\dsh-cleaner\`（6 个文件）是更早的 WebUI 版本，功能与安全性都弱于当前版本（缺 CSRF 防护、缺程序本体护栏）。
-- **待用户决策**：是否清理这两处遗留。
+### 7. ~~早期脚本仍在项目目录之外~~（v2.1 已清理）
+- `C:\Users\<user>\Documents\clean-c-drive.ps1`、`clean-c-drive-safe.ps1` 与 `dsh-cleaner\` 已于 2026-09-30 移入回收站（可还原）。
+- 兜底备份：`C:\Users\<user>\Documents\O-Cleaner-legacy-backup-2026-09-30.zip`（8 个文件，zip 完整性校验通过）。确认无虞后可清空回收站并删除该 zip。
 
-### 8. 尚未 `git init`
-- 项目已有 `.gitattributes`、`.gitignore`、`.github/workflows/ci.yml`，但**没有 `.git` 目录**，尚未初始化仓库。
-- `LICENSE` 中的版权人仍是占位符 `[请替换为你的名字或 GitHub ID]`。
-- **待办**：`git init` → 填 LICENSE → 推送到 GitHub 后 CI 才会真正生效。
+### 8. ~~尚未 `git init`~~（v2.1 已解决）
+- 2026-09-30 已 `git init`（main 分支），初始提交为 v2.0 基线 + selftest 加固；v2.1 优化随后提交。
+- `LICENSE` 版权人已填 `oeriano`（取自本机账户名，如要换 GitHub ID 直接改即可）。
+- **待办**：推送到 GitHub 后 CI 才会真正生效（本机未装 `gh` CLI，需手动建仓库推送）。
 
 ### 9. 用户明确暂缓的方向（不要再自行推进）
 - **exe 打包**：用户明确说「exe 暂不考虑」。

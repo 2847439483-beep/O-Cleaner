@@ -2091,8 +2091,9 @@ function renderOverview() {
  * 子项来源分两种：
  *   * 树里已经有这一层的节点 → 直接切视图（不请求服务端）；
  *   * 树里没有（受深度/体积门槛限制挡在外面）→ 向 /__oc__/subdirs 要一层。
- *     有 WizTree 加速时这一请求是查内存表，1 毫秒级，所以可以放心地
- *     让用户点到任意深度，而不是像以前那样「点不动就只弹详情」。
+ *     有 WizTree 加速时这一请求是查内存表，1 毫秒级；没有 WizTree 时
+ *     后端退化为原生现扫，要等几百毫秒到数秒 —— 慢，但远比
+ *     「点不动就只弹详情」有用，所以两条路都放开，只是给出不同提示。
  */
 async function fsDrill(node) {
   if (!node) return;
@@ -2100,16 +2101,24 @@ async function fsDrill(node) {
   const key = normKey(node.path);
   const hasKids = !!(FS.kids && FS.kids[key] && FS.kids[key].length);
   if (!hasKids) {
-    if (FS.subdir_ready) {
-      fsStack.push({ path: node.path, name: node.name, size: node.size });
-      fsMode = "dirs";
+    fsStack.push({ path: node.path, name: node.name, size: node.size });
+    fsMode = "dirs";
+    renderOverview();
+    if (!FS.subdir_ready) {
+      $("fsChart").innerHTML = '<div class="loading" style="margin:0">' +
+        '<span class="spin"></span>未启用 WizTree 加速，正在现场扫描该目录（可能需要几秒）…</div>';
+    }
+    await loadSubLevel(node);
+    const got = !!(FS.kids && FS.kids[key] && FS.kids[key].length);
+    if (!got) {
+      // 拉不到子项（空目录/无权限）：退回上一层并弹详情，别让用户面对空层发愣
+      fsStack.pop();
       renderOverview();
-      await loadSubLevel(node);
       renderChart();
+      showDetail(node);
       return;
     }
-    // 没有 WizTree 时无法廉价补齐，说明清楚而不是静默无反应
-    showDetail(node);
+    renderChart();
     return;
   }
   fsStack.push({ path: node.path, name: node.name, size: node.size });
@@ -2178,7 +2187,8 @@ function renderChart() {
     fsMode === "biggest" ? "跨全部层级按体积排序的大项（已剔除中间容器目录）"
     : fsMode === "clean" ? "整棵树里所有被判定为可清理的项目"
     : "点击目录下钻看子项，点击文件看详情"
-      + (FS.subdir_ready ? "（已开启 WizTree 加速，可任意层下钻）" : "");
+      + (FS.subdir_ready ? "（已开启 WizTree 加速，可任意层下钻）"
+                         : "（未装 WizTree，深层下钻会现场扫描，稍慢但可用）");
 
   if (!rows.length) {
     $("fsChart").innerHTML = '<div class="empty" style="margin:0">' +

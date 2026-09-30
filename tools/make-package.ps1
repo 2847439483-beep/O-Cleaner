@@ -136,7 +136,7 @@ if ($fail.Count -gt 0) {
 
 # ---------- 4. 打包 zip ----------
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
-$ver = "2.0"
+$ver = "2.1"
 $zip = Join-Path $OutDir ("{0}-v{1}.zip" -f $AppName, $ver)
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 
