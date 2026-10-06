@@ -684,7 +684,7 @@ def acquire_wiztree(timeout: int = 300) -> dict:
     result["log"].append(f"从官方地址下载便携版：{WIZTREE_PORTABLE_URL}")
     try:
         req = _UrlRequest(
-            WIZTREE_PORTABLE_URL, headers={"User-Agent": "O-Cleaner/2.1"})
+            WIZTREE_PORTABLE_URL, headers={"User-Agent": "O-Cleaner/2.2"})
         with _urlopen(req, timeout=timeout) as resp:
             ctype = str(resp.headers.get("Content-Type") or "")
             raw = resp.read()
@@ -1083,6 +1083,11 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
                 os.path.join(lib, "steamapps", "common")).lower())
     except Exception:
         pass
+    # Epic/GOG 游戏目录索引（带 60 秒缓存，清单级读取，代价可忽略）
+    try:
+        other_game_dirs, other_game_libs = game_install_dirs()
+    except Exception:
+        other_game_dirs, other_game_libs = {}, set()
 
     def mk(n: dict, parent_default: str) -> dict:
         name = str(n.get("name") or "")
@@ -1120,6 +1125,21 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
             item["category"] = "游戏"
             if not item.get("what"):
                 item["what"] = "Steam 游戏库的位置，下面是各款游戏的安装目录。"
+        elif low in other_game_dirs:
+            # Epic/GOG 游戏本体：按清单里的精确安装路径命中，宁缺毋滥
+            plat = other_game_dirs[low]
+            item["game_platform"] = plat
+            item["category"] = "游戏"
+            item["cleanable"] = False      # 游戏本体不是垃圾，工具不删
+            item["risk"] = "高"
+            if not item.get("what"):
+                item["what"] = ("Epic Games 安装的游戏本体。" if plat == "epic"
+                                else "GOG 安装的游戏本体。")
+        elif low in other_game_libs:
+            item["game_library"] = True
+            item["category"] = "游戏"
+            if not item.get("what"):
+                item["what"] = "Epic/GOG 游戏库目录，下面是各款游戏的安装目录。"
         return item
 
     root_key = str(r.get("root") or root).lower()
@@ -1255,6 +1275,28 @@ def list_subdirs(drive: str, path: str, limit: int = 80) -> dict:
                                    or (cached and cached.get("table")
                                        and _wiztree_children(
                                            cached["table"]["dirs"], c["path"], 1))))
+    # Epic/GOG 游戏标注：子项恰好是某游戏安装目录时给出与占用树一致的身份
+    try:
+        gdirs, glibs = game_install_dirs()
+    except Exception:
+        gdirs, glibs = {}, set()
+    if gdirs or glibs:
+        for c in children:
+            if c.get("type") != "dir":
+                continue
+            clow = os.path.normpath(c["path"]).lower()
+            if clow in gdirs:
+                plat = gdirs[clow]
+                c["game_platform"] = plat
+                c["category"] = "游戏"
+                c["cleanable"] = False
+                c["risk"] = "高"
+                if not c.get("what"):
+                    c["what"] = ("Epic Games 安装的游戏本体。" if plat == "epic"
+                                 else "GOG 安装的游戏本体。")
+            elif clow in glibs:
+                c["game_library"] = True
+                c["category"] = "游戏"
     return {
         "drive": letter, "path": p, "children": children,
         "engine": engine,
@@ -2185,6 +2227,245 @@ def discover_steam() -> dict:
 
 
 # ======================================================================
+#  Epic / GOG 游戏发现（v2.2 新增）
+# ======================================================================
+
+def _epic_game_from_manifest(d: dict) -> dict | None:
+    """把一份 Epic .item 清单（JSON dict）归一化成游戏记录；不是游戏的返回 None。
+
+    实测同目录下还躺着引擎/插件/工具类清单（Unreal Engine、Quixel Bridge、
+    Fab 插件），它们的共同点是 bIsApplication=False 或 CatalogNamespace="ue"，
+    两条判据必须同时用：UE 本体 bIsExecutable=True 单靠可执行标记踢不掉。
+    """
+    if not isinstance(d, dict):
+        return None
+    if not d.get("bIsApplication"):
+        return None
+    if str(d.get("CatalogNamespace") or "").lower() == "ue":
+        return None
+    loc = str(d.get("InstallLocation") or "").strip()
+    if len(loc) < 4 or loc[1] != ":":
+        return None
+    try:
+        size = int(d.get("InstallSize") or 0)
+    except (TypeError, ValueError):
+        size = 0
+    name = str(d.get("DisplayName") or d.get("AppName") or "未命名").strip()
+    return {"appid": str(d.get("AppName") or ""), "name": name or "未命名",
+            "path": os.path.normpath(loc), "size": size,
+            "launch": str(d.get("LaunchExecutable") or "")}
+
+
+def discover_epic() -> dict:
+    """发现 Epic Games 已安装游戏。数据全部来自启动器自己的 .item JSON 清单，
+    纯标准库读取几 KB 文件，微秒级，不需要注册表或外部进程。"""
+    empty = {"found": False, "games": [], "game_count": 0,
+             "total_size": 0, "total_size_h": "0 B"}
+    if not IS_WINDOWS:
+        return empty
+    mdir = os.path.join(os.environ.get("PROGRAMDATA") or r"C:\ProgramData",
+                        "Epic", "EpicGamesLauncher", "Data", "Manifests")
+    try:
+        names = os.listdir(mdir)
+    except OSError:
+        return empty
+
+    games: list[dict] = []
+    for fn in names:
+        if not fn.lower().endswith(".item"):
+            continue
+        try:
+            with open(os.path.join(mdir, fn), "r",
+                      encoding="utf-8-sig", errors="replace") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        g = _epic_game_from_manifest(data)
+        if not g:
+            continue
+        exists = os.path.isdir(g["path"])
+        size = g["size"]
+        if size <= 0 and exists:
+            # 清单里没记体积（实测引擎类条目如此）才现场测量，游戏类一般都有
+            size = _size_of_dir(g["path"])
+        info = identify(g["name"], g["path"], "dir")
+        info.pop("match_score", None)
+        games.append({
+            "appid": g["appid"], "platform": "epic",
+            "name": g["name"], "display_name": g["name"], "zh_name": "",
+            "installdir": os.path.basename(g["path"]),
+            "path": g["path"], "exists": exists,
+            "size": size, "size_h": human(size),
+            "library": os.path.dirname(g["path"]),
+            "installed": True,
+            "category": "游戏", "title": "Epic 游戏",
+            "risk": "高", "cleanable": False,
+            "what": info.get("what") or "Epic Games 安装的游戏本体。",
+            "advice": "要卸载请在 Epic Games 启动器里操作（库 → 右键游戏 → 卸载），"
+                      "它会同步清掉清单记录，不留残留。",
+        })
+
+    # 同一安装位置被多份清单引用时按路径去重，保留体积大的那份
+    dedup: dict[str, dict] = {}
+    for g in games:
+        k = g["path"].lower()
+        if k not in dedup or g["size"] > dedup[k]["size"]:
+            dedup[k] = g
+    games = sorted(dedup.values(), key=lambda g: -g["size"])
+    total = sum(g["size"] for g in games)
+    return {"found": bool(games), "games": games, "game_count": len(games),
+            "total_size": total, "total_size_h": human(total)}
+
+
+def _gog_game_from_values(game_id: str, vals: dict) -> dict | None:
+    """把一个 GOG 注册表项的值集合归一化成游戏记录；缺关键字段返回 None。
+
+    拆成纯函数是为了能用合成数据做单元测试 —— 本机没装 GOG 时
+    注册表路径走不到，解析逻辑照样被钉死。
+    """
+    path = str(vals.get("path") or "").strip()
+    if len(path) < 4 or path[1] != ":":
+        return None
+    name = str(vals.get("gameName") or "").strip() or f"GOG 游戏 {game_id}"
+    return {"appid": str(game_id), "name": name, "path": os.path.normpath(path)}
+
+
+def discover_gog() -> dict:
+    """发现 GOG Galaxy 已安装游戏。数据来自注册表
+    HKLM\\SOFTWARE\\(WOW6432Node\\)GOG.com\\Games —— GOG 客户端自己维护的清单位置。
+    注册表不记体积，逐个现场测量（GOG 库通常不大，代价可接受）。"""
+    empty = {"found": False, "games": [], "game_count": 0,
+             "total_size": 0, "total_size_h": "0 B"}
+    if not IS_WINDOWS:
+        return empty
+    try:
+        import winreg
+    except ImportError:
+        return empty
+
+    games: list[dict] = []
+    for root in (r"SOFTWARE\WOW6432Node\GOG.com\Games", r"SOFTWARE\GOG.com\Games"):
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, root)
+        except OSError:
+            continue
+        try:
+            count = winreg.QueryInfoKey(key)[0]
+            for i in range(count):
+                try:
+                    sub_name = winreg.EnumKey(key, i)
+                    with winreg.OpenKey(key, sub_name) as sub:
+                        vals: dict = {}
+                        j = 0
+                        while True:
+                            try:
+                                vn, vv, _ = winreg.EnumValue(sub, j)
+                                vals[vn] = vv
+                                j += 1
+                            except OSError:
+                                break
+                except OSError:
+                    continue
+                g = _gog_game_from_values(sub_name, vals)
+                if not g:
+                    continue
+                exists = os.path.isdir(g["path"])
+                size = _size_of_dir(g["path"]) if exists else 0
+                info = identify(g["name"], g["path"], "dir")
+                info.pop("match_score", None)
+                games.append({
+                    "appid": g["appid"], "platform": "gog",
+                    "name": g["name"], "display_name": g["name"], "zh_name": "",
+                    "installdir": os.path.basename(g["path"]),
+                    "path": g["path"], "exists": exists,
+                    "size": size, "size_h": human(size),
+                    "library": os.path.dirname(g["path"]),
+                    "installed": True,
+                    "category": "游戏", "title": "GOG 游戏",
+                    "risk": "高", "cleanable": False,
+                    "what": info.get("what") or "GOG 安装的游戏本体。",
+                    "advice": "要卸载请在 GOG Galaxy 里操作（已安装 → 管理 → 卸载），"
+                              "或用游戏目录里的 unins*.exe。",
+                })
+        finally:
+            winreg.CloseKey(key)
+
+    dedup: dict[str, dict] = {}
+    for g in games:
+        k = g["path"].lower()
+        if k not in dedup or g["size"] > dedup[k]["size"]:
+            dedup[k] = g
+    games = sorted(dedup.values(), key=lambda g: -g["size"])
+    total = sum(g["size"] for g in games)
+    return {"found": bool(games), "games": games, "game_count": len(games),
+            "total_size": total, "total_size_h": human(total)}
+
+
+def discover_games() -> dict:
+    """全平台游戏库汇总（Steam + Epic + GOG），供 /__oc__/games 与磁盘树标注使用。
+
+    Steam 走自己的完整负载（含库/残留/分盘统计），Epic/GOG 以统一游戏记录并入，
+    每条记录都带 platform 字段，前端按平台分组显示。"""
+    steam = discover_steam()
+    epic = discover_epic()
+    gog = discover_gog()
+    games: list[dict] = []
+    for g in (steam.get("games") or []):
+        games.append({**g, "platform": "steam"})
+    games.extend(epic.get("games") or [])
+    games.extend(gog.get("games") or [])
+    games.sort(key=lambda g: -g["size"])
+    total = sum(g["size"] for g in games)
+    return {
+        "found": bool(games), "games": games, "game_count": len(games),
+        "total_size": total, "total_size_h": human(total),
+        "platforms": {
+            "steam": {"found": bool(steam.get("found")),
+                      "game_count": steam.get("game_count", 0),
+                      "total_size_h": steam.get("total_size_h", "0 B")},
+            "epic": {"found": bool(epic.get("found")),
+                     "game_count": epic.get("game_count", 0),
+                     "total_size_h": epic.get("total_size_h", "0 B")},
+            "gog": {"found": bool(gog.get("found")),
+                    "game_count": gog.get("game_count", 0),
+                    "total_size_h": gog.get("total_size_h", "0 B")},
+        },
+        "steam": steam,   # 完整 Steam 负载原样透传，面板继续用它渲染库/残留/分盘
+    }
+
+
+_GAME_DIRS_CACHE: dict = {"ts": 0.0, "dirs": {}, "libs": set()}
+
+
+def game_install_dirs() -> tuple[dict, set]:
+    """Epic/GOG 游戏安装目录索引：({小写路径: 平台}, {库目录小写路径})。
+
+    磁盘占用树与逐层拆子项都要用它标注「这是游戏本体」。读清单只要几毫秒，
+    但 GOG 要现场测体积，所以加 60 秒缓存避免每次展开子项都重扫注册表。
+    Steam 不走这里：它有自己更精确的 steamapps\\common 双亲判定。"""
+    now = time.time()
+    if now - _GAME_DIRS_CACHE["ts"] < 60 and _GAME_DIRS_CACHE["dirs"]:
+        return _GAME_DIRS_CACHE["dirs"], _GAME_DIRS_CACHE["libs"]
+    dirs: dict[str, str] = {}
+    libs: set[str] = set()
+    for plat, disc in (("epic", discover_epic), ("gog", discover_gog)):
+        try:
+            for g in (disc().get("games") or []):
+                p = str(g.get("path") or "")
+                if not p:
+                    continue
+                k = os.path.normpath(p).lower()
+                dirs[k] = plat
+                lib = os.path.dirname(k)
+                if lib and len(lib) > 3:   # 库目录是盘符根时不收，防全盘误标
+                    libs.add(lib)
+        except Exception:
+            continue
+    _GAME_DIRS_CACHE.update({"ts": now, "dirs": dirs, "libs": libs})
+    return dirs, libs
+
+
+# ======================================================================
 #  安全校验与删除
 # ======================================================================
 
@@ -3026,7 +3307,7 @@ def build_scan(drive: str | None = None, custom_path: str | None = None,
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OCleaner/2.1"
+    server_version = "OCleaner/2.2"
 
     def log_message(self, fmt, *args):
         pass
@@ -3136,6 +3417,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(history_stats())
         if route == "/__oc__/steam":
             return self._json(discover_steam())
+        if route == "/__oc__/games":
+            # 全平台游戏库（Steam + Epic + GOG），steam 负载原样透传在 .steam 里
+            return self._json(discover_games())
         if route == "/__oc__/partition":
             p = q.get("path") or ""
             if not p:

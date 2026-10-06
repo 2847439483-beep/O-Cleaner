@@ -594,6 +594,14 @@
       <h3>残留与清理建议 <span class="hint">Steam 无记录但目录还在</span></h3>
       <div id="stOrphans"></div>
     </div>
+    <div class="panel" id="epicPanel" style="display:none">
+      <h3>Epic 游戏库 <span class="hint" id="epicHint"></span></h3>
+      <div id="epicGames"></div>
+    </div>
+    <div class="panel" id="gogPanel" style="display:none">
+      <h3>GOG 游戏库 <span class="hint" id="gogHint"></span></h3>
+      <div id="gogGames"></div>
+    </div>
   </section>
 
   <section id="fullView" class="fspanel" style="display:none">
@@ -1501,6 +1509,7 @@ async function runRule(rule, silent) {
 
 /* ============ Steam 游戏库（独立子页面） ============ */
 let STEAM = null, steamSort = "size", steamFilter = "";
+let GAMES = null;   // 全平台游戏库（/​__oc__/games）：Epic/GOG 从这里取
 
 async function loadSteam(force) {
   if (STEAM && !force) return STEAM;
@@ -1508,6 +1517,12 @@ async function loadSteam(force) {
     STEAM = await (await fetch(`${API}/__oc__/steam`)).json();
   } catch (e) {
     STEAM = { found: false, error: String(e) };
+  }
+  // Epic/GOG 清单是独立接口，失败不影响 Steam 主面板
+  try {
+    GAMES = await (await fetch(`${API}/__oc__/games`)).json();
+  } catch (e) {
+    GAMES = null;
   }
   renderSteam();
   if (view === "steam") renderSteamPage();
@@ -1572,6 +1587,7 @@ function renderSteamPage() {
       '如果你的 Steam 装在非常规位置，可以把库目录告诉我，我加一条识别规则。</div>';
     $("stGames").innerHTML = ""; $("stSort").innerHTML = "";
     $("stOrphanPanel").style.display = "none";
+    renderOtherPlatforms();   // Steam 没有不等于 Epic/GOG 也没有
     return;
   }
 
@@ -1694,12 +1710,54 @@ function renderSteamPage() {
     $("stOrphanPanel").style.display = "none";
   }
 
+  // ---- Epic / GOG 游戏库（有才显示）----
+  renderOtherPlatforms();
+
   // 统一挂「打开目录」事件
   $("steamView").querySelectorAll("[data-reveal]").forEach(b =>
     b.addEventListener("click", async e => {
       e.stopPropagation();
       await revealPath(b.dataset.reveal);
     }));
+}
+
+/** Epic / GOG 区块：有游戏才显示对应面板；每行给平台徽章、体积与详情弹窗。 */
+function renderOtherPlatforms() {
+  const plats = [
+    ["epic", "epicPanel", "epicGames", "epicHint", "Epic 游戏", "Epic 启动器的 .item 清单"],
+    ["gog", "gogPanel", "gogGames", "gogHint", "GOG 游戏", "GOG 注册表"],
+  ];
+  for (const [key, panelId, listId, hintId, label, source] of plats) {
+    const panel = $(panelId);
+    if (!panel) continue;
+    const games = ((GAMES && GAMES.games) || []).filter(g => g.platform === key);
+    if (!games.length) { panel.style.display = "none"; continue; }
+    panel.style.display = "";
+    const total = games.reduce((acc, g) => acc + (g.size || 0), 0);
+    $(hintId).textContent = `${games.length} 个游戏 · ${fmt(total)}`;
+    $(listId).innerHTML = games.map(g => `
+      <div class="vrow" data-gpath="${esc(g.path)}">
+        <div class="vtop">
+          <span class="fname">${esc(g.display_name || g.name)}<span class="vbadge keep">游戏本体 · 建议保留</span></span>
+          <span class="fsize">${esc(g.size_h)}</span>
+        </div>
+        <div class="vtop" style="margin:4px 0 0">
+          <span class="vcat">${label} · 位于 ${esc(g.library || "")}${
+            g.exists ? "" : ' · <span class="stale">目录不存在</span>'}</span>
+          <button class="tiny ghost" data-reveal="${esc(g.path)}" style="margin-left:auto">打开</button>
+        </div>
+      </div>`).join("");
+    $(listId).querySelectorAll(".vrow").forEach(el => el.addEventListener("click", ev => {
+      if (ev.target.closest("[data-reveal]")) return;
+      const g = games.find(x => x.path === el.dataset.gpath);
+      if (!g) return;
+      showDetail({
+        ...g, type: "dir", title: `${label}（读自${source}）`,
+        confidence_label: `高（${label}自己的记录）`,
+        impact: `清单/注册表记录体积 ${g.size_h}。`,
+      });
+    }));
+  }
 }
 
 /* ==================== 定时与历史 ==================== */
@@ -2232,6 +2290,9 @@ function renderChart() {
           <span class="vcat">${esc(it.title || "")}${it.category ? " · " + esc(it.category) : ""}${
             it.steam_game ? " · Steam 游戏" : ""}${
             it.steam_library ? " · Steam 库" : ""}${
+            it.game_platform === "epic" ? " · Epic 游戏" : ""}${
+            it.game_platform === "gog" ? " · GOG 游戏" : ""}${
+            it.game_library ? " · 游戏库" : ""}${
             it.type === "file" ? " · 文件" : " · 目录"}${
             loc ? ` · 位于 ${esc(loc)}` : ""}</span>
         </div>
@@ -2290,8 +2351,11 @@ async function toggleInlineKids(wrap, item, btn) {
 
 function renderSubTreeHTML(children) {
   return children.map((c, i) => {
-    const cls = !c.recognized ? "c-unknown" : (c.cleanable ? "c-clean" : "c-keep");
-    const badge = !c.recognized ? "" : (c.cleanable ? '<span class="vbadge clean">可清理</span>' : '<span class="vbadge keep">建议保留</span>');
+    const cls = c.game_platform ? "c-keep" : (!c.recognized ? "c-unknown" : (c.cleanable ? "c-clean" : "c-keep"));
+    const badge = c.game_platform
+      ? `<span class="vbadge keep">${c.game_platform === "epic" ? "Epic" : "GOG"} 游戏本体</span>`
+      : c.game_library ? '<span class="vbadge keep">游戏库</span>'
+      : !c.recognized ? "" : (c.cleanable ? '<span class="vbadge clean">可清理</span>' : '<span class="vbadge keep">建议保留</span>');
     const canExpand = c.can_drill || c.type === "dir";
     return `
       <div class="vrow-wrap" data-path="${esc(c.path)}">

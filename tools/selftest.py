@@ -651,6 +651,21 @@ def phase3_http() -> None:
         check("历史可清空", get("/__oc__/history") == [])
         check("清空后累计统计归零", get("/__oc__/stats")["total_freed"] == 0)
 
+        # ---- 全平台游戏库接口（v2.2）----
+        gm = get("/__oc__/games")
+        check("/games 返回全平台结构",
+              isinstance(gm.get("games"), list)
+              and set(gm.get("platforms", {})) >= {"steam", "epic", "gog"})
+        check("/games 每条游戏都带平台标记",
+              all(g.get("platform") in ("steam", "epic", "gog")
+                  for g in gm.get("games", [])))
+        check("/games 的 steam 负载原样透传",
+              isinstance(gm.get("steam"), dict) and "libraries" in gm["steam"])
+        check("/games 平台计数与列表一致",
+              gm.get("game_count") == len(gm.get("games", []))
+              and gm["game_count"] == sum(p.get("game_count", 0)
+                                          for p in gm["platforms"].values()))
+
         # ---- 安全回归：CSRF ----
         # 威胁模型：用户浏览器开着本工具，又打开恶意网页；该网页可向
         # 127.0.0.1 发请求。服务端若不校验 Origin，浏览器虽读不到响应，
@@ -1023,6 +1038,112 @@ def phase6_partition() -> None:
           bool(app.analyze_dir_partition("Z:\\no-such-dir-oc").get("error")))
 
 
+def phase6b_multiplatform() -> None:
+    """Epic / GOG 多平台游戏发现（v2.2）。
+
+    合成数据钉死纯解析逻辑（任何机器都能跑）；
+    真实数据按「有就验内容，没有就验空结构」的契约走，不因环境缺游戏而误报。
+    """
+    print("\n=== 阶段六B：Epic / GOG 多平台游戏发现 ===")
+
+    # ---- 1) Epic 清单解析（合成数据）----
+    good = app._epic_game_from_manifest({
+        "DisplayName": "测试游戏", "InstallLocation": "E:\\Games\\TestGame",
+        "InstallSize": 123456789, "AppName": "TestApp123",
+        "bIsApplication": True, "CatalogNamespace": "abc"})
+    check("Epic 解析：正常游戏清单被接受",
+          bool(good) and good["name"] == "测试游戏"
+          and good["size"] == 123456789 and good["path"].endswith("TestGame"))
+    check("Epic 解析：非应用条目被剔除（引擎/插件类）",
+          app._epic_game_from_manifest({
+              "DisplayName": "Quixel Bridge", "InstallLocation": "D:\\epic\\UE_5.7",
+              "bIsApplication": False, "CatalogNamespace": "ue"}) is None)
+    check("Epic 解析：ue 命名空间即使可执行也剔除",
+          app._epic_game_from_manifest({
+              "DisplayName": "Unreal Engine", "InstallLocation": "D:\\epic\\UE_5.7",
+              "bIsApplication": True, "CatalogNamespace": "ue"}) is None)
+    check("Epic 解析：体积字段非法不抛异常",
+          app._epic_game_from_manifest({
+              "DisplayName": "X", "InstallLocation": "D:\\g\\x",
+              "InstallSize": " NaN ", "bIsApplication": True})["size"] == 0)
+    check("Epic 解析：缺安装路径返回 None",
+          app._epic_game_from_manifest({"DisplayName": "X", "bIsApplication": True}) is None)
+    check("Epic 解析：非 dict 输入返回 None",
+          app._epic_game_from_manifest(None) is None
+          and app._epic_game_from_manifest([1, 2]) is None)
+
+    # ---- 2) GOG 注册表值解析（合成数据）----
+    gg = app._gog_game_from_values("12345", {"path": "D:\\GOG\\Game", "gameName": "测试 GOG"})
+    check("GOG 解析：正常注册表值被接受",
+          bool(gg) and gg["name"] == "测试 GOG" and gg["path"].endswith("Game"))
+    check("GOG 解析：缺路径返回 None",
+          app._gog_game_from_values("1", {"gameName": "X"}) is None)
+    check("GOG 解析：缺名字时回退到带 ID 的占位名",
+          "12345" in app._gog_game_from_values("12345", {"path": "D:\\g\\x"})["name"])
+
+    # ---- 3) 真实发现：Epic（有就验内容，没有就验空结构）----
+    t0 = time.time()
+    de = app.discover_epic()
+    dt = time.time() - t0
+    check("Epic 发现在 5 秒内完成", dt < 5, f"{dt:.2f} 秒")
+    check("Epic 返回结构完整",
+          all(k in de for k in ("found", "games", "game_count", "total_size_h")))
+    if de["found"]:
+        check("Epic 游戏记录带平台与安全标记",
+              all(g["platform"] == "epic" and g["cleanable"] is False
+                  and g["category"] == "游戏" for g in de["games"]))
+        check("Epic 不混入引擎/插件类条目",
+              not [g["name"] for g in de["games"]
+                   if any(k in g["name"].lower()
+                          for k in ("unreal engine", "quixel", "fab"))],
+              str([g["name"] for g in de["games"]]))
+        check("Epic 游戏体积已量出",
+              any(g["size"] > 1024 ** 3 for g in de["games"]),
+              str([f"{g['name']}={g['size_h']}" for g in de["games"]]))
+    else:
+        skip("Epic 真实数据", "本机未检测到 Epic 游戏")
+
+    # ---- 4) 真实发现：GOG（本机多半没有，验证不炸与结构）----
+    dg = app.discover_gog()
+    check("GOG 发现不抛异常且结构完整",
+          all(k in dg for k in ("found", "games", "game_count")))
+    if dg["found"]:
+        check("GOG 游戏记录带平台与安全标记",
+              all(g["platform"] == "gog" and g["cleanable"] is False
+                  for g in dg["games"]))
+    else:
+        skip("GOG 真实数据", "本机未检测到 GOG 游戏")
+
+    # ---- 5) 统一入口与树标注索引 ----
+    dall = app.discover_games()
+    check("统一入口：游戏数等于三平台之和",
+          dall["game_count"]
+          == sum(dall["platforms"][p]["game_count"] for p in ("steam", "epic", "gog")))
+    check("统一入口：按体积降序",
+          all(dall["games"][i]["size"] >= dall["games"][i + 1]["size"]
+              for i in range(len(dall["games"]) - 1)))
+    gdirs, glibs = app.game_install_dirs()
+    check("游戏目录索引返回 (dict, set)",
+          isinstance(gdirs, dict) and isinstance(glibs, set))
+    if de["found"]:
+        ep = de["games"][0]["path"].lower()
+        check("索引覆盖本机 Epic 游戏路径", ep in gdirs and gdirs[ep] == "epic", ep)
+
+    # ---- 6) 占用树整合：Epic 游戏所在盘的树必须标出游戏本体 ----
+    if de["found"]:
+        letter = os.path.splitdrive(de["games"][0]["path"])[0].rstrip(":").upper()
+        ov = app.scan_disk_overview(letter)
+        tagged = [n for n in ov.get("nodes", []) if n.get("game_platform") == "epic"]
+        check("占用树标出 Epic 游戏本体",
+              len(tagged) >= min(2, de["game_count"]),
+              f"{len(tagged)} 个 / 引擎={ov.get('engine')}")
+        check("被标游戏本体的节点不可清理",
+              all(n["cleanable"] is False and n["category"] == "游戏" for n in tagged))
+        libtag = [n for n in ov.get("nodes", []) if n.get("game_library")]
+        check("占用树标出 Epic/GOG 库目录", bool(libtag),
+              str([n["name"] for n in libtag][:3]))
+
+
 def phase7_scoping_and_accel() -> None:
     """盘符归属 + 自动发现的安全护栏 + WizTree 加速。
 
@@ -1249,6 +1370,7 @@ def main() -> int:
         phase4_repo()
         phase5_steam()
         phase6_partition()
+        phase6b_multiplatform()
         phase7_scoping_and_accel()
     finally:
         shutil.move(str(BACKUP), str(REAL_TARGETS))

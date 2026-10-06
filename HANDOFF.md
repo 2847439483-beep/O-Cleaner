@@ -1,9 +1,9 @@
 # O-Cleaner 完整交接文档与需求规格书
 
-> **文档版本**：v2.1 (接手方优化版)  
+> **文档版本**：v2.2 (多平台游戏库版)  
 > **项目定位**：Windows 原生、本地零第三方依赖、安全透明的开源磁盘清理与空间透视工具。  
 > **代码仓库位置**：`C:\Users\<user>\Documents\O-Cleaner\`（已 git init，初始提交 v2.0 基线）  
-> **分发包路径**：`C:\Users\<user>\Documents\O-Cleaner\dist\O-Cleaner-v2.1.zip`
+> **分发包路径**：`C:\Users\<user>\Documents\O-Cleaner\dist\O-Cleaner-v2.2.zip`
 
 ---
 
@@ -247,6 +247,13 @@
 4. **运维注意**：在 WorkBuddy 沙箱内启动 `app.py` 做 CDP 测试会因其安全删除拦截导致 overview 接口假死（表现为 Failed to fetch），须在非沙箱环境起服务——这不是应用缺陷，进程内与独立子进程方式均验证正常。
 5. **遗留清理**：`Documents/clean-c-drive*.ps1` 与 `Documents/dsh-cleaner/` 已移入回收站，备份在 `Documents/O-Cleaner-legacy-backup-2026-09-30.zip`（8 个文件，完整性校验通过）。
 
+### 7. 接手方优化记录（2026-10-06，v2.1 → v2.2 多平台游戏库）
+
+1. **Epic / GOG 游戏识别**（原第八节第 3 条）：实现细节见该节现状描述；断言规模 selftest 276 → 302 项、CDP 72 → 74 项。
+2. **版本号统一升至 2.2**：`app.py`（server_version / UA）、`config/drives.json`、`tools/make-package.ps1`。
+3. **全量门禁复验通过**：lint 0 错 / doctor 27 / selftest 302（3 跳过：GOG 无本机数据等）/ CDP 74。
+4. **设计备忘**：Epic/GOG 游戏判定走「清单精确路径命中」而非 Steam 的「双亲目录推断」——刻意更保守，库目录下未登记的目录不会被误标为游戏。
+
 ---
 
 ## 七、文件资产与代码清单
@@ -272,7 +279,7 @@
 | `tools/make-package.ps1`| ~7.2 KB | 绿色压缩包构建工具（带严格预校验与临时沙箱自测） |
 | `.github/workflows/ci.yml`| ~4.8 KB | GitHub Actions 持续集成配置文件（Windows 平台：lint -> test -> ui） |
 | `HANDOFF.md` | ~16 KB | 本文档：完整需求追溯、架构规格、踩坑史与接手注意事项 |
-| `dist/O-Cleaner-v2.1.zip`| ~176 KB | 最终产出的便携分发包，开箱即用 |
+| `dist/O-Cleaner-v2.2.zip`| ~193 KB | 最终产出的便携分发包，开箱即用 |
 
 ---
 
@@ -290,10 +297,13 @@
 - **曾尝试但放弃的方案**：解析本机 `Steam\appcache\appinfo.vdf` 提取官方中文名。实测该文件是 Valve 私有二进制 VDF 格式，头部结构与预期不符（实测条目数报 5，未解析出任何名字），要正确实现需完整二进制 VDF 解析器，且**结果取决于该机 Steam 缓存里是否恰好存有中文名**——对「换设备可用」这个目标本身不可靠，故放弃。
 - **建议**：若要做，应写一个独立的 vdf 解析模块并附大量测试；或改为社区众包的映射表。
 
-### 3. 游戏识别仅覆盖 Steam
-- **现状**：`discover_steam()` 只解析 Steam 的 `libraryfolders.vdf` / `appmanifest_*.acf`。
-- **局限**：Epic / GOG / Ubisoft / 战网 等平台的游戏**无法**获得「游戏本体」标注，会被当成普通目录。`GAME_INSTALL_MARKERS` 常量里预留了这些平台的路径特征（用于避免误判安装包），但没有对应的清单读取实现。
-- **建议**：各平台清单格式（Epic 是 `.item` JSON、GOG 是注册表 + `goggame-*.info`）差异较大，逐个实现。
+### 3. ~~游戏识别仅覆盖 Steam~~（v2.2 已解决）
+- **现状（v2.2 起）**：新增 `discover_epic()`（读 `%PROGRAMDATA%\Epic\EpicGamesLauncher\Data\Manifests\*.item` JSON 清单，纯标准库微秒级）与 `discover_gog()`（读注册表 `HKLM\SOFTWARE\(WOW6432Node\)GOG.com\Games`）；统一入口 `discover_games()` 合并三平台并透传完整 Steam 负载，HTTP 路由 `/__oc__/games`。
+- **占用树与拆子项标注**：Epic/GOG 游戏按清单里的**精确安装路径**命中（`game_platform`，不可清理、高风险），库目录标 `game_library`；带 60 秒缓存的 `game_install_dirs()` 同时服务占用树与 `list_subdirs`。
+- **前端**：Steam 子页面内新增 Epic/GOG 面板（有才显示，含平台徽章、体积、详情弹窗）；占用排行行内显示 `· Epic 游戏` / `· GOG 游戏` / `· 游戏库`。
+- **过滤要点**：Epic 清单同目录混有引擎/插件条目（Unreal Engine、Quixel、Fab），判据是 `bIsApplication=True` 且 `CatalogNamespace!="ue"`，两条缺一不可。
+- **未覆盖**：Ubisoft / 战网仍未实现（无本机样本，清单格式各异）；Steam 面板标题与既有断言保持不变。
+- **回归保障**：`selftest.py` 阶段六B（26 项：合成清单/注册表解析 + 本机真实 Epic 数据 + 占用树整合标注），CDP 新增 Epic 面板断言（72 → 74 项）。
 
 ### 4. ~~无 WizTree 时深层下钻能力受限~~（v2.1 已解决）
 - **现状（v2.1 起）**：前端 `fsDrill` 已放开限制——无 WizTree 时同样调用 `/__oc__/subdirs`（后端 `os.scandir` + `_size_of_dir` 原生回退），带「现场扫描，稍慢」的加载提示；拉不到子项时自动回退到详情弹窗。后端占用树节点的 `can_drill` 在无加速时改用一次性 scandir 探测（`_dir_has_any_child`），「展开 ▾」按钮如实出现。

@@ -771,6 +771,31 @@ class CDP {
           `${sdet.title.trim()} ${sdet.size}`);
     await evaluate(`document.querySelector('#mask').classList.remove('on')`);
 
+    // Epic / GOG 游戏库面板：有才显示，行内必须带游戏本体徽章（v2.2）
+    const plat = await evaluate(`(() => {
+      const vis = el => !!el && el.style.display !== 'none';
+      const panel = id => document.querySelector(id);
+      const rows = id => { const p = panel(id); return p ? p.querySelectorAll('.vrow').length : 0; };
+      const g = panel('#epicGames');
+      return { epic: vis(panel('#epicPanel')), gog: vis(panel('#gogPanel')),
+               epicRows: rows('#epicGames'), gogRows: rows('#gogGames'),
+               hint: ((panel('#epicHint')||{}).textContent || '').trim(),
+               badges: g ? g.querySelectorAll('.vbadge.keep').length : 0 };
+    })()`);
+    if (plat.epic) {
+      check("Epic 游戏库面板渲染出行", plat.epicRows > 0,
+            `${plat.epicRows} 行 · ${plat.hint}`);
+      check("Epic 行都带游戏本体徽章", plat.badges >= plat.epicRows,
+            `${plat.badges}/${plat.epicRows}`);
+    } else {
+      console.log("  [信息] 本机无 Epic 游戏，面板按设计隐藏");
+    }
+    if (plat.gog) {
+      check("GOG 游戏库面板渲染出行", plat.gogRows > 0, `${plat.gogRows} 行`);
+    } else {
+      console.log("  [信息] 本机无 GOG 游戏，面板按设计隐藏");
+    }
+
     await evaluate(`document.querySelector('#btnSteam').click()`);
     await sleep(1200);
     check("可从 Steam 页面返回",
