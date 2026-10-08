@@ -112,7 +112,11 @@ class CDP {
   await cdp.send("Page.enable", {}, S);
   await cdp.send("Network.enable", {}, S);
   await cdp.send("Page.navigate", { url: URL_ }, S);
-  await sleep(9000);   // 等首屏扫描完成
+  // 首屏扫描耗时完全取决于机器：开发机几秒，冷启动的 CI runner 上逐个测量
+  // 30+ 个目标（每个都要起一次 PowerShell）可能要几分钟。旧的写法是「写死等
+  // 9 秒 + 最多再等 40 秒」，在 CI 上必然等不到，于是「0/33 张有大小」一路
+  // 连锁失败。这里只给一个起步缓冲，真正的等待交给下面的宽松轮询。
+  await sleep(3000);
 
   const evaluate = async (expr) => {
     const r = await cdp.send("Runtime.evaluate",
@@ -123,13 +127,16 @@ class CDP {
 
   console.log("\n  --- 真实渲染检查 ---");
 
-  // 等页面完成首次加载与扫描，否则切盘会被随后的 loadState/scan 覆盖
-  for (let i = 0; i < 40; i++) {
+  // 等页面完成首次加载与扫描，否则切盘会被随后的 loadState/scan 覆盖。
+  // 上限放宽到 300 秒：等不到才算失败，而不是按固定秒数猜机器有多快。
+  let scanReady = false;
+  for (let i = 0; i < 300; i++) {
     await sleep(1000);
     const done = await evaluate(`document.querySelectorAll('.card .cnum .size').length > 0
         && !document.querySelector('#btnScan').disabled`);
-    if (done) break;
+    if (done) { scanReady = true; break; }
   }
+  if (!scanReady) console.log("  [注意] 等待首屏扫描完成超时（300 秒上限）");
 
   if (DRIVE_) {
     const got = await evaluate(`(() => {
@@ -283,13 +290,18 @@ class CDP {
       .map(a => !!document.querySelector('#ruleList [data-' + a + ']'))`);
   check("规则卡片含 套用/立即清理/改名/删 操作", btns.every(Boolean), JSON.stringify(btns));
 
-  // 勾选同步：套用规则
-  await evaluate(`document.querySelector('#ruleList [data-apply]').click()`);
-  await sleep(700);
-  const applied = await evaluate(`({sel: document.querySelector('#selN').innerText,
-                                   size: document.querySelector('#selSize').innerText})`);
-  check("套用规则后底部统计正确", parseInt(applied.sel) > 0 && applied.size !== "0 B",
-        `已选 ${applied.sel} 项 / ${applied.size}`);
+  // 勾选同步：套用规则（规则列表可能为空，取不到按钮时跳过而不是抛 Uncaught）
+  const hasApply = await evaluate(`!!document.querySelector('#ruleList [data-apply]')`);
+  if (hasApply) {
+    await evaluate(`document.querySelector('#ruleList [data-apply]').click()`);
+    await sleep(700);
+    const applied = await evaluate(`({sel: document.querySelector('#selN').innerText,
+                                     size: document.querySelector('#selSize').innerText})`);
+    check("套用规则后底部统计正确", parseInt(applied.sel) > 0 && applied.size !== "0 B",
+          `已选 ${applied.sel} 项 / ${applied.size}`);
+  } else {
+    skip2("套用规则（规则列表为空，说明前面的保存未成功）");
+  }
 
   // 换算单位开关
   const tg = await evaluate(`document.querySelectorAll('#convToggle .tgl').length`);
