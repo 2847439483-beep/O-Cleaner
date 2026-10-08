@@ -34,6 +34,7 @@ $include = @(
     "app.py",
     "start-ocleaner.bat",
     "README.md",
+    "docs\USAGE.md",
     "LICENSE",
     "CONTRIBUTING.md",
     "SECURITY.md",
