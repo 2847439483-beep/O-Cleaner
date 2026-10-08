@@ -61,7 +61,10 @@ $fixed = 0
 $problems = @()
 
 # Skip generated / vendored directories
-$skipDirs = @('__pycache__', 'dist', '.git', 'node_modules')
+# _legacy：前身版本归档（dsh-cleaner/、clean-c-drive*.ps1、legacy 备份 zip）。
+# 它们是历史文物，必须保持原样，不参与本仓库的编码契约。该目录已 gitignore，
+# CI 从 git 签出，本来也看不到它 —— 这条跳过规则只为本地开发时不产生噪音。
+$skipDirs = @('__pycache__', 'dist', '.git', 'node_modules', '_legacy')
 
 Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object {
     $file = $_
