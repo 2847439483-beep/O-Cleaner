@@ -9,6 +9,10 @@ tools/local-cases.json
 # 打包产物
 dist/
 
+# 前身版本归档（dsh-cleaner/、clean-c-drive*.ps1、legacy 备份 zip）。
+# 放在仓库目录内便于单目录集中管理，但**不属于本仓库**，永不提交。
+_legacy/
+
 # Python
 __pycache__/
 *.pyc
