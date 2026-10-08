@@ -2,8 +2,8 @@
 
 > **文档版本**：v2.2 (多平台游戏库版)  
 > **项目定位**：Windows 原生、本地零第三方依赖、安全透明的开源磁盘清理与空间透视工具。  
-> **代码仓库位置**：`C:\Users\<user>\Documents\O-Cleaner\`（已 git init，初始提交 v2.0 基线）  
-> **分发包路径**：`C:\Users\<user>\Documents\O-Cleaner\dist\O-Cleaner-v2.2.zip`
+> **代码仓库位置**：`%USERPROFILE%\Documents\O-Cleaner\`（已 git init，初始提交 v2.0 基线）  
+> **分发包路径**：`<仓库目录>\dist\O-Cleaner-v2.2.zip`
 
 ---
 
@@ -42,7 +42,7 @@
 | **REQ-14** | 扫描极速提速 | “尝试在有 WizTree 的情况下调用，加快扫描速度” | 自动嗅探本地安装的 WizTree；实测发掘 `/export=` 命令行（全盘扫描 C 盘 258s→21s，D/E 盘 30s→3s，提速 9 倍）；无环境自动平滑回退 PowerShell |
 | **REQ-15** | 大项多级拆分子项 | “大清理项，如 D 盘 Chrome，占用空间大，可以打开二级目录拆分子项” | 基于 WizTree MFT 内存快照开发 `/__oc__/subdirs` 接口，实现 1～3 毫秒瞬时响应的任意层级子项与文件分布拆解 |
 | **REQ-16** | 界面去冗与直觉化 | “自动全盘扫描，不要游戏等大项这一分类，无需标注目录第几层” | 启动或切盘默认自动开启全盘扫描，默认视图直接呈现「全盘最大项目」；移除生硬的「游戏等大项」过滤；全面去除 `· 第X层` 内部标注 |
-| **REQ-17** | 中文游戏名展示 | “在清理项有中文名的游戏用中文名，中文名联网找，只做显示” | 联网核对 Steam 官方译名，建立 `config/game-names.json`（荒野大镖客2、天国拯救2、巫师3等 32 款游戏）；全盘树与 Steam 面板显示为 `中文名（原名）`，原名含中文则不重复添加 |
+| **REQ-17** | 中文游戏名展示 | “在清理项有中文名的游戏用中文名，中文名联网找，只做显示” | 联网核对 Steam 官方译名，建立 `config/game-names.json`（荒野大镖客2、天国拯救2、巫师3等 30 条映射）；全盘树与 Steam 面板显示为 `中文名（原名）`，原名含中文则不重复添加 |
 | **REQ-18** | 可移动便携与引导 | “能否把 WizTree 中调用的内核直接放到可以移动的 Ocleaner 中，以确认其在不同设备上的可用性，最后标明即可；设置简介快捷有效的引导” | 鉴于官方 EULA 禁止随包捆绑分发，实现**一键自动拉取官方面携版 ZIP 解压至 `portable\WizTree\`**，随 O-Cleaner 文件夹整体拷贝即插即用；右侧置顶「运行环境自检与引导」面板；详尽标明 Antibody Software Limited 授权信息与出处 |
 | **REQ-19** | 树形就地折叠展开 | “返回上一级太过死板烦琐，更换方式，所有清理项可以继续无限展开，但在打开时再扫描，这样是否更快捷” | **全面废弃切页和面包屑返回**，重构为**树形折叠面板（Tree-Accordion）**；不管是全盘扫描列表还是清理卡片，均支持**按需懒加载（Lazy Loading）**就地展开与无限级递进下钻 |
 
@@ -110,13 +110,13 @@
 - **空路径与空白路径**：严防 `os.path.abspath("")` 将空字符串伪装成当前工作目录逃逸。
 
 ### 2. 软件安装目录识别护栏（`_looks_like_installed_program`）
-防止自动发现（auto-discover）根据目录名粗暴命中知识库（如将包含 `ps` 短词的 `D:\PS` 误判为 Photoshop 缓存而把真正的 Adobe 软件本体删除）：
+防止自动发现（auto-discover）根据目录名粗暴命中知识库（如把某数据盘根目录下一个名字很短的目录误判为 Photoshop 缓存，进而删掉真正的 Adobe 软件本体）：
 - **特征一**：顶层出现 `Uninstall*.exe` 或 `unins*.exe`。
-- **特征二**：存在 **两个及以上版本号/年份命名形态的子目录**（如 `Adobe Photoshop 2024`、`WPS Office\12.1.0.28043` 与 `12.1.0.28505`）。
-- **反向过滤实证**：严禁用“顶层 .exe 数量”或“深层含卸载程序”作为特征，实测会误伤堆满安装包的 `E:\download` 真实清理候选。
+- **特征二**：存在 **两个及以上版本号/年份命名形态的子目录**（如 `Adobe Photoshop 2024`、`WPS Office\12.1.0.x` 与 `12.1.0.y`）。
+- **反向过滤实证**：严禁用“顶层 .exe 数量”或“深层含卸载程序”作为特征，实测会误伤堆满安装包的真实下载目录这类清理候选。
 
 ### 3. 浏览器资料敏感隔离护栏（`_looks_like_browser_profile` 与分区分析）
-实测用户 `E:\Chrome` 占用 174 GB（实际为论文与归档），若误判为浏览器整体可删将造成毁灭性灾难；真正的浏览器数据目录更包含书签、密码、Cookie、登录凭证：
+实测有台机器上一个与浏览器同名、占用上百 GB 的目录（实际是论文与归档），若误判为浏览器整体可删将造成毁灭性灾难；真正的浏览器数据目录更包含书签、密码、Cookie、登录凭证：
 - 浏览器规则整体标记为 `cleanable: false`。
 - 提供 `analyze_dir_partition`，利用白名单 `BROWSER_CACHE_DIRS` 将目录严格解构为：
   - **① 缓存子目录**（`Cache`、`Code Cache`、`GPUCache`、`Service Worker` 等）—— 可安全重建。
@@ -244,8 +244,10 @@
 1. **放开无 WizTree 下钻限制**（原第八节第 4 条）：前后端改动见该节现状描述；断言规模 271 → 276 项。
 2. **版本号统一升至 2.1**：`app.py`（server_version / UA）、`config/drives.json`、`tools/make-package.ps1`。
 3. **全量门禁复验通过**：lint 0 错 / linter 自测 17 / doctor 27 / selftest 276（2 跳过）/ CDP 72。
-4. **运维注意**：在 WorkBuddy 沙箱内启动 `app.py` 做 CDP 测试会因其安全删除拦截导致 overview 接口假死（表现为 Failed to fetch），须在非沙箱环境起服务——这不是应用缺陷，进程内与独立子进程方式均验证正常。
-5. **遗留清理**：`Documents/clean-c-drive*.ps1` 与 `Documents/dsh-cleaner/` 已移入回收站，备份在 `Documents/O-Cleaner-legacy-backup-2026-09-30.zip`（8 个文件，完整性校验通过）。
+4. **运维注意（已定位根因）**：在 WorkBuddy 环境中起 `app.py` 跑 CDP 的「全盘扫描」相关断言会失败（浏览器表现为 `Failed to fetch`）。根因不是应用缺陷：宿主的安全删除拦截钩子会拦下 `scan_disk_overview()` 写入并即时清理的临时文件 `.steam-orphans.tmp`（服务端日志可见 `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]`），处理函数随即中断连接；**关闭沙箱并不能规避**（已实测）。命令行 `python -X utf8 app.py --fullscan-only --drive D` 可完整跑通，selftest 阶段三 HTTP 端到端与阶段七 WizTree 扫描也全部通过；CI 与真实用户环境不存在此拦截。
+5. **运维注意（删除配额）**：同一钩子还有**每回合删除配额**（日志里的 `threshold`/`count`）。连续多次运行 `selftest.py` 会耗尽配额，第二次起会在启动阶段的残留清理（`.steam-orphans.tmp`、`config/.targets.backup.json`）被直接中断 —— 表现为进程秒退、几乎无输出（Python 默认缓冲 stdout，被中断时输出一并丢失，**建议用 `python -u` 运行**）。此时 `config/targets.json` 仍保持原样不受影响，但需手工清掉残留的 `config/.targets.backup.json` 才能再次运行。一次完整的干净运行结果：**302 通过 / 0 失败 / 3 跳过**。
+6. **自测产物遗漏修正**：`selftest.py` 会对 `history.json`/`schedule.json` 生成 `.<名字>.backup` 安全备份，此前未被 `.gitignore` 覆盖（`*.bak` 匹配不到 `*.backup`），已在 `.gitignore` 补上 `*.backup`，避免运行数据误入版本库。
+7. **遗留清理**：`Documents/clean-c-drive*.ps1` 与 `Documents/dsh-cleaner/` 已移入回收站，备份在 `Documents/O-Cleaner-legacy-backup-2026-09-30.zip`（8 个文件，完整性校验通过）。
 
 ### 7. 接手方优化记录（2026-10-06，v2.1 → v2.2 多平台游戏库）
 
@@ -258,7 +260,7 @@
 
 ## 七、文件资产与代码清单
 
-所有核心源码与配置位于 `C:\Users\<user>\Documents\O-Cleaner\`：
+所有核心源码与配置位于 `<仓库目录>\`（本项目根目录）：
 
 | 文件相对路径 | 大小概要 | 职责描述 |
 |:---|:---|:---|
@@ -267,11 +269,11 @@
 | `start-ocleaner.bat`| ~1 KB | 用户双击启动入口：纯 ASCII + CRLF，自动检测 Python 并拉起默认浏览器 |
 | `config/targets.json` | ~21 KB | 26 个预定义系统级目标与 5 大预设（安全/深度/开发者/回收站/清空） |
 | `config/filetypes.json`| ~28 KB | 知识库大脑：28 条目录规则 + 14 条文件规则（合计 42 条），定义识别特征与处置建议 |
-| `config/game-names.json`| ~3.2 KB | 游戏中文译名映射库：30 条映射条目，覆盖本机 32 款游戏中的 27 款（联网校对建立，支持自由扩充） |
+| `config/game-names.json`| ~3.2 KB | 游戏中文译名映射库：30 条映射条目（联网校对建立，支持自由扩充） |
 | `config/convert.json` | ~3 KB | 10 种趣味与直观的存储体积自定义换算单位公式 |
 | `config/drives.json` | ~1.2 KB | 盘符及应用元数据配置 |
-| `tools/selftest.py` | ~65 KB | 271 项断言自动化测试套件（含沙箱破坏性测试） |
-| `tools/cdp_check.js` | ~41 KB | 72 项断言的 Chrome DevTools Protocol 真实浏览器自动化校验脚本 |
+| `tools/selftest.py` | ~65 KB | 302 项断言自动化测试套件（含沙箱破坏性测试） |
+| `tools/cdp_check.js` | ~41 KB | 74 项断言的 Chrome DevTools Protocol 真实浏览器自动化校验脚本 |
 | `tools/lint_rules.py` | ~20 KB | 规则静态审查器，防止知识库反向冲突与语义缺陷 |
 | `tools/_lint_selftest.py`| ~5.7 KB | 针对 linter 自身的 17 项反向缺陷注入自测 |
 | `tools/doctor.py` | ~6.6 KB | 新设备 27 点环境自检排查脚本 |
@@ -288,12 +290,12 @@
 **本节是交接文档的核心。** 以下是当前代码**尚未做到**或**存在已知局限**的部分，接手者应优先评估：
 
 ### 1. 跨设备实测覆盖不足（最大风险）
-- **现状**：所有 271 项单元断言 + 72 项浏览器断言**全部只在同一台机器上跑过**（C: 300GB / D: 652.9GB / E: 952.2GB，单一 Windows 环境）。
+- **现状**：所有 302 项单元断言 + 74 项浏览器断言**全部只在同一台机器上跑过**（单机、单一 Windows 环境，含系统盘与多块数据盘）。
 - **风险**：`%LOCALAPPDATA%` 展开、盘符枚举、管理员权限分支、非中文系统区域设置下的行为均未经第二台机器验证。
 - **建议**：`tools/doctor.py`（27 项环境自检）就是为此准备的，应先在目标新机上跑一遍它，再跑 `tools/selftest.py`。
 
 ### 2. Steam 中文名依赖手工维护的映射表
-- **现状**：`config/game-names.json` 只有 30 条映射，覆盖本机 32 款游戏中的 27 款。未映射的游戏直接显示英文原名。
+- **现状**：`config/game-names.json` 目前只有 30 条映射，只能覆盖实测机器上的一部分游戏；未映射的游戏直接显示英文原名。
 - **曾尝试但放弃的方案**：解析本机 `Steam\appcache\appinfo.vdf` 提取官方中文名。实测该文件是 Valve 私有二进制 VDF 格式，头部结构与预期不符（实测条目数报 5，未解析出任何名字），要正确实现需完整二进制 VDF 解析器，且**结果取决于该机 Steam 缓存里是否恰好存有中文名**——对「换设备可用」这个目标本身不可靠，故放弃。
 - **建议**：若要做，应写一个独立的 vdf 解析模块并附大量测试；或改为社区众包的映射表。
 
@@ -321,12 +323,13 @@
 - **建议**：若要拆分，优先把 PowerShell 脚本常量抽到独立模块，它们是最大的静态块。
 
 ### 7. ~~早期脚本仍在项目目录之外~~（v2.1 已清理）
-- `C:\Users\<user>\Documents\clean-c-drive.ps1`、`clean-c-drive-safe.ps1` 与 `dsh-cleaner\` 已于 2026-09-30 移入回收站（可还原）。
-- 兜底备份：`C:\Users\<user>\Documents\O-Cleaner-legacy-backup-2026-09-30.zip`（8 个文件，zip 完整性校验通过）。确认无虞后可清空回收站并删除该 zip。
+- 项目前身的 `clean-c-drive.ps1`、`clean-c-drive-safe.ps1` 与 `dsh-cleaner\`（早期 WebUI 版）已从项目外层目录移入回收站（可还原）。
+- 兜底备份：`Documents\O-Cleaner-legacy-backup.zip`（8 个文件，zip 完整性校验通过）。确认无虞后可清空回收站并删除该 zip。
+- **若要保留前身版本作历史参考**：建议纳入仓库 `legacy/` 目录纳入版本管理，不要再让它们游离在版本管理之外。
 
 ### 8. ~~尚未 `git init`~~（v2.1 已解决）
 - 2026-09-30 已 `git init`（main 分支），初始提交为 v2.0 基线 + selftest 加固；v2.1 优化随后提交。
-- `LICENSE` 版权人已填 `oeriano`（取自本机账户名，如要换 GitHub ID 直接改即可）。
+- `LICENSE` 版权人已填当前维护者名称（若要换 GitHub ID 直接改该文件即可）。
 - **待办**：推送到 GitHub 后 CI 才会真正生效（本机未装 `gh` CLI，需手动建仓库推送）。
 
 ### 9. 用户明确暂缓的方向（不要再自行推进）

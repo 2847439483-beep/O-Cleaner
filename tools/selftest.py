@@ -64,6 +64,22 @@ def skip(name: str, why: str) -> None:
     print(f"  [跳过] {name}   {why}")
 
 
+def _load_local_cases() -> dict:
+    """本机真实测试用例（tools/local-cases.json，不进版本库）。
+
+    为什么不写死在测试里：这些「装机目录 vs 缓存目录」样本带着本机装了什么
+    软件的指纹。抽到独立文件并 gitignore 后，公开仓库只留通用逻辑，
+    开发机照样保留完整覆盖。示例见 tools/local-cases.json.example。
+    """
+    try:
+        with open(TOOLS_DIR / "local-cases.json", "r",
+                  encoding="utf-8-sig") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def make_sandbox() -> None:
     shutil.rmtree(SANDBOX, ignore_errors=True)
     (SANDBOX / "tree" / "sub").mkdir(parents=True)
@@ -310,9 +326,9 @@ def phase1() -> None:
           not unknown["recognized"], unknown["title"])
 
     # 扩展名优先：路径线索不得压过明确的扩展名
-    # （曾把 D:\Telegram\...\x.7z 判成「下载目录」、.rar 判成「软件安装目录」）
+    # （曾把 …\某聊天软件\...\x.7z 判成「下载目录」、.rar 判成「软件安装目录」）
     for name, path, want in [
-        ("莉可的奇妙差事.7z", r"D:\Telegram\download\莉可的奇妙差事.7z", "压缩包"),
+        ("示例压缩包.7z", r"D:\某聊天软件\download\示例压缩包.7z", "压缩包"),
         ("2024 Win x64.rar", r"D:\软件\2024 Win x64.rar", "压缩包"),
         ("movie.mp4", r"E:\SteamLibrary\common\movie.mp4", "视频"),
         ("anything-v5.safetensors", r"D:\DeliveryOptimization\anything-v5.safetensors", "AI 模型"),
@@ -814,7 +830,7 @@ def phase4_repo() -> None:
     # 注：CSRF 与畸形请求体的回归测试在 phase3_http 里（需要运行中的服务）
 
     # 安全回归：浏览器数据目录绝不能被整体标为可清理
-    # （会删掉书签、密码、全部登录状态）—— 这条是被 174 GB 的实测逼出来的
+    # （会删掉书签、密码、全部登录状态）—— 这条是被上百 GB 的实测逼出来的
     kb2 = app.load_filetypes()
     bd = next((r for r in kb2.get("folder_rules", [])
                if r.get("id") == "browser-data"), None)
@@ -1156,7 +1172,7 @@ def phase7_scoping_and_accel() -> None:
 
     2. 自动发现的误报。它是按「目录名命中知识库」推荐清理的，
        而知识库关键词是给缓存目录写的。实测曾把
-       C:\\Program Files (x86)\\Adobe、D:\\PS（真的装着 Photoshop 2024）
+       C:\\Program Files (x86)\\Adobe、某盘根下一个名字很短的目录（真的装着 Photoshop 2024）
        推荐为「可清理」—— 勾选等于卸载软件。
     """
     print("\n=== 阶段七：盘符归属 + 自动发现护栏 + WizTree 加速 ===")
@@ -1195,15 +1211,20 @@ def phase7_scoping_and_accel() -> None:
           app._auto_excluded(r"C:\Program Files (x86)\Adobe",
                              ["Program Files (x86)", "Adobe"]))
     check("自动发现仍然放行普通缓存目录",
-          not app._auto_excluded(r"D:\Quark\Cache", ["Quark", "Cache"]))
+          not app._auto_excluded(r"D:\SomeApp\Cache", ["SomeApp", "Cache"]))
 
-    # 装机目录识别：这是防误删的关键判据
-    prog_cases = [r"D:\PS", r"D:\WPS Office"]
+    # 装机目录识别：这是防误删的关键判据。
+    # 真实样本（本机装了哪些软件）不写进代码，放 tools/local-cases.json 且
+    # 不进版本库；公开副本没有该文件时这几项自动跳过，不留假阳性。
+    cases = _load_local_cases()
+    prog_cases = [str(p) for p in (cases.get("installed_programs") or [])]
+    cache_cases = [str(p) for p in (cases.get("cache_dirs") or [])]
+    if not prog_cases and not cache_cases:
+        skip("装机目录识别实测", "无本机用例（tools/local-cases.json 缺失，"
+                                 "可参考 local-cases.json.example 自建）")
     for p in prog_cases:
         if os.path.isdir(p):
             check(f"识别出装机目录：{p}", app._looks_like_installed_program(p))
-    cache_cases = [r"C:\OneDriveTemp", r"D:\KuGou", r"D:\Quark",
-                   r"D:\node_modules", r"E:\download"]
     for p in cache_cases:
         if os.path.isdir(p):
             check(f"不把缓存/下载目录误判成装机目录：{p}",

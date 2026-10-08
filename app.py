@@ -351,7 +351,7 @@ def _measure_existing(t: dict, path: str, drive: str | None) -> dict:
 # ======================================================================
 
 # 只有达到这些门槛的目录才会被继续展开，否则视为叶子。
-# 目的：既能挖到 E:\SteamLibrary\steamapps\common\Red Dead Redemption 2（119 GB）
+# 目的：既能挖到 …\steamapps\common\某款大型游戏（上百 GB）
 # 这种深层大项，又不会把几十万个小目录全爬一遍。
 #
 # 展开门槛用「相对父目录的比例」而非固定值：固定阈值会让一个 500 GB 的盘
@@ -1004,7 +1004,7 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
 
     两条路径用**同一套展开参数与同一套节点形状**，所以界面表现一致。
     展开策略：沿「体积最粗的几条分支」逐层深入，
-    这样才能挖到 E:\\SteamLibrary\\steamapps\\common\\Red Dead Redemption 2
+    这样才能挖到 …\\steamapps\\common\\某款大型游戏
     这种第 4 层、单个体积上百 GB 的大项。
     """
     letter = (drive or "C").rstrip(":").upper()
@@ -1552,7 +1552,7 @@ def _looks_like_browser_profile(path: str) -> bool:
     """判断目录是否真的是浏览器资料目录。
 
     为什么需要：名字里带 chrome/edge 的目录未必是浏览器数据。
-    实测用户的 E:\\Chrome 里装的是论文和 ComfyUI 压缩包 —— 是个误命名目录。
+    实测有台机器上一个与浏览器同名的目录里装的是论文和 ComfyUI 压缩包 —— 是个误命名目录。
     若不加判断，会告诉用户「这里面有书签和密码」，纯属误导。
     真实资料目录一定有 User Data / Default / Profile 这类结构。
     """
@@ -1584,7 +1584,7 @@ def identify(name: str, path: str, kind: str) -> dict:
     两路证据：名称/扩展名，与「所在路径」，分开算，互不污染。
       * 目录没有扩展名线索，一律优先用名称结果；
       * 文件只在扩展名说明不了问题（.bin/.dat/无扩展名）时才用路径兜底。
-    这条规则的由来：曾把 D:\\Telegram\\...\\x.7z 判成「下载目录」、
+    这条规则的由来：曾把 …\\某聊天软件目录\\...\\x.7z 判成「下载目录」、
     把 .rar 判成「软件安装目录」，都是路径把扩展名压过了。
     """
     kb = load_filetypes()
@@ -1693,7 +1693,7 @@ def identify(name: str, path: str, kind: str) -> dict:
 #   可安全清理的缓存（Cache / Code Cache / GPUCache / ShaderCache …）
 #   绝不能删的：书签、密码、Cookie、登录状态、扩展、历史记录
 # 因此**整目录绝不可标为可清理**，只能把缓存子目录单独列出来。
-# 这条规则是被实测逼出来的：用户的 E:\Chrome 有 174 GB，
+# 这条规则是被实测逼出来的：一个与浏览器同名的目录有上百 GB，
 # 早期把整目录标成「可清理」，勾选就会删掉整个浏览器资料。
 BROWSER_CACHE_DIRS = {
     "cache", "code cache", "gpucache", "shadercache", "grshadercache",
@@ -1702,7 +1702,7 @@ BROWSER_CACHE_DIRS = {
     "cachestorage", "scriptcache", "jscache", "blob_storage",
 }
 # 注意：**不要**再加一个「命中这些名字就是浏览器资料目录」的常量来辅助判断。
-# 只看名字会把 E:\Chrome（实测是论文 + ComfyUI 归档）误判成浏览器资料，
+# 只看名字会把一个与浏览器同名、实则装着论文 + ComfyUI 归档的目录误判成浏览器资料，
 # 所以判定统一走 _looks_like_browser_profile()：必须在目录内部
 # 真的看到 Cache / Code Cache 这类缓存子目录才认。
 
@@ -1735,7 +1735,7 @@ def _looks_like_game_install(path: str) -> bool:
     """判断目录是否是一个游戏本体（而非缓存）。
 
     为什么要在分区里单独认它：全盘扫描实测最大的实体就是游戏
-    （RDR2 119.5 GB、KingdomComeDeliverance2 89.8 GB），而它们**不是垃圾**。
+    （单款 3A 大作常达上百 GB），而它们**不是垃圾**。
     只把它们归进「建议保留」等于什么都没说，用户还会以为工具漏扫了。
     认出来之后就能给一句有用的话：「想回收请用启动器卸载」。
 
@@ -1768,12 +1768,12 @@ def _looks_like_game_install(path: str) -> bool:
 def analyze_dir_partition(path: str) -> dict:
     """把目录分成「缓存子目录（可清理）/ 其它内容（不要删）」两部分。
 
-    为什么不能只给一句笼统的「建议保留」：实测 E:\\Chrome 有 174 GB，
-    整体标成可清理会删掉书签密码，但只标「保留」用户也不知道这 174 GB 里
+    为什么不能只给一句笼统的「建议保留」：一个与浏览器同名的目录可能有上百 GB，
+    整体标成可清理会删掉书签密码，但只标「保留」用户也不知道这上百 GB 里
     哪一块动了没事。所以这里按子目录逐个分类并给出理由。
 
     解释文案必须跟着目录**真实身份**走。踩过的坑：早先把所有保留下来的
-    文件都写成「浏览器配置文件，不要删」，结果 RDR2 的 levels_3.rpf 也顶着
+    文件都写成「浏览器配置文件，不要删」，结果某款游戏的 levels_3.rpf 也顶着
     这句话 —— 纯属误导。现在按 浏览器资料 / 游戏安装 / 未识别 三种语境分别措辞。
     """
     if not os.path.isdir(path):
@@ -1838,7 +1838,7 @@ def analyze_dir_partition(path: str) -> dict:
             continue
 
     # 体积必须把「目录」也量进去 —— 只算直接文件会严重低报
-    # （实测 E:\Chrome 有 174 GB，但直接文件只有 1.7 GB，其余都在子目录里）
+    # （实测这种目录有上百 GB，但直接文件只有几 GB，其余都在子目录里）
     need_size = [c["path"] for c in cleanable] + [k["path"] for k in keep
                                                   if k["type"] == "dir"]
     if need_size:
@@ -2118,7 +2118,7 @@ def discover_steam() -> dict:
         })
 
     # 多份 libraryfolders.vdf 会列出同一个库，同一游戏因此被读多次
-    # （实测 Red Dead Redemption 2 出现 3 次）。先按安装路径去重，
+    # （实测同一款游戏会被读到 3 次）。先按安装路径去重，
     # 再**用去重后的结果反推库统计** —— 否则库的「应用数/体积」会翻倍虚高，
     # 与游戏列表对不上，用户会以为哪里出错了。
     dedup: dict[str, dict] = {}
@@ -2723,8 +2723,8 @@ def _looks_like_installed_program(path: str) -> bool:
 
     为什么必须有这道判断：自动发现按「目录名命中知识库」来判定可清理，
     但知识库的关键词是给「缓存目录」写的，撞上安装目录就出事。实测：
-      * D:\\PS 名字命中 photoshop 规则（match 里有短词 "ps"），
-        里面其实是 Adobe After Effects 2024 + Photoshop 2024 的安装目录；
+      * 某盘根下一个名字很短的目录（名字里带短词 "ps"）命中 photoshop 规则，
+        （match 里有短词 "ps"），里面其实是 Adobe 的安装目录；
       * C:\\Program Files (x86)\\Adobe、C:\\Program Files\\Microsoft OneDrive
         同样被判成「可清理」，勾选等于卸载软件。
 
@@ -2732,18 +2732,16 @@ def _looks_like_installed_program(path: str) -> bool:
       * 顶层存在 Uninstall*.exe / unins*.exe —— 安装器留下的卸载程序；
       * **两个以上「版本号形态」的子目录** —— 同时覆盖年份命名
         （Adobe Photoshop 2024 / …2023）与四段式版号
-        （D:\\WPS Office\\12.1.0.28043 与 12.1.0.28505）。
-        实测：D:\\PS 命中 2 个、D:\\WPS Office 命中 2 个，而
-        E:\\download（下载目录）与 C:\\OneDriveTemp（缓存）都是 0 个
+        （WPS Office\\12.1.0.x 与 12.1.0.y）。
+        实测：装机目录命中 2 个，而下载目录与云盘临时目录都是 0 个
         —— 这是区分度最好的一条判据。
 
     刻意**不用**的两条判据（都是实测踩出来的）：
-      * 「顶层 .exe 数量」——下载目录里躺着一堆安装包（E:\\download 顶层就有
+      * 「顶层 .exe 数量」——下载目录里躺着一堆安装包（实测某下载目录顶层就有
         5 个 setup.exe），按数量算会把下载目录误判成程序安装；
-      * 「子目录里有卸载程序」——下载目录里每个装过又留下的软件目录都带卸载器
-        （实测 E:\\download 下有 capcut / digikam / i4tools9 等 5 个），
+      * 「子目录里有卸载程序」——下载目录里每个装过又留下的软件目录都带卸载器，
         同样会误伤。
-    卸载程序只在**顶层**出现才算数（D:\\WPS Office\\ksolaunch.exe 那种）。
+    卸载程序只在**顶层**出现才算数（如 WPS Office\\ksolaunch.exe 那种）。
     """
     if not os.path.isdir(path):
         return False
@@ -2761,7 +2759,7 @@ def _looks_like_installed_program(path: str) -> bool:
                 continue
             if not e.is_dir():
                 continue
-            # 版本号形态：年份（2024）或四段式版号（12.1.0.28043）
+            # 版本号形态：年份（2024）或四段式版号（12.1.0.x）
             if (re.search(r"(19|20)\d{2}", n)
                     or re.search(r"^\d+(\.\d+){2,}$", n)):
                 ver_dirs += 1
@@ -2810,7 +2808,7 @@ def auto_discovered_targets(drive: str, limit: int = AUTO_DISCOVER_LIMIT) -> lis
             return
         info = identify(name, path, "dir")
         if not (info.get("recognized") and info.get("cleanable")) and parent_hint:
-            # 名称无意义时退一步看父目录（例如 D:\Telegram\tdata 里的 tdata）
+            # 名称无意义时退一步看父目录（例如 …\Telegram\tdata 里的 tdata）
             info = identify(parent_hint, path, "dir")
         if not (info.get("recognized") and info.get("cleanable")):
             return
@@ -2859,9 +2857,9 @@ def auto_discovered_targets(drive: str, limit: int = AUTO_DISCOVER_LIMIT) -> lis
     # 第二层：只对「自身没被识别为可清理」的一级目录再下一层。
     #
     # 这里必须判「父目录是否本身就是可清理候选」，不能只看它有没有被收进 out。
-    # 反例（实测）：E:\download 本身命中下载目录规则，但它的 8 个子目录
-    # （CapCut Drafts / 剪映 / 小米互传 …）被逐个又列了一遍 ——
-    # 既冗余，又把**用户自己的剪映草稿**推成了「可清理」。
+    # 反例（实测）：某下载目录本身命中下载目录规则，但它的 8 个子目录
+    # （视频剪辑草稿等）被逐个又列了一遍 ——
+    # 既冗余，又把**用户自己的创作草稿**推成了「可清理」。
     # 父目录已经代表这块空间了，就不该再拆开推荐它的内容。
     for e in level1:
         low = os.path.normpath(e.path).lower()
@@ -2874,7 +2872,7 @@ def auto_discovered_targets(drive: str, limit: int = AUTO_DISCOVER_LIMIT) -> lis
         pinfo = identify(e.name, e.path, "dir")
         # 顺序很重要：先判「装的是程序」，再判「本身是候选」。
         # 反过来写的话，一个同时命中两条的一级目录会掉进 else 分支被继续下钻 ——
-        # E:\download 就是这样：它是安装器仓库（_looks_like_installed_program 为真），
+        # 安装器仓库就是如此：它是安装器仓库（_looks_like_installed_program 为真），
         # 于是被继续下钻，把 8 个子目录挨个推成「可清理」。
         if _looks_like_installed_program(e.path):
             continue                      # 装的是程序本体，不下钻也不推荐其子项

@@ -3,6 +3,9 @@ history.json
 schedule.json
 config/custom-rules.json
 
+# 本机真实测试用例（含本机真实目录名，绝不外发）
+tools/local-cases.json
+
 # 打包产物
 dist/
 
@@ -20,6 +23,8 @@ tools/_partition_deep.png
 # 临时/备份文件（自测与 linter 自测会临时产生）
 *.tmp
 *.bak
+# 自测对 history/schedule 等状态文件做的安全备份（.<name>.backup）
+*.backup
 config/.targets.backup.json
 config/.filetypes.linttest.bak
 config/.probe.bak

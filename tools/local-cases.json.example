@@ -1,0 +1,9 @@
+{
+  "_comment": "本机真实测试用例模板。复制成 local-cases.json 并填入你自己机器上的真实目录（该文件已被 .gitignore 排除，不会外发）。selftest 阶段七用它验证「装机目录 vs 缓存目录」的识别判据：填了就测，没填就跳过。",
+  "_how_to_fill": {
+    "installed_programs": "本机安装的软件目录，应被判为「程序本体」（如 D:\\你的软件安装目录）",
+    "cache_dirs": "本机的缓存/下载类目录，不应被判为「程序本体」（如 D:\\某网盘缓存、E:\\下载）"
+  },
+  "installed_programs": [],
+  "cache_dirs": []
+}
