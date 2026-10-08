@@ -198,7 +198,7 @@
 接手开发或优化后，必须依次运行并通过以下质量门禁，未全部通过严禁打包交付：
 
 ### 1. 自动化单元与回归测试 (`tools/selftest.py`)
-- **断言规模**：271 项断言（涵盖 7 个阶段）。
+- **断言规模**：302 项断言（涵盖 7 个阶段）。
 - **运行命令**：
   ```bash
   python -X utf8 tools/selftest.py
@@ -206,7 +206,7 @@
 - **核心验证**：配置文件完整性、路径护栏对抗绕过、Temp 沙箱真实安全删除测试、HTTP API 端到端、知识库覆盖率、Steam 游戏清单与中文名解析、WizTree 加速与导出文件零残留、`is_user_local` 隔离等。
 
 ### 2. 真实浏览器无头渲染测试 (`tools/cdp_check.js`)
-- **断言规模**：72 项端到端视觉与 DOM 断言。
+- **断言规模**：74 项端到端视觉与 DOM 断言。
 - **运行命令**（需在 `app.py` 启动状态下执行）：
   ```bash
   node tools/cdp_check.js http://127.0.0.1:<PORT>
@@ -219,19 +219,23 @@
   python -X utf8 tools/lint_rules.py --strict
   python -X utf8 tools/_lint_selftest.py
   ```
-- **核心验证**：42 条规则语法合规、分类与置信度合法、无相互语义反向冲突、205 个样本路由实测归属准确、注入 15 类缺陷全数报警。
+- **核心验证**：42 条规则语法合规、分类与置信度合法、无相互语义反向冲突、205 个样本路由实测归属准确、注入 17 类缺陷全数报警。
 
 ### 4. 跨机环境诊断与编码归一化
 - **运行命令**：
   ```powershell
+  # 只检查不修改（CI 用的就是这个模式；有问题返回 1）
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/fix-encoding.ps1 -Check
+  # 真正修复
   powershell -NoProfile -ExecutionPolicy Bypass -File tools/fix-encoding.ps1
   python -X utf8 tools/doctor.py
   ```
 - **核心验证**：27 项跨设备环境诊断全部 OK；自动复核 BOM 与换行符。
+- **已接入 CI**：`.github/workflows/ci.yml` 的 `lint` 作业第一步就是 `fix-encoding.ps1 -Check`，**违反即失败**。因此本契约不再依赖人工记忆。配套地，`.gitattributes` 已为 `.py/.json/.html/.md/.yml/.js` 写死 `eol=crlf`，避免换行符随 `core.autocrlf` 漂移导致 CI 误报。
 
 ### 5. 接手方补丁记录（2026-09-30，selftest 数据隔离加固）
 
-接手验证时实测发现并修复了 `tools/selftest.py` 的两个真实缺陷（断言总数不变，仍 271 项）：
+接手验证时实测发现并修复了 `tools/selftest.py` 的两个真实缺陷（当时断言总数不变，仍 271 项）：
 
 1. **真实用户数据会被测试删除**：旧版 `finally` 直接删除 `history.json` / `schedule.json` 而不备份。若用户真实使用过 O-Cleaner，跑一次测试就会永久丢失全部清理历史。现已改为测试前备份、测试后还原（测试前本不存在则清掉测试产物）。
 2. **强杀后配置腐蚀级联**：若进程在 `write_test_config()` 之后被强杀（关窗/超时/管道断裂），`targets.json` 会残留测试内容，且下一次运行会把测试内容当成"真实配置"备份并固化。现已加入启动守卫：发现 `.targets.backup.json` 遗留时先还原再重新备份。
@@ -256,6 +260,14 @@
 3. **全量门禁复验通过**：lint 0 错 / doctor 27 / selftest 302（3 跳过：GOG 无本机数据等）/ CDP 74。
 4. **设计备忘**：Epic/GOG 游戏判定走「清单精确路径命中」而非 Steam 的「双亲目录推断」——刻意更保守，库目录下未登记的目录不会被误标为游戏。
 
+### 8. 接手方优化记录（2026-10-08，数据脱敏 + 文档校准 + 编码契约进 CI）
+
+1. **数据脱敏（可安全外发）**：真实盘符路径、软件目录名、硬件容量、游戏库体积等本机可识别信息全部泛化；本机真实测试用例迁至 `tools/local-cases.json`（已 gitignore），另附干净模板 `tools/local-cases.json.example`；`selftest.py` 新增 `_load_local_cases()`，阶段七改为「填了就测、没填就跳过」。产品知识库关键词（`kugou` / `quark` 等）属功能本体，刻意保留。
+2. **推出 GitHub**：`github.com/2847439483-beep/O-Cleaner`（私有），`main` 分支，CI 已接入。注意：推送 `.github/workflows/*` 需要 token 具备 `workflow` 权限，否则报 `refusing to allow an OAuth App to create or update workflow`。
+3. **编码契约进 CI**（对应原第八节风险项）：`fix-encoding.ps1 -Check` 已作为 `lint` 作业的第一步，**违反即失败**。配套在 `.gitattributes` 为 `.py/.json/.html/.md/.yml/.js` 写死 `eol=crlf` —— 否则换行符会随 `core.autocrlf` 漂移，CI 上 fresh clone 拿到 LF 就会误报。
+4. **文档数字校准**：修正 §6 / §7 / §9 及 CI 注释中过期的断言数（271→302、72→74、142+→302、15→17）与文件体积（app.py 151→164、index.html 130→133、selftest 65→75、cdp_check 41→42、HANDOFF 16→37、dist 193→199）。
+5. **全量门禁复验**：lint 0 错 / linter 自测 17 / selftest 302（3 跳过）。CDP 的「全盘扫描」类断言在 WorkBuddy 宿主下受安全删除钩子阻断（详见第 6 节第 4、5 条），**属环境限制而非回归**。
+
 ---
 
 ## 七、文件资产与代码清单
@@ -264,24 +276,26 @@
 
 | 文件相对路径 | 大小概要 | 职责描述 |
 |:---|:---|:---|
-| `app.py` | ~151 KB | 后端全功能核心：HTTP 服务、安全删除校验、WizTree MFT 加速调用与管理、Steam 解析、分区分析、定时任务 |
-| `web/index.html` | ~130 KB | 前端单文件：自适应卡片流、树形折叠懒加载列表、环境自检面板、Steam 游戏面板、细分弹窗 |
+| `app.py` | ~164 KB | 后端全功能核心：HTTP 服务、安全删除校验、WizTree MFT 加速调用与管理、Steam 解析、分区分析、定时任务 |
+| `web/index.html` | ~133 KB | 前端单文件：自适应卡片流、树形折叠懒加载列表、环境自检面板、Steam 游戏面板、细分弹窗 |
 | `start-ocleaner.bat`| ~1 KB | 用户双击启动入口：纯 ASCII + CRLF，自动检测 Python 并拉起默认浏览器 |
 | `config/targets.json` | ~21 KB | 26 个预定义系统级目标与 5 大预设（安全/深度/开发者/回收站/清空） |
 | `config/filetypes.json`| ~28 KB | 知识库大脑：28 条目录规则 + 14 条文件规则（合计 42 条），定义识别特征与处置建议 |
 | `config/game-names.json`| ~3.2 KB | 游戏中文译名映射库：30 条映射条目（联网校对建立，支持自由扩充） |
 | `config/convert.json` | ~3 KB | 10 种趣味与直观的存储体积自定义换算单位公式 |
 | `config/drives.json` | ~1.2 KB | 盘符及应用元数据配置 |
-| `tools/selftest.py` | ~65 KB | 302 项断言自动化测试套件（含沙箱破坏性测试） |
-| `tools/cdp_check.js` | ~41 KB | 74 项断言的 Chrome DevTools Protocol 真实浏览器自动化校验脚本 |
+| `tools/selftest.py` | ~75 KB | 302 项断言自动化测试套件（含沙箱破坏性测试） |
+| `tools/cdp_check.js` | ~42 KB | 74 项断言的 Chrome DevTools Protocol 真实浏览器自动化校验脚本 |
 | `tools/lint_rules.py` | ~20 KB | 规则静态审查器，防止知识库反向冲突与语义缺陷 |
 | `tools/_lint_selftest.py`| ~5.7 KB | 针对 linter 自身的 17 项反向缺陷注入自测 |
 | `tools/doctor.py` | ~6.6 KB | 新设备 27 点环境自检排查脚本 |
 | `tools/fix-encoding.ps1`| ~4.7 KB | 编码与换行符唯一规范化自动化修复工具 |
 | `tools/make-package.ps1`| ~7.2 KB | 绿色压缩包构建工具（带严格预校验与临时沙箱自测） |
-| `.github/workflows/ci.yml`| ~4.8 KB | GitHub Actions 持续集成配置文件（Windows 平台：lint -> test -> ui） |
-| `HANDOFF.md` | ~16 KB | 本文档：完整需求追溯、架构规格、踩坑史与接手注意事项 |
-| `dist/O-Cleaner-v2.2.zip`| ~193 KB | 最终产出的便携分发包，开箱即用 |
+| `.github/workflows/ci.yml`| ~5.4 KB | GitHub Actions 持续集成配置（Windows 平台：编码契约 -> lint -> test -> ui） |
+| `.gitattributes` | ~1.4 KB | **换行与编码契约的声明**（`eol=crlf` 写死，非装饰；CI 依此校验） |
+| `tools/local-cases.json.example`| ~0.7 KB | `local-cases.json` 的干净模板（真实用例已隔离，本文件可安全外发） |
+| `HANDOFF.md` | ~39 KB | 本文档：完整需求追溯、架构规格、踩坑史与接手注意事项 |
+| `dist/O-Cleaner-v2.2.zip`| ~199 KB | 最终产出的便携分发包，开箱即用 |
 
 ---
 
@@ -344,7 +358,7 @@
 
 若未来继续优化或增加新特性，请遵循以下技术指导，避免破坏系统现有稳定性：
 
-> **动手前必读**：本项目的每一条安全逻辑几乎都对应一次真实踩坑。修改 `check_deletable`、`_looks_like_installed_program`、`identify`、`auto_discovered_targets` 这四个函数中的任何一个之前，务必先读完第五节「踩坑历史」并跑通现有 271 项断言。这些函数**宁愿少推荐，也绝不误删**——不要为了「提高召回」而放松它们的判据。
+> **动手前必读**：本项目的每一条安全逻辑几乎都对应一次真实踩坑。修改 `check_deletable`、`_looks_like_installed_program`、`identify`、`auto_discovered_targets` 这四个函数中的任何一个之前，务必先读完第五节「踩坑历史」并跑通现有 302 项断言。这些函数**宁愿少推荐，也绝不误删**——不要为了「提高召回」而放松它们的判据。
 
 1. **针对 WizTree 的增强**：
    - 现已提供 `/__oc__/wiztree/install` 接口，如果网络不可达（如离线设备），可引导用户将预先下载好的 `WizTree64.exe` 手动丢进 `O-Cleaner\portable\WizTree\` 目录即可立即激活，无需重启。
@@ -357,5 +371,6 @@
    - 若未来 Steam 本地格式发生变动，直接在该表中添加即可，不影响核心逻辑。
 4. **前端性能边界**：
    - 树形折叠展开已经实现了懒加载，但单层目录若有极端数量（如某目录下存在 10,000 个平铺文件），可考虑在 `renderSubTreeHTML` 中增加前端虚拟滚动或分页切片（当前上限为 100/400 条，已满足绝大多数日常场景）。
-5. **严守编码契约**：
-   - 修改任何 `.ps1` 脚本后，切记必须重新运行 `tools/fix-encoding.ps1`，确保 UTF-8 BOM 存在，否则 PowerShell 5.1 解析必挂；修改 Python/JSON 则确保无 BOM。
+5. **严守编码契约（现已由 CI 强制）**：
+   - 修改任何 `.ps1` 脚本后，务必运行 `tools/fix-encoding.ps1`，确保 UTF-8 BOM 存在，否则 PowerShell 5.1 解析必挂；`.py/.json/.html/.md/.yml/.js` 则必须**无 BOM 且 CRLF**。
+   - **不必再靠记忆**：CI 的 `lint` 作业会先跑 `tools/fix-encoding.ps1 -Check`，不符契约直接失败。本地拿不准时先跑 `-Check` 即可。

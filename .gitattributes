@@ -16,13 +16,16 @@
 # PowerShell 脚本必须 CRLF（编码的 BOM 由 make-package.ps1 保证）
 *.ps1 text eol=crlf
 
-# 其余源码不强制换行，但统一按文本处理，避免二进制误判
-*.py    text
-*.json  text
-*.html  text
-*.md    text
-*.yml   text
-*.yaml  text
+# 其余源码：统一 CRLF，与 tools/fix-encoding.ps1 的契约一致，并由 CI 强制校验。
+# 只写 text 的话换行取决于 core.autocrlf —— CI 上 fresh clone 会拿到 LF，
+# fix-encoding.ps1 -Check 就会误报失败。这里写死 eol=crlf 消除这个不确定性。
+*.py    text eol=crlf
+*.json  text eol=crlf
+*.html  text eol=crlf
+*.md    text eol=crlf
+*.yml   text eol=crlf
+*.yaml  text eol=crlf
+*.js    text eol=crlf
 
 # 这些是运行数据，不要合并、也不要规范化
 history.json   -text

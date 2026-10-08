@@ -28,6 +28,19 @@ jobs:
         with:
           python-version: "3.12"
 
+      # 编码与换行是硬约束：.bat=ASCII+CRLF、.ps1=UTF-8 BOM+CRLF、其余=UTF-8 无 BOM+CRLF。
+      # 违反会有真实后果：cmd.exe 解析 LF 的 .bat 会吞行，PowerShell 5.1 把无 BOM 的 .ps1
+      # 当 GBK 读会乱码并报 "missing closing brace"（本项目已踩过三次）。
+      # 以前只靠人工记得跑，现在钉进 CI。
+      - name: 编码与换行契约检查
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools/fix-encoding.ps1 -Check
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "编码/换行不符合契约，请运行 tools/fix-encoding.ps1 修复后重新提交"
+            exit 1
+          }
+
       - name: 所有 .py 语法检查
         shell: pwsh
         run: |
@@ -71,7 +84,7 @@ jobs:
 
       # 自测会在 C:\_ocleaner_selftest 建沙箱并真删文件，
       # 并临时替换 config/targets.json（结束时还原）。仅限 CI 环境。
-      - name: 运行自测（142+ 项断言）
+      - name: 运行自测（302 项断言）
         run: python -X utf8 tools/selftest.py
 
       - name: 失败时上传产物便于排查
