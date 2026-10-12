@@ -7,6 +7,16 @@
 # 规则出错的影响比功能缺陷更直接，因此规则检查先于功能验证。
 #
 # 提交到 GitHub 时，把整个 .github 目录放在仓库根目录即可。
+#
+# 运行策略：快慢两级（2026-10-12 起）
+#   快 —— lint 作业：编码契约 + .py 语法 + 界面 JS 语法 + 规则 linter + 缺陷注入，
+#         实测约 35 秒。每次推送都跑，几秒内就能知道「文案/规则/编码有没有写错」。
+#   慢 —— test / ui 两个作业：实测约 4 分 35 秒与 11 分 28 秒，合计把整条流水线
+#         拖到 12 分钟左右。它们只在三种情况下运行：
+#           1) 每晚定时（UTC 18:00 = 北京时间 02:00）；
+#           2) 手动触发（Actions 页面 Run workflow）；
+#           3) 提交信息里带 [ci]（想立刻要完整结论时用）。
+#   这样日常推送不再等 12 分钟，完整验证也不会丢。
 
 name: CI
 
@@ -15,9 +25,11 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "0 18 * * *"
 
 jobs:
-  # ---------- 第一道闸门：规则安全 ----------
+  # ---------- 第一道闸门：规则安全（快，每次推送都跑） ----------
   lint:
     name: 规则 linter
     runs-on: windows-latest
@@ -70,11 +82,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Write-Host "界面 JS 语法通过"
 
-  # ---------- 第二道闸门：功能自测 ----------
+  # ---------- 第二道闸门：功能自测（慢，定时 / 手动 / 带 [ci] 才跑） ----------
   test:
     name: 自测
     runs-on: windows-latest
     needs: lint
+    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]') || contains(github.event.head_commit.message, '[CI]')
     steps:
       - uses: actions/checkout@v7
 
@@ -85,7 +98,7 @@ jobs:
       # 自测会在 C:\_ocleaner_selftest 建沙箱并执行真实删除，
       # 并临时替换 config/targets.json（结束时还原）。仅限 CI 环境。
       # 断言条数依机器环境浮动（数据盘数量、是否装有 Steam / WizTree），
-      # runner 上实测为「通过 247 项，失败 0 项，跳过 11 项」。
+      # runner 上实测为「通过 278 项，失败 0 项，跳过 11 项」。
       - name: 运行自测
         run: python -X utf8 tools/selftest.py
 
@@ -100,11 +113,12 @@ jobs:
             config/targets.json
           if-no-files-found: ignore
 
-  # ---------- 第三道闸门：真实浏览器渲染与交互 ----------
+  # ---------- 第三道闸门：真实浏览器渲染与交互（慢，同上） ----------
   ui:
     name: 界面渲染检查
     runs-on: windows-latest
     needs: lint
+    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]') || contains(github.event.head_commit.message, '[CI]')
     steps:
       - uses: actions/checkout@v7
 
