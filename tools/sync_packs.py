@@ -111,28 +111,43 @@ def _gh_api_json(endpoint: str, body: dict, retries: int = 3) -> dict:
     raise RuntimeError(last)
 
 
+def _api_file(name: str) -> dict | None:
+    """经 API GET 取文件现状（sha + base64 内容）。API 无 CDN 缓存，
+    是 PUT 时 sha 的唯一可靠来源 —— raw 有 CDN 缓存，用它算 sha 会 409。"""
+    proc = subprocess.run(
+        [GH, "api", f"repos/{REPO}/contents/{name}?ref={BRANCH}"],
+        capture_output=True, text=True, encoding="utf-8", timeout=120)
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout).strip()
+        if "404" in err:
+            return None
+        raise RuntimeError(err[:300])
+    return json.loads(proc.stdout)
+
+
 def push() -> int:
     """把有差异的文件推到公开仓。返回推送的文件数。"""
     pushed = 0
     for name in SYNC_FILES:
         local = _local_bytes(name)
         try:
-            remote = _remote_bytes(name)
+            cur = _api_file(name)
         except Exception as exc:  # noqa: BLE001
-            print(f"  [网络] 无法比对 {name}（{exc}），中止推送以免覆盖错内容。")
+            print(f"  [网络] 无法读取 {name} 的现状（{exc}），中止推送以免覆盖错内容。")
             return pushed
-        if remote is not None and _sha(local) == _sha(remote):
-            print(f"  [跳过] {name}（已一致）")
-            continue
         body = {
             "message": f"同步自主仓库 packs/：{name}",
             "content": base64.b64encode(local).decode(),
         }
-        if remote is not None:
-            # API 要求现状文件的 git blob sha1：sha1("blob <len>\0" + 内容)，
-            # 不是内容的裸 sha1（实测报 409 才知道的坑）。
-            blob = b"blob " + str(len(remote)).encode() + b"\0" + remote
-            body["sha"] = hashlib.sha1(blob).hexdigest()   # noqa: S324
+        if cur is None:
+            print(f"  [新增] {name}（公开仓还没有）")
+        else:
+            remote = base64.b64decode(cur.get("content") or "")
+            if remote == local:
+                print(f"  [跳过] {name}（已一致）")
+                continue
+            body["sha"] = cur["sha"]
+            print(f"  [更新] {name}：公开仓 {len(remote)} B → 本地 {len(local)} B")
         try:
             _gh_api_json(name, body)
             pushed += 1
@@ -142,7 +157,8 @@ def push() -> int:
             print("  可能原因：gh 未登录 / api.github.com 被阻断 / 令牌无 repo 权限。")
             return pushed
     print()
-    print(f"推送完成：{pushed} 个文件。公开仓 5 分钟内生效（raw 有 CDN 缓存）。")
+    print(f"推送完成：{pushed} 个文件。check 走 raw，有 CDN 缓存，"
+          f"几分钟内才会显示一致。")
     return pushed
 
 
