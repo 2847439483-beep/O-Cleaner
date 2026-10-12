@@ -57,6 +57,7 @@ INCLUDE = [
     "packs/games-platform.json",
     "packs/games-titles.json",
     "packs/apps-common.json",
+    "packs/explanations.json",
     "web/index.html",
     "tools/selftest.py",
     "tools/lint_rules.py",

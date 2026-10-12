@@ -798,7 +798,7 @@ _lint_selftest 44/0、JS 语法、py_compile、编码契约全绿。分发清单
 | `CONTRIBUTING.md` | ~9.0 KB | 贡献指南与提交前自查清单（含资源包提交流程、CI 快慢两级说明） |
 | `HANDOFF.md` | ~88 KB | 本文档：需求追溯、架构规格、踩坑记录与接手注意事项 |
 | `_legacy/` | ~180 KB | 前身版本归档（已 gitignore，不属于本仓库） |
-| `dist/O-Cleaner-v2.3.zip`| ~323 KB | 便携分发包：28 个文件（含 5 个内置资源包），由 `tools/make_package.py` 生成 |
+| `dist/O-Cleaner-v2.3.zip`| ~325 KB | 便携分发包：29 个文件（含 6 个内置资源包，explanations.json 曾漏入包、§22 修复），由 `tools/make_package.py` 生成 |
 
 ---
 

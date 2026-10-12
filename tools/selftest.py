@@ -666,6 +666,9 @@ def phase3_http() -> None:
               "explanations.json" in idx.get("packs", [])
               and (HERE / "packs" / "explanations.json").exists()
               and (TOOLS_DIR / "sync_packs.py").exists())
+        check("分发包构建清单含释义增强包",
+              "packs/explanations.json"
+              in (TOOLS_DIR / "make_package.py").read_text(encoding="utf-8"))
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检已移除兼容性分析（面板只留环境与权限）",
