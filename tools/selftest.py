@@ -562,6 +562,11 @@ def phase3_http() -> None:
         check("前端含累积统计图表",
               "renderCumulative" in html and 'class="chart"' in html)
         check("前端含换算面板", "renderConvToggle" in html and "convToggle" in html)
+        check("换算单位表单已并入累积面板（独立面板已移除）",
+              'data-acc="units"' not in html
+              and html.index('data-acc="cum"')
+              < html.index('id="convToggle"')
+              < html.index('data-acc="rules"'))
         check("前端含自定义目录输入", "customPath" in html)
         check("前端含自定义换算单位表单", "btnUnitAdd" in html and "btnUnitExample" in html)
         check("预设样式已修复溢出",

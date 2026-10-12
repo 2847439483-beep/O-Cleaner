@@ -800,36 +800,8 @@
 
     <div class="panel acc" data-acc="cum">
       <h3>累积清理与换算 <span class="hint" id="statRange"></span></h3>
-      <div class="ab"><div id="cumulative"></div></div>
-    </div>
-
-    <div class="panel acc open" data-acc="rules">
-      <h3>自定义规则 <span class="hint">勾选固定项，命名保存</span></h3>
       <div class="ab">
-        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6">
-          把当前勾选的清理项存成一条规则，以后一键套用；勾选「保存后立即清理」
-          则保存时直接清理这些项。
-        </div>
-        <div class="field">
-          <input type="text" id="ruleName" placeholder="给规则起个名字，例如「每周清缓存」">
-        </div>
-        <div class="field" style="gap:14px">
-          <label style="display:flex;align-items:center;gap:7px;color:var(--fg);cursor:pointer">
-            <input type="checkbox" class="switch" id="ruleAuto" style="accent-color:var(--danger)">
-            保存后立即清理
-          </label>
-          <span style="color:var(--dim2);font-size:11.5px" id="ruleSelInfo"></span>
-        </div>
-        <div class="field" style="margin-bottom:12px">
-          <button id="btnRuleSave" class="primary" style="flex:1">保存当前勾选为规则</button>
-        </div>
-        <div id="ruleList"></div>
-      </div>
-    </div>
-
-    <div class="panel acc" data-acc="units">
-      <h3>换算单位 <span class="hint">可自定义</span></h3>
-      <div class="ab">
+        <div id="cumulative"></div>
         <div class="convtoggle" id="convToggle"></div>
         <details style="margin-top:4px">
           <summary style="cursor:pointer;color:var(--dim);font-size:12.5px">添加 / 管理换算单位</summary>
@@ -853,6 +825,30 @@
             <div id="unitList" style="margin-top:8px"></div>
           </div>
         </details>
+      </div>
+    </div>
+
+    <div class="panel acc open" data-acc="rules">
+      <h3>自定义规则 <span class="hint">勾选固定项，命名保存</span></h3>
+      <div class="ab">
+        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6">
+          把当前勾选的清理项存成一条规则，以后一键套用；勾选「保存后立即清理」
+          则保存时直接清理这些项。
+        </div>
+        <div class="field">
+          <input type="text" id="ruleName" placeholder="给规则起个名字，例如「每周清缓存」">
+        </div>
+        <div class="field" style="gap:14px">
+          <label style="display:flex;align-items:center;gap:7px;color:var(--fg);cursor:pointer">
+            <input type="checkbox" class="switch" id="ruleAuto" style="accent-color:var(--danger)">
+            保存后立即清理
+          </label>
+          <span style="color:var(--dim2);font-size:11.5px" id="ruleSelInfo"></span>
+        </div>
+        <div class="field" style="margin-bottom:12px">
+          <button id="btnRuleSave" class="primary" style="flex:1">保存当前勾选为规则</button>
+        </div>
+        <div id="ruleList"></div>
       </div>
     </div>
 
