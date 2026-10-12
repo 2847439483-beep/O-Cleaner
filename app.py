@@ -2953,6 +2953,182 @@ def clean_target(t: dict, only_paths: list | None = None,
     return result
 
 
+# ==================== 被占用文件：占用探测与进程候选 ====================
+# 这里刻意把两件事分开，因为它们的可靠度天差地别：
+#   * 「这个文件被占着吗」—— **可以可靠回答**：以「不共享」方式请求句柄，
+#     拿到共享冲突就说明别的进程正占着它。
+#   * 「是哪个进程占的」—— **只能猜**。Windows 没有公开 API 能把「句柄」反查成
+#     进程（要 Sysinternals handle.exe，或管理员权限下的 openfiles，二者都不是
+#     本工具能依赖的东西）。所以下面返回的是**候选**、按可能性排序，
+#     交给使用者自己判断。工具**绝不代关进程** —— 关错了可能是别人没保存的文档。
+LOCK_PROBE_LIMIT = 80       # 一次最多探这么多条路径（前端传来的通常远少于它）
+LOCK_CANDIDATE_LIMIT = 15   # 去重后展示的候选上限：太长反而让人无从下手
+# 脚本按「(目标 × 进程)」成行返回，同一进程命中多个目标就会重复。
+# 所以脚本侧先卡一个宽松上限，去重后再按 LOCK_CANDIDATE_LIMIT 裁。
+LOCK_RAW_ROW_LIMIT = 120
+
+# CreateFileW 的参数常量
+_LOCK_GENERIC_WRITE = 0x40000000
+_LOCK_GENERIC_READ = 0x80000000
+_LOCK_LIST_DIRECTORY = 0x00000001
+_LOCK_OPEN_EXISTING = 3
+_LOCK_FLAG_BACKUP_SEMANTICS = 0x02000000
+_LOCK_ERR_ACCESS_DENIED = 5
+_LOCK_ERR_SHARING_VIOLATION = 32
+_LOCK_ERR_LOCK_VIOLATION = 33
+
+_LOCK_API = None
+
+
+def _lock_api():
+    """惰性初始化 kernel32.CreateFileW 的原型（进程内只做一次）。"""
+    global _LOCK_API
+    if _LOCK_API is None:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateFileW.restype = wintypes.HANDLE
+        k32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD,
+                                    wintypes.DWORD, ctypes.c_void_p,
+                                    wintypes.DWORD, wintypes.DWORD,
+                                    wintypes.HANDLE]
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        k32.CloseHandle.restype = wintypes.BOOL
+        _LOCK_API = (ctypes, k32)
+    return _LOCK_API
+
+
+def probe_locked(path: str) -> dict:
+    """探测一个路径当前是否被别的进程占用。
+
+    文件：请求「读写 + 不共享」句柄，共享冲突 = 被占用（可靠）。
+    目录：只能请求「列目录 + 不共享」，被占用时同样返回共享冲突，
+          但资源管理器正打开着也会如此，所以只作参考。
+    权限不足时如实返回「无法判定」，**不要猜成「没被占用」** ——
+    那会让使用者以为文件已经可以删了。
+    """
+    out = {"path": path, "exists": os.path.exists(path), "kind": "file",
+           "locked": None, "why": ""}
+    if not out["exists"]:
+        out["why"] = "路径不存在（可能已经删掉了）"
+        return out
+    if not IS_WINDOWS:
+        out["why"] = "占用探测仅支持 Windows"
+        return out
+    is_dir = os.path.isdir(path)
+    out["kind"] = "dir" if is_dir else "file"
+    ctypes, k32 = _lock_api()
+    access = _LOCK_LIST_DIRECTORY if is_dir else (_LOCK_GENERIC_READ | _LOCK_GENERIC_WRITE)
+    flags = _LOCK_FLAG_BACKUP_SEMANTICS if is_dir else 0
+    h = k32.CreateFileW(path, access, 0, None, _LOCK_OPEN_EXISTING, flags, None)
+    if (not h) or h == ctypes.c_void_p(-1).value:
+        err = ctypes.get_last_error()
+        if err in (_LOCK_ERR_SHARING_VIOLATION, _LOCK_ERR_LOCK_VIOLATION):
+            out["locked"] = True
+            out["why"] = ("有进程正打开着这个目录" if is_dir
+                          else "有进程正打开着这个文件")
+        elif err == _LOCK_ERR_ACCESS_DENIED:
+            out["why"] = "无法判定：拒绝访问（以管理员身份运行能读到更多）"
+        else:
+            out["why"] = "无法判定：系统返回错误码 %d" % err
+        return out
+    k32.CloseHandle(h)
+    out["locked"] = False
+    out["why"] = "当前没有被占用"
+    return out
+
+
+PS_LOCK_HOLDERS = r"""
+$targets = @(__TARGETS__)
+$rows = New-Object System.Collections.ArrayList
+foreach ($pr in (Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)) {
+    # 跳过扫描者自己：本脚本把目标路径当作字面量写在命令行里，
+    # 不排除的话 powershell.exe 一定会「命令行里含这个完整路径」命中自己，
+    # 既制造假候选、又把真正的候选挤到后面。
+    if ($pr.ProcessId -eq $PID) { continue }
+    $exe = $pr.ExecutablePath
+    $cmd = $pr.CommandLine
+    if ([string]::IsNullOrEmpty($exe) -and [string]::IsNullOrEmpty($cmd)) { continue }
+    foreach ($t in $targets) {
+        $dir = [System.IO.Path]::GetDirectoryName($t)
+        $nm  = [System.IO.Path]::GetFileName($t)
+        $why = ''
+        $strong = $false
+        if (-not [string]::IsNullOrEmpty($exe) -and -not [string]::IsNullOrEmpty($dir)) {
+            $pfx = $dir.ToLower() + [System.IO.Path]::DirectorySeparatorChar
+            if ($exe.ToLower().StartsWith($pfx)) {
+                $strong = $true; $why = '程序本体就在这个目录下'
+            }
+        }
+        if (-not $strong -and -not [string]::IsNullOrEmpty($cmd)) {
+            $cl = $cmd.ToLower()
+            if ($cl.Contains($t.ToLower())) { $strong = $true; $why = '命令行里含这个完整路径' }
+            elseif ($nm.Length -ge 4 -and $cl.Contains($nm.ToLower())) { $why = '命令行里含同名文件' }
+        }
+        if ($why -ne '') {
+            [void]$rows.Add([pscustomobject]@{
+                target = $t; pid = [int]$pr.ProcessId; name = $pr.Name
+                exe = $exe; why = $why; strong = [bool]$strong })
+        }
+    }
+}
+if ($rows.Count -eq 0) { '[]' }
+else { $rows | Select-Object -First __LIMIT__ | ConvertTo-Json -Compress -Depth 3 }
+"""
+
+
+def find_lock_holders(paths: list) -> dict:
+    """探测这些路径的占用状态，并给出「可能是谁占用」的候选清单。
+
+    返回值里的 candidates 是**启发式推断**，不是确证：先按「程序本体在该目录下」
+    或「命令行里出现了完整路径」这类强信号排序，其余同名匹配排在后面并标记为非强信号。
+    """
+    clean: list[str] = []
+    for p in (paths or []):
+        if isinstance(p, str) and p.strip():
+            clean.append(p.strip())
+    truncated = len(clean) > LOCK_PROBE_LIMIT
+    clean = clean[:LOCK_PROBE_LIMIT]
+
+    results = [probe_locked(p) for p in clean]
+    candidates: list[dict] = []
+    ps_error = None
+    if clean and IS_WINDOWS:
+        literal = ",".join("'" + p.replace("'", "''") + "'" for p in clean)
+        script = (PS_LOCK_HOLDERS
+                  .replace("__TARGETS__", literal)
+                  .replace("__LIMIT__", str(LOCK_RAW_ROW_LIMIT)))
+        r = run_ps(script, timeout=60)
+        if isinstance(r, dict) and "error" in r:
+            ps_error = str(r["error"])
+        else:
+            raw = [c for c in _as_list(r) if isinstance(c, dict)]
+            # 同一个进程可能命中多个目标 —— 按 PID 合并成一条，并记下命中数。
+            # 不合并的话，15 行的上限会被同一个进程的重复行刷满。
+            merged: dict = {}
+            for c in raw:
+                key = c.get("pid")
+                if key is None:
+                    key = ("?", c.get("name"), c.get("exe"))
+                cur = merged.get(key)
+                if cur is None:
+                    n = dict(c)
+                    n["hits"] = 1
+                    merged[key] = n
+                else:
+                    cur["hits"] = int(cur.get("hits") or 1) + 1
+                    if c.get("strong") and not cur.get("strong"):
+                        cur["strong"] = True
+                        cur["why"] = c.get("why")
+                        cur["target"] = c.get("target")
+            candidates = list(merged.values())
+            candidates.sort(key=lambda c: (not c.get("strong"),
+                                           str(c.get("name") or "").lower()))
+            candidates = candidates[:LOCK_CANDIDATE_LIMIT]
+    return {"results": results, "candidates": candidates,
+            "truncated": truncated, "ps_error": ps_error}
+
+
 
 
 # 自动发现的深度上限 = 2（盘符根的直接子目录，及其子目录）。
@@ -4437,6 +4613,13 @@ class Handler(BaseHTTPRequestHandler):
                                    "stats": history_stats()})
             finally:
                 self.server.busy = False
+
+        # ---- 被占用文件：一键查「可能是谁占着」----
+        if route == "/__oc__/locks":
+            paths = body.get("paths")
+            if not isinstance(paths, list):
+                return self._json({"error": "paths 必须是路径数组"}, 400)
+            return self._json(find_lock_holders(paths))
 
         # ---- 定时设置 ----
         if route == "/__oc__/schedule":

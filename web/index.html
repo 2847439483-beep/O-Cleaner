@@ -2248,7 +2248,14 @@ function showCleanResult(e, stats, t0, title) {
         <ul>${bad.slice(0, 8).map(r => `<li>${esc(r.label)}：${
           esc((r.skipped || []).slice(0, 4).join("、") || r.error || "占用中")}${
           r.failed > 4 ? ` 等 ${r.failed} 项` : ""}</li>`).join("")}</ul>
-        关闭相关程序（浏览器、剪辑软件、Python 进程）后重试即可清理。</div>` : ""}
+        ${bad.some(r => (r.skipped || []).length) ? `
+          <div style="margin-top:9px;display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+            <button id="btnFindLock" class="primary" style="font-size:12.5px">
+              一键查找占用进程</button>
+            <span style="font-size:11.5px;color:var(--dim2)">
+              只列出候选程序，关不关由你决定</span>
+          </div>` : ""}
+        <div id="lockPane"></div></div>` : ""}
       <div style="color:var(--dim2);font-size:12px;margin-top:12px">
         累计已释放 ${esc(STATE.stats?.total_freed_h || "0 B")}，换算结果已更新到右侧面板。
       </div>
@@ -2256,10 +2263,84 @@ function showCleanResult(e, stats, t0, title) {
     <div class="mfoot"><div class="left"></div>
       <button id="mDone" class="primary">完成</button></div>`;
   $("mask").classList.add("on");
+  const fl = $("btnFindLock");
+  if (fl) fl.addEventListener("click", () => findLockHolders(bad, fl));
   $("mDone").addEventListener("click", async () => {
     closeModal(); subSel = {};
     await loadState(); await scan();
   });
+}
+
+/** 一键查找「可能占着这些文件」的程序。
+ *
+ *  诚实的边界：**「文件被占用」这个判定是可靠的**（后端以「不共享」方式试开句柄，
+ *  拿到共享冲突就是真的被占）；但**「是哪个进程占的」只是启发式猜测** ——
+ *  Windows 没有公开 API 能把句柄反查成进程。所以这里只列候选、按可能性排序，
+ *  由使用者自己确认后**手动**关闭，工具不代关进程。 */
+async function findLockHolders(bad, btn) {
+  // 把「目标目录 + 被跳过的文件名」还原成完整路径
+  const paths = [];
+  (bad || []).forEach(r => (r.skipped || []).forEach(n => {
+    if (r.path && n) paths.push(r.path.replace(/[\\/]+$/, "") + "\\" + n);
+  }));
+  const pane = $("lockPane");
+  if (!pane) return;
+  if (!paths.length) {
+    pane.innerHTML = `<div style="margin-top:10px;font-size:12.5px">
+      这些项不是「被占用」，而是路径不存在或权限不足，没有可查的进程。</div>`;
+    return;
+  }
+  const old = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "正在查找…"; }
+  pane.innerHTML = `<div style="margin-top:10px;font-size:12.5px;color:var(--dim2)">
+    正在检查 ${paths.length} 个文件并枚举系统进程，请稍候…</div>`;
+  try {
+    const r = await fetch(`${API}/__oc__/locks`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paths })
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    const locked = (d.results || []).filter(x => x.locked === true);
+    const unknown = (d.results || []).filter(x => x.locked === null);
+    const cs = d.candidates || [];
+    const strong = cs.filter(c => c.strong), weak = cs.filter(c => !c.strong);
+    const row = c => `<tr>
+      <td class="n">${c.pid}</td>
+      <td>${esc(c.name || "?")}</td>
+      <td style="font-size:11.5px;color:var(--dim2)">${esc(c.why || "")}${
+        c.hits > 1 ? `（命中 ${c.hits} 个文件）` : ""}${
+        c.exe ? `<br><span style="color:var(--dim2)">${esc(c.exe)}</span>` : ""}</td>
+    </tr>`;
+    const table = (title, arr) => arr.length ? `
+      <div style="font-size:12.5px;margin:11px 0 5px"><b>${title}</b>（${arr.length}）</div>
+      <table><thead><tr><th class="n">PID</th><th>进程</th><th>判断依据</th></tr></thead>
+        <tbody>${arr.map(row).join("")}</tbody></table>` : "";
+    pane.innerHTML = `
+      <div style="margin-top:11px;font-size:12.5px">
+        <b>占用检查</b>：${locked.length} 个文件确实被别的进程打开着${
+          unknown.length ? `；另有 ${unknown.length} 个无法判定（权限不足，以管理员身份运行能读到更多）` : ""}${
+          d.truncated ? "；文件太多，只检查了前 80 个" : ""}。
+        ${locked.length === 0 ? "若它们现在都已不占用，直接重新清理即可。" : ""}
+      </div>
+      ${table("可能性高（程序本体在该目录下，或命令行里出现了完整路径）", strong)}
+      ${table("也值得一看（命令行里出现了同名文件）", weak)}
+      ${(!strong.length && !weak.length) ? `
+        <div style="margin-top:9px;font-size:12.5px">
+          没能从进程列表里定位到可疑项 —— 这很正常，Windows 不允许直接把「文件句柄」
+          反查成进程。可以打开「任务管理器 → 性能 → 资源监视器 → CPU → 关联的句柄」，
+          在里面搜索这个文件名，就能看到真正持有它的进程。</div>` : ""}
+      ${d.ps_error ? `<div style="margin-top:8px;font-size:11.5px;color:var(--warn)">
+        进程枚举未完成：${esc(d.ps_error)}</div>` : ""}
+      <div style="color:var(--dim2);font-size:11.5px;margin-top:10px">
+        ※ 以上是<b>候选</b>，不是确证；<b>不要结束 System、explorer.exe 等系统进程</b>。
+        多数程序一退出就自动解锁 —— 先在它们里面保存并退出，再回来重新清理即可。</div>`;
+  } catch (ex) {
+    pane.innerHTML = `<div style="margin-top:10px;font-size:12.5px;color:var(--warn)">
+      查找失败：${esc(ex.message || String(ex))}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = old || "一键查找占用进程"; }
+  }
 }
 
 /* ============ 磁盘概览：可逐层下钻的占用树 ============ */

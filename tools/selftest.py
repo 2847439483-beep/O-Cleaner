@@ -1045,6 +1045,29 @@ def phase4_repo() -> None:
             bad_enc.append(f.name)
     check("所有 .py/.json 都不带 BOM", not bad_enc, str(bad_enc[:4]))
 
+    # ---- 单文件前端的静态一致性 ----
+    # 这几条是「一个真实 bug 逼出来的」：新写的 var(--dim3) 引用了并不存在的变量，
+    # 页面不报错、只是颜色静默失效 —— 静态检查是唯一的兜底。
+    idx = HERE / "web" / "index.html"
+    html = idx.read_text(encoding="utf-8") if idx.exists() else ""
+    m_st = _re.search(r"<style>(.*?)</style>", html, _re.DOTALL)
+    m_sc = _re.search(r"<script>(.*?)</script>", html, _re.DOTALL)
+    # 先确认两块都抽到了：否则下面数括号会退化成 0 == 0 的假通过
+    check("index.html 的 <style> 与 <script> 块都能抽出来",
+          bool(m_st and m_sc), "正则没匹配到，后面的括号检查会失去意义")
+    st = m_st.group(1) if m_st else ""
+    sc = m_sc.group(1) if m_sc else ""
+    # 改 CSS 最容易留下半截规则，JS 同理 —— 括号配平是最便宜的回归网
+    check("index.html 的 <style> 花括号配平",
+          st.count("{") == st.count("}"), f"{st.count('{')}/{st.count('}')}")
+    check("index.html 的 <script> 花括号配平",
+          sc.count("{") == sc.count("}"), f"{sc.count('{')}/{sc.count('}')}")
+    defined = set(_re.findall(r"(--[A-Za-z0-9_-]+)\s*:", st))
+    used = set(_re.findall(r"var\(\s*(--[A-Za-z0-9_-]+)\s*\)", html))
+    missing = sorted(used - defined)
+    check("index.html 里 var(--x) 引用的变量都已定义",
+          not missing, f"未定义：{missing}")
+
 
 def phase5_steam() -> None:
     """Steam 集成：解析器正确性 + 真实数据一致性。"""
