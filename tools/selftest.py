@@ -711,6 +711,46 @@ def phase3_http() -> None:
         check("删除覆盖后恢复默认", _t3.get("custom") is False
               and _t3.get("what") != "自测自定义释义")
 
+        # 自定义数据包：换算单位 + 释义覆盖 + 固定项规则 一次导入导出
+        _ex = get("/__oc__/bundle/export")
+        check("自定义数据包可导出（三类齐备）",
+              _ex.get("kind") == "ocleaner-custom" and _ex.get("version") == 1
+              and isinstance(_ex.get("units"), list)
+              and isinstance(_ex.get("overrides"), dict)
+              and isinstance(_ex.get("rules"), list))
+        _bi = get("/__oc__/bundle/import", method="POST", payload={
+            "kind": "ocleaner-custom", "version": 1,
+            "units": [{"label": "自测导入单位", "size": {"value": 1, "unit": "GB"}}],
+            "overrides": {"sandbox-tree": {"what": "自测包释义"}},
+            "rules": [{"name": "自测导入规则", "ids": ["sandbox-tree"]}],
+        })
+        check("自定义数据包可导入（单位/覆盖/规则各收下一项）",
+              _bi.get("ok") and _bi.get("units_added") == 1
+              and _bi.get("overrides_applied") == 1
+              and _bi.get("rules_added") == 1,
+              str((_bi or {}).get("units_skipped")))
+        _s4 = get("/__oc__/state?drive=C")
+        check("导入的单位与释义覆盖已反映到状态",
+              any(u.get("label") == "自测导入单位" for u in _s4.get("units", []))
+              and next((t for t in _s4.get("targets", [])
+                        if t.get("base_id") == "sandbox-tree"),
+                       {}).get("what") == "自测包释义")
+        get("/__oc__/units/delete", method="POST", payload={
+            "id": next(u["id"] for u in _s4.get("units", [])
+                       if u.get("label") == "自测导入单位")})
+        get("/__oc__/overrides/delete", method="POST",
+            payload={"id": "sandbox-tree"})
+        _rl = get("/__oc__/bundle/export").get("rules", [])
+        get("/__oc__/custom-rules", method="POST", payload={
+            "action": "delete",
+            "id": next(r["id"] for r in _rl if r.get("name") == "自测导入规则")})
+        try:
+            get("/__oc__/bundle/import", method="POST", payload={"kind": "x"})
+            _bad_kind = False
+        except Exception:
+            _bad_kind = True
+        check("错误 kind 的数据包被拒绝", _bad_kind)
+
         # 扫描进度：必须是真实阶段，而不是把时间映射成百分比
         _pg = get("/__oc__/progress")
         check("进度端点在不扫描时明确标记为未激活",

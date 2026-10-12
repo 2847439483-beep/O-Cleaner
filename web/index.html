@@ -903,6 +903,21 @@
           <button id="btnRuleSave" class="primary" style="flex:1">保存当前勾选为规则</button>
         </div>
         <div id="ruleList"></div>
+        <details style="margin-top:12px">
+          <summary style="cursor:pointer;color:var(--dim);font-size:12px">导入 / 导出自定义数据（含换算单位与释义）</summary>
+          <div style="margin-top:9px">
+            <div style="color:var(--dim2);font-size:11.5px;line-height:1.6;margin-bottom:8px">
+              把换算单位、释义/结论覆盖和固定项规则打包成一个 JSON，
+              便于换机迁移或让 AI 按规范生成后导回。格式见
+              docs\CUSTOMIZE.md；导入时逐项校验，不合格的会说明原因。
+            </div>
+            <div class="field" style="gap:8px">
+              <button id="btnBundleExport" class="tiny ghost" style="flex:1">导出自定义数据</button>
+              <button id="btnBundleImport" class="tiny ghost" style="flex:1">导入自定义数据</button>
+            </div>
+            <input type="file" id="bundleFile" accept=".json,application/json" style="display:none">
+          </div>
+        </details>
       </div>
     </div>
 
@@ -3611,6 +3626,51 @@ $("btnUnitExample").addEventListener("click", () => {
 });
 
 $("btnRuleSave").addEventListener("click", saveRule);
+
+/* ---- 自定义数据包：导出本机三项自定义 / 导入 AI 或别处生成的 JSON ---- */
+$("btnBundleExport").addEventListener("click", async () => {
+  try {
+    const r = await (await fetch(`${API}/__oc__/bundle/export`)).json();
+    const blob = new Blob([JSON.stringify(r, null, 2)],
+                          { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `ocleaner-custom-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast("已导出：换算单位 / 释义覆盖 / 固定项规则");
+  } catch { toast("导出失败，请重试"); }
+});
+$("btnBundleImport").addEventListener("click", () => $("bundleFile").click());
+$("bundleFile").addEventListener("change", async e => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  let data;
+  try { data = JSON.parse(await f.text()); }
+  catch { toast("文件不是合法 JSON"); return; }
+  try {
+    const r = await (await fetch(`${API}/__oc__/bundle/import`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    })).json();
+    if (r.error) { toast(r.error); return; }
+    const parts = [];
+    if (r.units_added) parts.push(`单位 +${r.units_added}`);
+    if (r.units_updated) parts.push(`单位 ~${r.units_updated}`);
+    if (r.overrides_applied) parts.push(`释义 ${r.overrides_applied} 条`);
+    if (r.rules_added) parts.push(`规则 +${r.rules_added}`);
+    if (r.rules_updated) parts.push(`规则 ~${r.rules_updated}`);
+    const skipped = [].concat(r.units_skipped, r.overrides_skipped,
+                              r.rules_skipped).filter(Boolean);
+    if (skipped.length)
+      console.warn("[O-Cleaner] 导入跳过项：", skipped);
+    toast(parts.length ? "已导入：" + parts.join("，")
+          + (skipped.length ? `（跳过 ${skipped.length} 项，详情见控制台）` : "")
+          : "没有可导入的内容");
+    await loadState();
+  } catch { toast("导入失败，请重试"); }
+});
 $("ruleName").addEventListener("keydown", e => { if (e.key === "Enter") saveRule(); });
 
 $("btnSchSave").addEventListener("click", async () => {

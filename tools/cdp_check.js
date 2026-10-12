@@ -303,6 +303,13 @@ class CDP {
           .every(l => (ov.labels || []).includes(l)),
         `字段: ${(ov.labels || []).join("/")} 关闭=${ov.maskOff}`);
 
+  // 自定义数据包：导入 / 导出入口存在（导出走浏览器下载，导入走文件选择）
+  const bd = await evaluate(
+    `!!document.querySelector('#btnBundleExport') &&
+     !!document.querySelector('#btnBundleImport') &&
+     !!document.querySelector('#bundleFile')`);
+  check("自定义数据导入 / 导出入口存在", bd === true);
+
   // 右侧栏面板堆叠：aside 是「定高的滚动容器」，面板必须保持自然高度、由 aside 滚动。
   // 这里量的是真实渲染高度而不是 CSS 文本 —— 曾经踩过的坑：面板带 overflow:hidden，
   // 按 flex 规范自动最小高度按 0 算，叠加默认的 flex-shrink:1，11 个面板被整体压扁去
