@@ -385,7 +385,7 @@ CI 上出现一次此前未见的 `ui` 失败（`通过 21 项，失败 4 项，
    `windows-system.json`（28 条，系统目录与系统文件逐条释义）、`games-platform.json`（21 条，Steam/Epic/GOG 平台目录与显卡缓存）、`games-titles.json`（65 条，游戏中文名与说明）、`apps-common.json`（34 条，包管理器/AI 模型/聊天软件等缓存）。合计 78.3 KB。
 7. **匹配语义（一处实测逼出来的规则）**：得分是三元组 `(匹配在路径里的结束位置, 匹配串长度, …)`，**先比位置再比长度**。原先只比长度时，`\steamlibrary\steamapps`（22 字符，容器规则）盖过 `steamapps\shadercache`（21 字符，叶子规则），着色器缓存被打上「Steam 游戏库根目录」。
 8. **安全边界（写进 `identify()` 并有断言）**：包命中的若是**节点本身**，其 `title`/`category` 与四段说明生效；命中的若只是**上层目录**，只补一个中文显示名。**内置已识别的项目，`cleanable` 与 `risk` 一律沿用内置值**，包不许改写；内置**未识别**的项目才允许包给出完整结论。理由：这两项决定「删不删」。
-9. **自定义包与 GitHub 更新**：`import_pack()` 校验后写入 `config/packs-user/`；`packs_update_from_remote()` 按远端 `packs/index.json` 逐个下载导入，同 id 覆盖内置版本；界面提供导入/启用停用/检查更新。默认远端 `DEFAULT_PACKS_REMOTE` 指向**独立的公开仓库 `O-Cleaner-packs`**（主仓库私有，raw 对外不可达，所以 packs 数据单独建公开仓分发；本仓库 `packs/` 与其保持同内容，更新时两边同步）。
+9. **自定义包与 GitHub 更新**：`import_pack()` 校验后写入 `config/packs-user/`；`packs_update_from_remote()` 按远端 `packs/index.json` 逐个下载导入，同 id 覆盖内置版本；界面提供导入/启用停用/检查更新。默认远端 `DEFAULT_PACKS_REMOTE` 指向**独立的公开仓库 `O-Cleaner-packs`**（主仓库私有，raw 对外不可达，所以 packs 数据单独建公开仓分发；本仓库 `packs/` 与其保持同内容，更新时两边同步）。2026-10-12 已端到端实测：`packs_update_from_remote()` 从公开仓拉取清单与 4 个包（148 条）全部导入成功，raw 链接 0.5 秒内返回。
 
 **C. 自有 AI（对应「支持接入 API / 使用自己的 AI / 可清理项解释 / 自定义清理方案」）**
 
