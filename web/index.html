@@ -48,26 +48,62 @@
            color:#f5c26b;padding:6px 12px;border-radius:8px;font-size:12.5px}
 
   /* ================= 布局 =================
-     坑：工具栏用 grid-column:1 显式占位后，若不给 section / aside 指定列，
-     grid 的 auto-placement 会把 <section> 放进第 2 列、<aside> 挤到第 1 列，
-     结果是卡片被塞进 392px 的窄列、左侧留下大片空白（就是“挤在左上侧”）。
-     因此这里两个子项都显式指定列，不依赖自动排布。 */
-  main{display:grid;grid-template-columns:minmax(0,1fr) 392px;gap:18px;
-       padding:16px 20px 210px;max-width:1560px;margin:0 auto;align-items:start}
-  main > section{grid-column:1;min-width:0}
-  aside{grid-column:2}
-  @media(max-width:1180px){main{grid-template-columns:1fr}
-    main > section,aside{grid-column:1}}
-  /* 侧栏不设内部滚动条。
-     早期写成 max-height + overflow-y:auto，侧栏就变成只有一屏高的内滚动容器，
-     长文案（如「不会触碰」说明）被裁掉，而且那块滚动区域很难被发现 ——
-     用户反馈「文字被遮挡」正是这个原因。现在让页面整体滚动，内容完整可见，
-     只保留 sticky 让它在滚动时跟随。 */
-  aside{display:flex;flex-direction:column;gap:14px;position:sticky;top:82px;
-        align-self:start;min-width:0}
-  @media(max-width:1180px){aside{position:static}}
+     两栏各自滚动：左列（工具栏 + 卡片 / 磁盘树）与右列（功能面板）各有一条
+    独立滚动条，互不牵连。整页不再滚动，header / footer 常驻。
+     这样做是因为两栏内容长度差异很大：左列卡片动辄几十屏，右列较短，
+     整页滚动时右列总有一段被带出视野。
 
-  .toolbar{grid-column:1;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+     历史坑一：工具栏用 grid-column 显式占位后，若不给出列，grid 的
+     auto-placement 会把两个栏位对调，卡片被塞进 392px 窄列。现在左右两栏
+     都是显式定位的 grid item，不依赖自动排布。
+     历史坑二：早期给 aside 写过 max-height + overflow-y:auto，但当时滚动条
+     不显眼、长文案像被裁掉，用户反馈「文字被遮挡」。这次把滚动条显式画出来
+     （见 ::-webkit-scrollbar 与 scrollbar-width），并且两栏都滚，
+     不会再出现「内容看不见又找不到滚动条」。
+     坑三：grid 的隐式行是 auto，会被内容撑高而溢出容器；必须用
+     grid-template-rows:minmax(0,1fr) 把唯一一行钉死在容器高度上，
+     子项才能成为真正的滚动容器。 */
+  html,body{height:100%}
+  body{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  header{flex:none}
+  /* 用 grid-template-areas 显式命名每个格子，左列自上而下是
+     工具栏 → 自定义目录栏 → 磁盘概览 → 当前视图；右列 sidebar 跨满整列。 */
+  main{display:grid;gap:12px 18px;
+       grid-template-columns:minmax(0,1fr) 392px;
+       grid-template-rows:auto auto auto minmax(0,1fr);
+       grid-template-areas:
+         "tool1 side"
+         "tool2 side"
+         "disk  side"
+         "view  side";
+       flex:1 1 auto;min-height:0;overflow:hidden;
+       padding:16px 20px;max-width:1560px;margin:0 auto;width:100%}
+  .toolbar{grid-area:tool1}
+  .toolbar.t2{grid-area:tool2}
+  #paneDisk{grid-area:disk}
+  main > section{grid-area:view;min-width:0;min-height:0;overflow-y:auto;
+                 padding-right:4px;padding-bottom:4px}
+  aside{grid-area:side;min-width:0;min-height:0;overflow-y:auto;
+        display:flex;flex-direction:column;gap:12px;padding-right:4px;
+        padding-bottom:4px}
+  /* 滚动条常驻可见，避免「内容被裁掉却看不出能滚」 */
+  main > section,aside{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+  main > section::-webkit-scrollbar,aside::-webkit-scrollbar{width:10px}
+  main > section::-webkit-scrollbar-track,aside::-webkit-scrollbar-track{background:transparent}
+  main > section::-webkit-scrollbar-thumb,aside::-webkit-scrollbar-thumb{
+        background:var(--line2);border-radius:6px;border:2px solid transparent;
+        background-clip:content-box}
+  main > section::-webkit-scrollbar-thumb:hover,aside::-webkit-scrollbar-thumb:hover{
+        background:#4a5266;background-clip:content-box}
+  /* 窄屏（≤1180px）回到整页滚动：两栏都是整行宽度，再各自内滚动反而难用 */
+  @media(max-width:1180px){
+    body{height:auto;min-height:100vh;overflow:auto;display:block}
+    main{display:block;overflow:visible;padding:16px 20px 24px}
+    main > section,aside{overflow:visible;padding-right:0}
+    #paneDisk,main > section,aside{margin-top:14px}
+  }
+
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .cathead{margin:16px 0 8px;font-size:11.5px;letter-spacing:.1em;color:var(--dim2);
            text-transform:uppercase;font-weight:700;display:flex;align-items:center;gap:8px}
   .cathead .cnt{color:var(--dim2);font-weight:500;letter-spacing:0;text-transform:none}
@@ -79,6 +115,22 @@
      text-transform:uppercase;display:flex;align-items:center;justify-content:space-between;
      gap:8px;flex-wrap:wrap}
   h3 .hint{font-weight:400;letter-spacing:0;text-transform:none;color:var(--dim2);font-size:11.5px}
+
+  /* ========== 可折叠面板（右侧栏堆叠） ==========
+     右侧 12 个面板全部改成长条堆叠，点标题展开详情，默认只留最常用的两个展开。
+     折叠状态存 localStorage，刷新后保持。
+     箭头用 ::after 画，不写进 DOM 文本，免得影响 innerText 取标题。 */
+  .panel.acc{padding:0;overflow:hidden}
+  .panel.acc > h3{margin:0;padding:13px 14px;cursor:pointer;user-select:none;
+                  border-radius:12px;transition:background .14s}
+  .panel.acc > h3:hover{background:var(--panel2)}
+  .panel.acc > h3::after{content:"\25BE";color:var(--dim2);font-size:10px;
+                         line-height:1;transform-origin:50% 45%;
+                         transition:transform .16s;flex:none}
+  .panel.acc.open > h3{border-bottom:1px solid var(--line);border-radius:12px 12px 0 0}
+  .panel.acc.open > h3::after{transform:rotate(180deg)}
+  .panel.acc > .ab{display:none;padding:13px 14px}
+  .panel.acc.open > .ab{display:block}
 
   /* ================= 按钮 ================= */
   button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel2);
@@ -235,7 +287,13 @@
   .scantop .scansec b{color:var(--fg);font-size:17px;font-variant-numeric:tabular-nums}
   .scanbar{height:7px;border-radius:4px;background:#0e1014;overflow:hidden;margin:13px 0 11px}
   .scanbar > i{display:block;height:100%;border-radius:4px;
-               background:linear-gradient(90deg,#3b82f6,#8b5cf6);transition:.6s}
+               background:linear-gradient(90deg,#3b82f6,#8b5cf6);transition:width .5s}
+  /* 无法预知总工作量的阶段：不显示假的百分比，改成来回流动的条纹。
+     宽度固定 40%，靠 translate 循环制造「还在推进」的观感。 */
+  .scanbar.ind > i{width:40%;transition:none;
+                   animation:scanflow 1.25s ease-in-out infinite}
+  @keyframes scanflow{0%{transform:translateX(-105%)}
+                      100%{transform:translateX(255%)}}
   .scanstage{font-size:13px;color:#cfd4dd;display:flex;align-items:center;gap:8px;
              flex-wrap:wrap}
   .scanstage .scanhint{color:var(--dim2);font-size:12px}
@@ -416,6 +474,30 @@
   .gnote{margin-top:10px;font-size:11.5px;color:var(--dim2);line-height:1.65;
          border-left:2px solid var(--line2);padding-left:10px}
   .gnote.lic{margin-top:12px;border-left-color:#6b4a12}
+  /* 兼容性分析：折叠区，默认收起，避免把「运行环境自检」面板撑得很长 */
+  .gcompat{margin-top:11px;padding-top:10px;border-top:1px solid var(--line)}
+  .gcompat > summary{cursor:pointer;color:var(--dim);font-size:12px;outline:none}
+  .gcompat > summary:hover{color:var(--fg)}
+
+  /* ========== 资源包列表 ========== */
+  .packrow{border:1px solid var(--line);border-radius:9px;padding:9px 10px;
+           margin-bottom:8px;background:var(--panel2);transition:.14s}
+  .packrow:last-child{margin-bottom:0}
+  .packrow.on{border-color:#2f4a75;background:#152340}
+  .packrow.bad{border-color:#7a2323;background:#2a1616}
+  .pkhead{display:flex;align-items:center;gap:7px;cursor:pointer;flex-wrap:wrap}
+  .pkhead .switch{flex:none}
+  .pkname{font-size:13px;font-weight:600;overflow-wrap:anywhere}
+  .pktag{font-size:10.5px;color:var(--dim2);border:1px solid var(--line2);
+         border-radius:99px;padding:0 6px;flex:none}
+  .pkmeta{color:var(--dim2);font-size:11.5px;margin-top:4px}
+  .pkbad{color:#ffb4b4;font-size:11.5px;margin-top:4px}
+  .pkdesc{color:var(--dim);font-size:12px;margin-top:5px;line-height:1.6;
+          overflow-wrap:anywhere}
+  .pkactions{margin-top:6px}
+  /* AI 解释段落 */
+  .dpar{font-size:13px;line-height:1.65;color:var(--fg);margin:3px 0;
+        overflow-wrap:anywhere}
   .gnote code{font-family:Consolas,"Cascadia Mono",monospace;font-size:11px;
               overflow-wrap:anywhere}
   .gnote a{color:var(--accent)}
@@ -494,8 +576,10 @@
   .logrow .t{color:var(--dim2);font-size:11.5px;display:flex;justify-content:space-between;gap:8px}
   .logrow .d{color:var(--dim);margin-top:3px;overflow-wrap:anywhere}
 
-  /* ================= 底部栏 ================= */
-  footer{position:fixed;left:0;right:0;bottom:0;z-index:40;background:rgba(18,21,27,.97);
+  /* ================= 底部栏 =================
+     改成 flex 子项（不再 fixed）：body 是 height:100vh 的纵向 flex，
+     两栏各自滚动后，底栏本来就常驻可见，fixed 反而会盖住左栏最后一行。 */
+  footer{flex:none;z-index:40;background:rgba(18,21,27,.97);
          backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:11px 20px}
   .frow{display:flex;align-items:center;gap:14px;max-width:1560px;margin:0 auto;flex-wrap:wrap}
   .selinfo{font-size:13px;color:var(--dim)}
@@ -568,12 +652,19 @@
     <span id="scantime" style="color:var(--dim2);font-size:12px"></span>
   </div>
 
-  <div class="toolbar">
+  <div class="toolbar t2">
     <span style="color:var(--dim2);font-size:12px">自定义目录</span>
     <input type="text" id="customPath" style="max-width:400px"
            placeholder="例如 D:\Downloads 或 E:\GameCache，回车扫描其中的已知垃圾文件夹">
     <button id="btnCustom" class="tiny">扫描该目录</button>
     <button id="btnCustomClear" class="tiny ghost">取消</button>
+  </div>
+
+  <!-- 磁盘概览：原先在右侧栏，现合并到左列，三个视图下都常驻可见。
+       #driveHint / #diskInfo 两个 id 保持不变，renderDisk() 无需改动。 -->
+  <div class="panel" id="paneDisk">
+    <h3>磁盘概览 <span class="hint" id="driveHint"></span></h3>
+    <div id="diskInfo"></div>
   </div>
 
   <section id="normalView"><div id="cards"></div></section>
@@ -606,7 +697,7 @@
 
   <section id="fullView" class="fspanel" style="display:none">
     <div class="panel">
-      <h3>磁盘概览 <span class="hint" id="fsHint"></span></h3>
+      <h3>扫描概览 <span class="hint" id="fsHint"></span></h3>
       <div id="fsOverview"></div>
       <div id="fsNav"></div>
     </div>
@@ -618,114 +709,174 @@
   </section>
 
   <aside>
-    <div class="panel">
+    <div class="panel acc open" data-acc="guide">
       <h3>运行环境自检 <span class="hint">首次使用看这里</span></h3>
-      <div id="guide"></div>
+      <div class="ab"><div id="guide"></div></div>
     </div>
 
-    <div class="panel">
-      <h3>磁盘概览 <span class="hint" id="driveHint"></span></h3>
-      <div id="diskInfo"></div>
-    </div>
-
-    <div class="panel">
+    <div class="panel acc" data-acc="presets">
       <h3>一键预设</h3>
-      <div id="presets"></div>
+      <div class="ab"><div id="presets"></div></div>
     </div>
 
-    <div class="panel">
+    <div class="panel acc" data-acc="steam">
       <h3>Steam 游戏库 <span class="hint" id="steamHint"></span></h3>
-      <div id="steamPanel"></div>
+      <div class="ab"><div id="steamPanel"></div></div>
     </div>
 
-    <div class="panel">
-      <h3>累积清理与换算
-        <span class="hint" id="statRange"></span></h3>
-      <div id="cumulative"></div>
-    </div>
-
-    <div class="panel">
-      <h3>自定义规则 <span class="hint">勾选固定项，命名保存</span></h3>
-      <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6">
-        把当前勾选的清理项存成一条规则，以后一键套用；勾选「保存后立即清理」
-        则保存时直接清理这些项。
-      </div>
-      <div class="field">
-        <input type="text" id="ruleName" placeholder="给规则起个名字，例如「每周清缓存」">
-      </div>
-      <div class="field" style="gap:14px">
-        <label style="display:flex;align-items:center;gap:7px;color:var(--fg);cursor:pointer">
-          <input type="checkbox" class="switch" id="ruleAuto" style="accent-color:var(--danger)">
-          保存后立即清理
-        </label>
-        <span style="color:var(--dim2);font-size:11.5px" id="ruleSelInfo"></span>
-      </div>
-      <div class="field" style="margin-bottom:12px">
-        <button id="btnRuleSave" class="primary" style="flex:1">保存当前勾选为规则</button>
-      </div>
-      <div id="ruleList"></div>
-    </div>
-
-    <div class="panel">
-      <h3>换算单位 <span class="hint">可自定义</span></h3>
-      <div class="convtoggle" id="convToggle"></div>
-      <details style="margin-top:4px">
-        <summary style="cursor:pointer;color:var(--dim);font-size:12.5px">添加 / 管理换算单位</summary>
-        <div style="margin-top:10px">
-          <div class="field"><label style="width:52px">名称</label>
-            <input type="text" id="uLabel" placeholder="例如 部 演唱会录像"></div>
-          <div class="field"><label style="width:52px">大小</label>
-            <input type="number" id="uBytes" step="any" placeholder="数值" style="width:88px">
-            <select id="uUnit" style="width:78px">
-              <option value="1048576">MB</option>
-              <option value="1073741824" selected>GB</option>
-              <option value="1099511627776">TB</option>
-            </select>
-            <span style="color:var(--dim2);font-size:12px">= 1 个该单位</span></div>
-          <div class="field"><label style="width:52px">备注</label>
-            <input type="text" id="uNote" placeholder="选填，说明估算依据"></div>
-          <div class="field">
-            <button id="btnUnitAdd" class="tiny primary">添加单位</button>
-            <button id="btnUnitExample" class="tiny ghost">填入范例</button>
-          </div>
-          <div id="unitList" style="margin-top:8px"></div>
+    <div class="panel acc" data-acc="packs">
+      <h3>资源包 <span class="hint" id="packsHint"></span></h3>
+      <div class="ab">
+        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6">
+          资源包是纯 JSON 的「识别与释义」数据：某个目录/文件是什么、能不能自动重建、
+          删掉有什么影响、什么情况该保留。装得越多，卡片与磁盘树里「已识别」的比例越高。
+          也可以把自己的包丢进来，或用 AI 按本机情况生成一份。
         </div>
-      </details>
+        <div id="packsList"></div>
+        <div class="field" style="margin-top:11px">
+          <button id="btnPackImport" class="tiny primary">导入本地资源包</button>
+          <button id="btnPackUpdate" class="tiny">从 GitHub 检查更新</button>
+        </div>
+        <input type="file" id="packFile" accept=".json,application/json" style="display:none">
+        <div id="packMsg" style="color:var(--dim2);font-size:11.5px;margin-top:9px"></div>
+      </div>
     </div>
 
-    <div class="panel">
+    <div class="panel acc" data-acc="ai">
+      <h3>AI 助手 <span class="hint" id="aiHint">可选</span></h3>
+      <div class="ab">
+        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6">
+          接入自己的 AI 服务（任何兼容 OpenAI Chat Completions 的接口），
+          用它解释可清理项、按你的需求生成清理方案。密钥只存在本机
+          <code>config/ai.json</code>，除了你填的接口地址外不发往任何地方。
+        </div>
+        <div class="field"><label style="width:64px">接口</label>
+          <input type="text" id="aiBase" placeholder="https://api.example.com/v1"></div>
+        <div class="field"><label style="width:64px">密钥</label>
+          <input type="password" id="aiKey" placeholder="sk-..."></div>
+        <div class="field"><label style="width:64px">模型</label>
+          <input type="text" id="aiModel" placeholder="例如 gpt-4o-mini"></div>
+        <div class="field" style="gap:10px">
+          <label style="display:flex;align-items:center;gap:7px;color:var(--fg);cursor:pointer">
+            <input type="checkbox" class="switch" id="aiEnabled"> 启用
+          </label>
+          <span style="color:var(--dim2);font-size:11.5px" id="aiState"></span>
+        </div>
+        <div class="field" style="margin-bottom:10px">
+          <button id="btnAiSave" class="tiny primary">保存</button>
+          <button id="btnAiTest" class="tiny">测试连接</button>
+        </div>
+        <div style="border-top:1px solid var(--line);padding-top:11px">
+          <div style="color:var(--dim);font-size:12.5px;margin-bottom:7px">
+            <b style="color:var(--fg)">按需求生成清理方案</b><br>
+            描述你想清理什么，例如「C 盘只剩 8 GB，帮我挑出可以安全清理的项」。
+          </div>
+          <textarea id="aiAsk" rows="3" placeholder="描述你的清理目标…"
+                    style="width:100%;resize:vertical"></textarea>
+          <div class="field" style="margin-top:8px">
+            <button id="btnAiPlan" class="tiny primary">生成方案</button>
+            <button id="btnAiClear" class="tiny ghost">清空结果</button>
+          </div>
+          <div id="aiOut" style="margin-top:9px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel acc" data-acc="cum">
+      <h3>累积清理与换算 <span class="hint" id="statRange"></span></h3>
+      <div class="ab"><div id="cumulative"></div></div>
+    </div>
+
+    <div class="panel acc open" data-acc="rules">
+      <h3>自定义规则 <span class="hint">勾选固定项，命名保存</span></h3>
+      <div class="ab">
+        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6">
+          把当前勾选的清理项存成一条规则，以后一键套用；勾选「保存后立即清理」
+          则保存时直接清理这些项。
+        </div>
+        <div class="field">
+          <input type="text" id="ruleName" placeholder="给规则起个名字，例如「每周清缓存」">
+        </div>
+        <div class="field" style="gap:14px">
+          <label style="display:flex;align-items:center;gap:7px;color:var(--fg);cursor:pointer">
+            <input type="checkbox" class="switch" id="ruleAuto" style="accent-color:var(--danger)">
+            保存后立即清理
+          </label>
+          <span style="color:var(--dim2);font-size:11.5px" id="ruleSelInfo"></span>
+        </div>
+        <div class="field" style="margin-bottom:12px">
+          <button id="btnRuleSave" class="primary" style="flex:1">保存当前勾选为规则</button>
+        </div>
+        <div id="ruleList"></div>
+      </div>
+    </div>
+
+    <div class="panel acc" data-acc="units">
+      <h3>换算单位 <span class="hint">可自定义</span></h3>
+      <div class="ab">
+        <div class="convtoggle" id="convToggle"></div>
+        <details style="margin-top:4px">
+          <summary style="cursor:pointer;color:var(--dim);font-size:12.5px">添加 / 管理换算单位</summary>
+          <div style="margin-top:10px">
+            <div class="field"><label style="width:52px">名称</label>
+              <input type="text" id="uLabel" placeholder="例如 部 演唱会录像"></div>
+            <div class="field"><label style="width:52px">大小</label>
+              <input type="number" id="uBytes" step="any" placeholder="数值" style="width:88px">
+              <select id="uUnit" style="width:78px">
+                <option value="1048576">MB</option>
+                <option value="1073741824" selected>GB</option>
+                <option value="1099511627776">TB</option>
+              </select>
+              <span style="color:var(--dim2);font-size:12px">= 1 个该单位</span></div>
+            <div class="field"><label style="width:52px">备注</label>
+              <input type="text" id="uNote" placeholder="选填，说明估算依据"></div>
+            <div class="field">
+              <button id="btnUnitAdd" class="tiny primary">添加单位</button>
+              <button id="btnUnitExample" class="tiny ghost">填入范例</button>
+            </div>
+            <div id="unitList" style="margin-top:8px"></div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div class="panel acc" data-acc="schedule">
       <h3>定时自动清理</h3>
-      <div class="field">
-        <input type="checkbox" class="switch" id="schEnabled">
-        <label for="schEnabled">启用（服务运行时生效）</label>
+      <div class="ab">
+        <div class="field">
+          <input type="checkbox" class="switch" id="schEnabled">
+          <label for="schEnabled">启用（服务运行时生效）</label>
+        </div>
+        <div class="field">
+          <label>每</label><input type="number" id="schHours" min="0.25" step="0.25" value="24"
+                style="width:74px"><label>小时，按预设</label>
+        </div>
+        <div class="field"><select id="schPreset"></select>
+          <select id="schDrive" style="width:96px"></select></div>
+        <button id="btnSchSave" style="width:100%">保存定时设置</button>
+        <div id="schInfo" style="color:var(--dim2);font-size:12px;margin-top:9px"></div>
       </div>
-      <div class="field">
-        <label>每</label><input type="number" id="schHours" min="0.25" step="0.25" value="24"
-              style="width:74px"><label>小时，按预设</label>
-      </div>
-      <div class="field"><select id="schPreset"></select>
-        <select id="schDrive" style="width:96px"></select></div>
-      <button id="btnSchSave" style="width:100%">保存定时设置</button>
-      <div id="schInfo" style="color:var(--dim2);font-size:12px;margin-top:9px"></div>
     </div>
 
-    <div class="panel">
+    <div class="panel acc" data-acc="history">
       <h3>最近清理记录
         <button id="btnClearLog" class="tiny ghost">清空全部</button></h3>
-      <div id="history"></div>
+      <div class="ab"><div id="history"></div></div>
     </div>
 
-    <div class="panel">
+    <div class="panel acc" data-acc="about">
       <h3>说明</h3>
-      <div style="color:var(--dim);font-size:12.5px">
-        每张卡片右侧的「?」展开该类型的完整说明：是什么、能否自动重建、删除影响、什么情况建议保留。
-      </div>
-      <div style="margin-top:11px;padding-top:11px;border-top:1px solid var(--line);
-                  color:var(--dim);font-size:12.5px">
-        <b style="color:var(--fg)">不会触碰</b><br>
-        用户文档 / 图片 / 桌面、已安装程序本体、已下载的 AI 模型、
-        <code>Windows\Installer</code>、<code>WinSxS</code> 组件存储。<br>
-        删除目标受内置保护名单拦截，即使配置文件被改坏也不会越界。
+      <div class="ab">
+        <div style="color:var(--dim);font-size:12.5px">
+          每张卡片右侧的「?」展开该类型的完整说明：是什么、能否自动重建、删除影响、什么情况建议保留。
+        </div>
+        <div style="margin-top:11px;padding-top:11px;border-top:1px solid var(--line);
+                    color:var(--dim);font-size:12.5px">
+          <b style="color:var(--fg)">不会触碰</b><br>
+          用户文档 / 图片 / 桌面、已安装程序本体、已下载的 AI 模型、
+          <code>Windows\Installer</code>、<code>WinSxS</code> 组件存储。<br>
+          删除目标受内置保护名单拦截，即使配置文件被改坏也不会越界。
+        </div>
       </div>
     </div>
   </aside>
@@ -764,6 +915,9 @@ const CAT_ORDER = ["包管理器","浏览器","临时文件","显卡缓存","缩
 let STATE = null, SCAN = {}, selected = new Set(), subSel = {},
     busy = false, drive = "C", customPath = "", convOnly = null,
     scope = "all", toastTimer = null;
+// 最近一次 AI 方案里被挑中的目标 id。只用来做「按方案勾选」，
+// 不参与清理本身 —— 清理由底部的按钮与后端同一条链路完成。
+let AI_PICKS = [];
 
 function toast(msg) {
   const t = $("toast");
@@ -805,7 +959,7 @@ async function loadState() {
   $("scopeSel").value = scope;
   renderDrives(); renderDisk(); renderPresets(); renderCumulative();
   renderUnits(); renderRules(); renderSchedule(); renderHistory();
-  renderGuide();
+  renderGuide(); renderPacks(); renderAI();
   buildCards();
 }
 async function scan() {
@@ -874,16 +1028,22 @@ function applyDefaultScope() {
    实测痛点是：没有引导时用户不知道 WizTree 是可选的、更不知道可以一键装。 */
 function renderGuide() {
   const w = (STATE && STATE.wiztree) || {};
+  const c = (STATE && STATE.compat) || {};
   const admin = STATE && STATE.is_admin;
   const pythonOk = true;               // 能打开页面就说明服务在跑
+  const cItems = c.items || [];
+  const cOk = c.ok_count || 0, cAll = c.total || cItems.length;
+  // 「兼容性分析」不再是写死的一句结论，而是后端逐条实测后的汇总；
+  // 逐条依据放在下面的折叠区里，避免把这一行撑得很长。
   const rows = [
     { ok: pythonOk, t: "运行环境", d: "Python 服务已启动，本机可用" },
     { ok: admin, t: "管理员权限",
       d: admin ? "已具备，可统计回收站与 Windows\\Temp"
                : "未具备。回收站、Windows\\Temp 会显示「需要管理员权限」，"
                  + "右键 start-ocleaner.bat → 以管理员身份运行可获得完整统计" },
-    { ok: true, t: "跨设备兼容", d: "路径全部用 %DRIVE% / %LOCALAPPDATA% 变量，"
-                                    + "不写死盘符与用户名" },
+    { ok: cAll > 0 && cOk === cAll, t: "兼容性分析",
+      d: cAll ? `已核对 ${cOk} / ${cAll} 项，展开下方「兼容性分析」查看逐条依据`
+              : "后端未返回兼容性数据" },
   ];
   const wzTxt = w.found
     ? `<b class="ok">已就绪</b>${w.version ? " · v" + esc(w.version) : ""}
@@ -907,6 +1067,17 @@ function renderGuide() {
         <span class="gdesc">${wzTxt}</span>
       </div>
     </div>
+    ${cItems.length ? `
+      <details class="gcompat">
+        <summary>兼容性分析（${cOk} / ${cAll} 项通过，点击看逐条依据）</summary>
+        <div class="glist" style="margin-top:9px">
+          ${cItems.map(i => `<div class="grow">
+            <span class="gdot ${i.ok ? "ok" : "warn"}">${i.ok ? "✓" : "!"}</span>
+            <span class="gname">${esc(i.title)}</span>
+            <span class="gdesc">${esc(i.detail)}</span>
+          </div>`).join("")}
+        </div>
+      </details>` : ""}
     ${w.found ? "" : `
       <button id="btnWizInstall" class="primary" style="width:100%;margin-top:11px">
         一键下载 WizTree 便携版（约 7.5 MB）</button>
@@ -944,6 +1115,193 @@ async function installWizTree() {
     b.disabled = false; b.textContent = "重试下载";
     toast("自动安装失败：" + e);
   }
+}
+
+/* ==================== 资源包 ==================== */
+/* 资源包是纯 JSON 的「识别与释义」数据，决定卡片与磁盘树里「已识别」能覆盖多广。
+   这里只做三件事：列出当前装了哪些、允许停用/删除自己导入的、允许导入与更新。
+   逐条内容不在界面上编辑 —— 要改就改文件再导入，避免做一套半成品编辑器。 */
+function renderPacks() {
+  const el = $("packsList");
+  if (!el) return;
+  const packs = (STATE && STATE.packs) || [];
+  const live = packs.filter(p => p.ok && p.enabled);
+  const n = live.reduce((a, p) => a + (p.count || 0), 0);
+  $("packsHint").textContent = packs.length
+    ? `${live.length}/${packs.length} 启用 · ${n} 条说明` : "";
+  if (!packs.length) {
+    el.innerHTML = '<div class="empty">packs/ 目录里还没有资源包。</div>';
+    return;
+  }
+  el.innerHTML = packs.map(p => `
+    <div class="packrow${p.ok && p.enabled ? " on" : ""}${p.ok ? "" : " bad"}"
+         data-id="${esc(p.id)}">
+      <label class="pkhead">
+        <input type="checkbox" class="switch" data-pk-toggle
+               ${p.enabled ? "checked" : ""} ${p.ok ? "" : "disabled"}>
+        <span class="pkname">${esc(p.name)}</span>
+        <span class="pktag">${esc(p.type_label)}</span>
+      </label>
+      <div class="pkmeta">${[
+        p.version ? "v" + p.version : "", p.updated || "",
+        `${p.count} 条`, p.source === "user" ? "自己导入" : "内置",
+      ].filter(Boolean).map(esc).join(" · ")}</div>
+      ${p.ok ? "" : `<div class="pkbad">无法启用：${esc(p.error)}</div>`}
+      ${p.description ? `<div class="pkdesc">${esc(p.description)}</div>` : ""}
+      ${p.source === "user"
+        ? '<div class="pkactions"><button class="tiny ghost" data-pk-del>删除</button></div>'
+        : ""}
+    </div>`).join("");
+  el.querySelectorAll("[data-pk-toggle]").forEach(n => n.addEventListener("change", () =>
+    packOp("toggle", { id: n.closest(".packrow").dataset.id, enabled: n.checked })));
+  el.querySelectorAll("[data-pk-del]").forEach(n => n.addEventListener("click", () => {
+    const row = n.closest(".packrow");
+    if (!confirm(`确定删除资源包「${row.dataset.id}」？\n` +
+                 `它提供的说明会立即失效，重新导入即可恢复。`)) return;
+    packOp("delete", { id: row.dataset.id });
+  }));
+}
+
+async function packOp(action, body) {
+  const msg = $("packMsg");
+  try {
+    const r = await (await fetch(`${API}/__oc__/packs/${action}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    })).json();
+    if (r.packs) { STATE.packs = r.packs; renderPacks(); }
+    if (action === "update") {
+      const okN = (r.updated || []).length, badN = (r.failed || []).length;
+      msg.innerHTML = r.error
+        ? `<span class="res-err">更新失败：${esc(r.error)}</span>`
+        : `更新完成：成功 ${okN} 个${badN ? `，失败 ${badN} 个` : ""}` +
+          (badN ? `<div style="margin-top:4px">${esc((r.failed || []).join("；"))}</div>` : "");
+    } else {
+      msg.innerHTML = r.ok
+        ? `<span class="res-ok">${esc(r.message || "已生效")}</span>`
+        : `<span class="res-err">${esc(r.error || "操作失败")}</span>`;
+    }
+    // 识别结果变了，常规项要重新统计一次，否则卡片上的说明还是旧的
+    await scan();
+  } catch (e) {
+    msg.innerHTML = `<span class="res-err">操作失败：${esc(String(e))}</span>`;
+  }
+}
+
+/* ==================== 自有 AI ==================== */
+function renderAI() {
+  const ai = (STATE && STATE.ai) || {};
+  $("aiBase").value = ai.base_url || "";
+  $("aiModel").value = ai.model || "";
+  $("aiEnabled").checked = !!ai.enabled;
+  $("aiKey").value = "";
+  $("aiKey").placeholder = ai.has_key
+    ? `已保存（尾号 ${ai.key_tail || "****"}），留空表示不修改` : "sk-...";
+  $("aiHint").textContent = ai.ready ? "已就绪" : "可选";
+  $("aiState").innerHTML = ai.has_key
+    ? `密钥已保存在本机 <code>config/ai.json</code>`
+    : "尚未填写密钥。只有你自己填的接口会收到它。";
+}
+
+async function aiSave() {
+  const msg = $("packMsg");
+  const r = await (await fetch(`${API}/__oc__/ai/config`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      base_url: $("aiBase").value.trim(), model: $("aiModel").value.trim(),
+      api_key: $("aiKey").value.trim(), enabled: $("aiEnabled").checked,
+    }),
+  })).json();
+  if (r.ai) { STATE.ai = r.ai; renderAI(); }
+  const out = $("aiOut");
+  if (out) out.innerHTML = r.ok
+    ? '<span class="res-ok">已保存</span>' : '<span class="res-err">保存失败</span>';
+  return msg;
+}
+
+async function aiRun(which, body, btn, label) {
+  const out = $("aiOut");
+  if (!out) return;
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = "请求中…";
+  out.innerHTML = `<div class="loading"><span class="spin"></span>正在请求…</div>`;
+  try {
+    const r = await (await fetch(`${API}/__oc__/ai/${which}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })).json();
+    if (which === "test") {
+      out.innerHTML = aiTestHTML(r);
+    } else {
+      AI_PICKS = (r.picks || []).map(p => p.id);
+      out.innerHTML = aiPlanHTML(r);
+      const ab = $("aiApply");
+      if (ab) ab.addEventListener("click", aiApplyPicks);
+    }
+  } catch (e) {
+    out.innerHTML = `<div class="errline">${esc(String(e))}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = old || label;
+  }
+}
+
+/** 把当前清单里「内置判定可清理且已量出体积」的项交给模型挑选。
+ *
+ * 只送可清理项是刻意的：模型根本没有机会提到不该删的东西，
+ * 后面就算它编出一个不在清单里的 id，后端也会直接丢掉。 */
+function aiCandidates() {
+  return (STATE?.targets || []).map(t => {
+    const s = SCAN[t.id] || {};
+    return { id: t.id, label: t.label, size_h: s.size_h || "",
+             category: t.category, cleanable: !!t.cleanable && !s.missing,
+             path: t.path };
+  }).filter(c => c.cleanable);
+}
+
+/** 应用 AI 的挑选结果：**只做勾选**，不触发清理。
+ *  真正删除仍要用户点底部按钮、仍要过同一条清理链路。 */
+function aiApplyPicks() {
+  const known = new Set((STATE?.targets || []).map(t => t.id));
+  selected.clear();
+  let n = 0;
+  AI_PICKS.forEach(id => {
+    const s = SCAN[id];
+    if (known.has(id) && s && !s.missing && !s.error) { selected.add(id); n++; }
+  });
+  updateCards(); updateFooter(); renderRules();
+  toast(n ? `已勾选 ${n} 项，确认后点底部「清理选中项」` : "这些项当前不可清理，已忽略");
+}
+
+function aiTestHTML(r) {
+  return r.ok
+    ? `<div class="dtip" style="margin-top:0">连接正常，模型回复：${esc(r.reply || "（空）")}</div>`
+    : `<div class="errline">连接失败：${esc(r.error || "未知原因")}</div>`;
+}
+
+function aiPlanHTML(r) {
+  if (!r.ok) return `<div class="errline">${esc(r.error || "生成失败")}</div>`;
+  const picks = r.picks || [];
+  const note = r.candidate_count
+    ? `从 ${r.candidate_count} 个内置判定为可清理的项里挑出 ${picks.length} 个`
+    : "当前没有可清理的候选项";
+  return `
+    <div class="dtip" style="margin-top:0">${esc(r.summary || "（模型没有给出说明）")}</div>
+    <div style="color:var(--dim2);font-size:11.5px;margin:7px 0">${esc(note)}${
+      (r.dropped || []).length
+        ? `；模型还提到 ${r.dropped.length} 个不在清单里的 id，已丢弃`
+        : ""}</div>
+    ${picks.length ? `
+      <div class="plist">${picks.map(p => `<div class="prow">
+        <span class="pnm">${esc(p.label)}<div class="pwhy">${esc(p.reason || "")}</div></span>
+        <span class="psz">${esc(p.size_h || "")}</span>
+      </div>`).join("")}</div>
+      <button id="aiApply" class="tiny primary" style="margin-top:9px">
+        只勾选这 ${picks.length} 项</button>
+      <div style="color:var(--dim2);font-size:11.5px;margin-top:7px">
+        勾选后仍需你点底部的「清理选中项」才会真正执行。AI 不能直接删除任何东西。</div>` : ""}
+    ${r.raw ? `<details style="margin-top:8px"><summary style="cursor:pointer;
+      color:var(--dim2);font-size:11.5px">模型原始回复</summary>
+      <pre style="white-space:pre-wrap;font-size:11px;color:var(--dim2)">${esc(r.raw)}</pre></details>` : ""}`;
 }
 
 function renderDisk(d) {
@@ -1981,42 +2339,56 @@ async function startFullScan() {
   $("fsNav").innerHTML = "";
   $("fsChart").innerHTML = ""; $("fsModes").innerHTML = "";
 
-  // 系统盘（小文件极多）可能要几分钟。这里必须给出强反馈：
-  // 早期只显示一句静止的「正在统计…」，用户以为点了没反应（工单来源）。
+  // 系统盘（小文件极多）可能要几分钟。这里必须给出**真实**进度：
+  // 早期版本用 `1 - exp(-已用时/90)` 把时间换算成百分比，与扫描实际走到哪一步
+  // 毫无关系 —— 90 秒就显示 63%，几分钟后停在 97%，用户据此判断不了要不要继续等。
+  // 现在改成向后端轮询真实阶段：
+  //   * 能算出分母的阶段（解析行数、已建节点、已用预算）给精确百分比；
+  //   * 算不出分母的阶段（读 MFT、PowerShell 递归）显示流动条纹 + 当前阶段文案。
+  // 结构只渲染一次，之后只改文字与宽度，避免每次重绘把 CSS 动画打断。
   const t0 = Date.now();
-  const tick = () => {
-    const s = Math.round((Date.now() - t0) / 1000);
-    const stage = s < 8 ? "正在枚举顶层目录"
-      : s < 40 ? "正在递归统计每个目录的体积"
-      : s < 120 ? "正在沿最大的分支逐层深入"
-      : s < 240 ? "仍在深入…系统盘小文件极多"
-      : "仍在统计…如果一直没结果，可用命令行核对";
-    const hint = s < 40 ? "数据盘通常较快，系统盘因小文件多会慢一些"
-      : s < 120 ? "已过 1 分钟，系统盘属正常范围"
-      : "系统盘（Windows 所在盘）小文件多，耗时更长";
-    const pct = Math.min(97, Math.round(100 * (1 - Math.exp(-s / 90))));
-    $("fsOverview").innerHTML = `
-      <div class="scanning" id="fsScanning">
-        <div class="scantop">
-          <span class="spin big" style="width:20px;height:20px;border-width:3px;margin:0"></span>
-          <b class="scant">正在扫描 ${esc(drive)}: 盘</b>
-          <span class="scansec">已用时 <b>${s}</b> 秒</span>
-        </div>
-        <div class="scanbar"><i style="width:${pct}%"></i></div>
-        <div class="scanstage">
-          <span class="dot"></span>${esc(stage)}… <span class="scanhint">${esc(hint)}</span>
-        </div>
-        <div class="scanfacts">
-          会逐层展开大目录（最深 5 层），这样才能挖到
-          <code>E:\\SteamLibrary\\steamapps\\common\\游戏名</code> 这类深层大项。
-          <b>请保持本窗口与命令行窗口开启。</b>
-          ${STATE?.wiztree?.found ? "（已启用 WizTree 加速）"
-                                  : "（未装 WizTree，逐目录递归会慢一些）"}
-        </div>
-      </div>`;
+  $("fsOverview").innerHTML = `
+    <div class="scanning" id="fsScanning">
+      <div class="scantop">
+        <span class="spin big" style="width:20px;height:20px;border-width:3px;margin:0"></span>
+        <b class="scant">正在扫描 ${esc(drive)}: 盘</b>
+        <span class="scansec">已用时 <b id="scanSec">0</b> 秒</span>
+      </div>
+      <div class="scanbar" id="scanBar"><i></i></div>
+      <div class="scanstage">
+        <span class="dot"></span><span id="scanStage">正在准备…</span>
+        <span class="scanhint" id="scanHint"></span>
+      </div>
+      <div class="scanfacts">
+        会逐层展开大目录（最深 5 层），这样才能挖到
+        <code>E:\\SteamLibrary\\steamapps\\common\\游戏名</code> 这类深层大项。
+        <b>请保持本窗口与命令行窗口开启。</b>
+        ${STATE?.wiztree?.found ? "（已启用 WizTree 加速）"
+                                : "（未装 WizTree，逐目录递归会慢一些）"}
+      </div>
+    </div>`;
+
+  const paint = p => {
+    const sec = $("scanSec"), bar = $("scanBar"),
+          st = $("scanStage"), hint = $("scanHint");
+    if (!bar) return;                                     // 已被别的视图替换掉
+    if (sec) sec.textContent = String(Math.round((Date.now() - t0) / 1000));
+    const ind = !p || !p.active || p.indeterminate;
+    bar.classList.toggle("ind", ind);
+    bar.firstElementChild.style.width =
+      ind ? "" : Math.max(3, Math.min(100, Number(p.pct) || 0)) + "%";
+    if (st && p && p.text) st.textContent = p.text;
+    if (hint) hint.textContent = ind
+      ? "这一步无法预知总工作量，条纹表示仍在推进"
+      : `整体进度 ${Math.round(p.pct)}%`;
   };
-  tick();
-  const timer = setInterval(tick, 1000);
+  const poll = async () => {
+    try {
+      paint(await (await fetch(`${API}/__oc__/progress`)).json());
+    } catch (e) { /* 进度接口失败不影响扫描本身，忽略即可 */ }
+  };
+  paint(null);
+  const timer = setInterval(poll, 500);
   try {
     const r = await (await fetch(`${API}/__oc__/overview?drive=${drive}`)).json();
     if (r.error) throw new Error(r.error);
@@ -2424,12 +2796,15 @@ function showDetail(it) {
       ${it.tip ? `<div class="dtip">提示：${esc(it.tip)}</div>` : ""}
       <div class="dpath">路径：${esc(it.path)}</div>
       ${!it.recognized ? '<div class="dconf">知识库里没有这个名称的规则，' +
-        '所以本工具不对它做任何清理建议。你可以在 config\\filetypes.json 里补一条规则。</div>' : ""}
+        '所以本工具不对它做任何清理建议。你可以在 config\\filetypes.json 里补一条规则，' +
+        '或装一个覆盖它的资源包。</div>' : ""}
+      <div id="dAiOut" class="dsec" style="display:none"></div>
     </div>
     <div class="mfoot">
       <div class="left">${clean
         ? "本项目可由常规清理处理，见主列表对应条目"
         : "本工具不会删除此项"}</div>
+      ${STATE?.ai?.ready ? '<button id="dAi" class="ghost">让 AI 解释</button>' : ""}
       ${it.path && it.type !== "file"
         ? `<button id="dPart" class="ghost">细分查看：哪些能删</button>` : ""}
       <button id="dReveal" class="ghost">在资源管理器中打开</button>
@@ -2440,6 +2815,39 @@ function showDetail(it) {
   $("dReveal").addEventListener("click", () => revealPath(it.path));
   const bp = $("dPart");
   if (bp) bp.addEventListener("click", () => showPartition(it));
+  const ba = $("dAi");
+  if (ba) ba.addEventListener("click", () => aiExplainInto(it, ba));
+}
+
+/* 让自有 AI 解释当前这一项。结果只追加在弹窗里，不写入任何配置文件，
+   也不参与任何清理判断 —— AI 的输出在这里纯粹是参考信息。 */
+async function aiExplainInto(it, btn) {
+  const out = $("dAiOut");
+  if (!out) return;
+  btn.disabled = true;
+  const old = btn.textContent; btn.textContent = "正在请求…";
+  out.style.display = "block";
+  out.innerHTML = '<div class="dh">AI 解释</div><div class="loading">' +
+    '<span class="spin"></span>正在请求你配置的 AI 服务…</div>';
+  try {
+    const r = await (await fetch(`${API}/__oc__/ai/explain`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: it.display_name || it.name, path: it.path, kind: it.type || "dir",
+        size_h: fmt(it.size),
+        info: { title: it.title, category: it.category, what: it.what },
+      })
+    })).json();
+    out.innerHTML = r.ok
+      ? `<div class="dh">AI 解释<span class="hint">由你自己配置的模型生成，仅供参考</span></div>` +
+        String(r.text || "").split(/\n+/).filter(Boolean)
+          .map(p => `<div class="dpar">${esc(p)}</div>`).join("")
+      : `<div class="dh">AI 解释</div><div class="errline">${esc(r.error || "请求失败")}</div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="dh">AI 解释</div><div class="errline">${esc(String(e))}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
 }
 
 /* ==================== 细分查看：目录里的可清理 / 不可清理 ==================== */
@@ -2647,7 +3055,30 @@ $("btnNone").addEventListener("click", () =>
   applyPreset(STATE.presets.find(p => p.id === "none")));
 $("btnClean").addEventListener("click", confirmDialog);
 $("mask").addEventListener("click", e => { if (e.target === $("mask") && !busy) closeModal(); });
-document.addEventListener("keydown", e => { if (e.key === "Escape" && !busy) closeModal(); });
+
+/* Esc 键：逐级返回。
+   优先级 —— 弹窗 > 全盘页的下钻层 > 全盘页本身 > Steam 页。
+   扫描进行中不响应：那会儿页面正被 tick() 反复重绘，退回常规清理会被
+   扫描完成回调再拽回全盘页，看起来像「按了没反应」。 */
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || busy) return;
+  if ($("mask").classList.contains("on")) { closeModal(); return; }
+  if (view === "full") {
+    if ($("fsScanning")) { toast("扫描进行中，完成后再按 Esc 返回"); return; }
+    if (fsStack.length) {
+      fsStack.pop(); fsMode = "dirs";
+      renderOverview(); renderChart();
+      const up = fsStack.length ? fsStack[fsStack.length - 1].name
+                                : (FS ? FS.drive + ": 盘" : "上一层");
+      toast(`已返回上一级：${up}`);
+    } else {
+      showNormalView();
+      toast("已返回常规清理");
+    }
+    return;
+  }
+  if (view === "steam") { showNormalView(); toast("已返回常规清理"); }
+});
 
 $("btnCustom").addEventListener("click", async () => {
   const v = $("customPath").value.trim();
@@ -2712,15 +3143,108 @@ $("btnSchSave").addEventListener("click", async () => {
   setTimeout(() => $("btnSchSave").textContent = "保存定时设置", 1400);
 });
 
-$("btnClearLog").addEventListener("click", async () => {
-  if (!confirm("确定清空全部清理历史？累计统计也会归零，此操作不可恢复。")) return;
+/* ==================== 资源包 / AI 面板的事件 ==================== */
+$("btnPackImport").addEventListener("click", () => $("packFile").click());
+$("packFile").addEventListener("change", async e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const msg = $("packMsg");
+  try {
+    const text = await f.text();          // 只读文本，浏览器不会执行 JSON 里的任何东西
+    let data;
+    try { data = JSON.parse(text); }
+    catch (err) {
+      msg.innerHTML = `<span class="res-err">不是合法的 JSON：${esc(String(err))}</span>`;
+      return;
+    }
+    msg.innerHTML = '<span class="spin"></span>正在校验并导入…';
+    const r = await (await fetch(`${API}/__oc__/packs/import`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: data }),
+    })).json();
+    if (r.packs) { STATE.packs = r.packs; renderPacks(); }
+    msg.innerHTML = r.ok
+      ? `<span class="res-ok">已导入：${esc(r.message || f.name)}</span>`
+      : `<span class="res-err">导入失败：${esc(r.error || "未知原因")}</span>`;
+    if (r.ok) await scan();
+  } finally {
+    e.target.value = "";                  // 允许重复选同一个文件
+  }
+});
+$("btnPackUpdate").addEventListener("click", async () => {
+  const msg = $("packMsg");
+  msg.innerHTML = '<span class="spin"></span>正在从远端清单下载…';
+  await packOp("update", {});
+});
+
+$("btnAiSave").addEventListener("click", () => aiSave());
+$("btnAiTest").addEventListener("click", async () => {
+  await aiSave();                          // 先存再测，避免测的还是旧配置
+  await aiRun("test", {}, $("btnAiTest"), "测试连接");
+});
+$("btnAiPlan").addEventListener("click", () => {
+  const req = $("aiAsk").value.trim();
+  if (!req) { toast("请先描述你的清理目标"); return; }
+  aiRun("plan", { request: req, candidates: aiCandidates() },
+        $("btnAiPlan"), "生成方案");
+});
+$("btnAiClear").addEventListener("click", () => { AI_PICKS = []; $("aiOut").innerHTML = ""; });
+
+$("btnClearLog").addEventListener("click", async () => {  if (!confirm("确定清空全部清理历史？累计统计也会归零，此操作不可恢复。")) return;
   await fetch(`${API}/__oc__/history`, { method: "DELETE" });
   await loadState();
   toast("历史已清空");
 });
 
+/* ==================== 右侧面板折叠 ====================
+   右侧栏 12 个面板全部堆叠成条，点标题展开 / 收起，状态记在 localStorage。
+   注意有两处细节：
+     * 「最近清理记录」的标题里嵌了「清空全部」按钮，点在按钮上不能顺带折叠；
+     * 折叠状态要存成带版本号的对象，否则「全部收起」会被当成「没存过」，
+       刷新后又按 HTML 上的默认值展开。 */
+const ACC_KEY = "oc.acc.v1";
+function accSaved() {
+  try {
+    const o = JSON.parse(localStorage.getItem(ACC_KEY) || "null");
+    if (o && o.v === 1 && Array.isArray(o.open)) return new Set(o.open);
+  } catch (e) { /* 存储被禁用或内容损坏：按没存过处理 */ }
+  return null;
+}
+function initAccordions() {
+  const saved = accSaved();
+  const panels = document.querySelectorAll("aside .panel.acc");
+  panels.forEach(p => {
+    if (saved) p.classList.toggle("open", saved.has(p.dataset.acc));
+    const h = p.querySelector(":scope > h3");
+    if (!h) return;
+    h.setAttribute("role", "button");
+    h.setAttribute("tabindex", "0");
+    h.setAttribute("aria-expanded", p.classList.contains("open") ? "true" : "false");
+    h.title = "点击展开 / 收起";
+    const flip = () => {
+      p.classList.toggle("open");
+      h.setAttribute("aria-expanded", p.classList.contains("open") ? "true" : "false");
+      try {
+        localStorage.setItem(ACC_KEY, JSON.stringify({
+          v: 1,
+          open: [...document.querySelectorAll("aside .panel.acc.open")]
+                  .map(x => x.dataset.acc),
+        }));
+      } catch (e) { /* 存储不可用就算了，不影响功能 */ }
+    };
+    h.addEventListener("click", e => {
+      if (e.target.closest("button")) return;    // 标题里的按钮优先
+      flip();
+    });
+    h.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); }
+    });
+  });
+}
+
 /* ==================== 启动 ==================== */
 (async () => {
+  initAccordions();          // 先按上次的折叠状态把右侧栏摆好，再拉数据
   // 先用默认盘拉一次，拿到盘符列表后切到后端认定的当前盘，再正式加载
   await loadState();
   if (STATE.current_drive && STATE.current_drive !== drive) {
