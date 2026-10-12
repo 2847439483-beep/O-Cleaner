@@ -76,6 +76,20 @@ linter 会做六件检查：结构校验、语义自相矛盾、关键词跨规�
 python -X utf8 tools/lint_rules.py     # 看「路由验证」一节
 ```
 
+### 6. 资源包（`packs/`）
+
+资源包是补充/改写清理项释义的数据（格式见 [packs/README.md](packs/README.md)）。它同样受门禁约束：
+
+```
+python -X utf8 tools/lint_rules.py --strict     # 第 [2/7] 节专门检查资源包
+```
+
+- **新增包**：在 `packs/` 下放 `你的包名.json`，并把文件名加进 `packs/index.json` 的 `packs` 列表。两处必须一致 —— linter 会双向核对，漏登或写了不存在的文件都会失败。
+- **包 `id` 建议与文件名相同**（去掉 `.json`），因为 `id` 决定「覆盖谁」、文件名决定「下载哪个」，不一致时远端更新会失效（此项为警告）。
+- **条目必须给出 `match` 与 `title`**。`match.any` / `match.all` 里的关键词要写到足够具体：单段关键词若命中 `GENERIC_KEYWORDS` 或纯 ASCII 且短于 3 字符，会被判为过于宽泛/过短。
+- **不要试图改写已识别项目的 `cleanable` / `risk`**：运行时对此有硬性限制，包只能改写说明文字与显示名；对未识别项目才可以给出完整结论。提交这类改动前请先读 [SECURITY.md](SECURITY.md) 第二节。
+- 分类字段（`category`）不在前端排序表里只是排到列表末尾，不影响正确性，因此只作提示。
+
 ---
 
 ## 二、代码类 PR
@@ -83,9 +97,10 @@ python -X utf8 tools/lint_rules.py     # 看「路由验证」一节
 ### 运行测试
 
 ```
-python -X utf8 tools/selftest.py              # 300+ 项断言（完整环境 314 项），含真实删除与 HTTP 端到端
-python -X utf8 tools/_lint_selftest.py        # 验证 linter 有检出能力（17 类缺陷注入）
-node tools/cdp_check.js "http://127.0.0.1:8770"   # 真实浏览器渲染与交互检查（80 项断言）
+python -X utf8 tools/selftest.py              # 300+ 项断言，含真实删除与 HTTP 端到端
+python -X utf8 tools/lint_rules.py --strict   # 规则与资源包门禁（7 项检查，警告计为失败）
+python -X utf8 tools/_lint_selftest.py        # 验证 linter 有检出能力（知识库 15 类 + 资源包 20 类注入）
+node tools/cdp_check.js "http://127.0.0.1:8770"   # 真实浏览器渲染与交互检查（50+ 项断言）
 ```
 
 断言数量依机器环境浮动：数据盘数量、是否装有 Steam、是否装有 WizTree

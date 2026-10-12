@@ -17,6 +17,8 @@ Windows 上的磁盘清理与空间占用查看工具，界面为浏览器中打
 | 空间占用查看 | 按体积降序展示整盘占用并支持逐层下钻；可将目录拆分为「可清理」与「不可清理」两部分 |
 | Steam 游戏库 | 读取 Steam 的清单文件（不扫描磁盘），列出已安装游戏、体积与最近游玩时间 |
 | 卸载残留 | 列出磁盘上存在但 Steam 已无对应记录的目录 |
+| 资源包 | 用可替换的 JSON 数据补充「这是什么、能不能删」的说明；内置 4 个包共 148 条，支持导入自定义包与从 GitHub 检查更新 |
+| 接入自有 AI | 可选。填入自己的 OpenAI 兼容接口，让 AI 解释单个项目、生成清理方案。AI 只能勾选候选，不能直接删除 |
 
 ## 运行要求
 
@@ -68,6 +70,36 @@ start-ocleaner.bat
 - **逐层下钻**：从任意目录继续展开下一级，展开深度不受扫描树深度限制
 - **细分查看**：将目录拆分为「可清理的子目录」与「不可清理的部分」，逐项给出体积与理由；会先判断目录的实际身份（浏览器资料目录 / 游戏安装目录 / 无法确定）再给出结论
 - **Steam 游戏库**：读取 `libraryfolders.vdf` 与 `appmanifest_*.acf`，不扫描磁盘；游戏列表可按体积或最近游玩时间排序
+- **扫描进度**：按真实阶段上报（读取 MFT 明细、解析、展开目录树、读取游戏清单、逐项识别）。能算出总量的阶段显示具体百分比；读 MFT、PowerShell 递归、读游戏清单这几步无法预知总工作量，改用流动条纹表示「正在进行」，不给出猜测的数字
+
+## 界面布局与操作
+
+左侧自上而下是工具栏、磁盘概览与内容区，右侧是侧栏，两栏各自独立滚动（互不带动）。
+
+- 右侧面板默认折叠，点击标题栏展开或收起；展开状态记录在浏览器本地，刷新后保持
+- 磁盘概览只在左侧出现一处，右侧不再重复
+- 按 `Esc` 返回上一级：在全盘扫描页逐层退回上一层目录，退到顶层后再按一次回到常规清理
+- 扫描进行中按 `Esc` 不会打断扫描，界面会提示等扫描结束
+
+## 资源包
+
+资源包是可替换的 JSON 数据，用来补充或改写目录/文件的「这是什么、能否重建、删掉有什么影响、什么情况该留」四项说明，并给出更贴近具体项目的中文名（例如把 Steam 库里的某个目录直接标成具体游戏名）。
+
+- 内置包放在 `packs/`，共 4 个：Windows 系统项、常见软件缓存、游戏平台目录、游戏作品名
+- 界面「资源包」面板可查看已加载的包、启用/停用单个包、导入本地包文件、从 GitHub 检查更新
+- 自定义包导入后写入 `config/packs-user/`，与内置包同 id 时覆盖内置版本
+- 包格式、匹配语义与安全边界见 [packs/README.md](packs/README.md)
+
+资源包不能改写「删不删」的结论：内置知识库已识别的项目，其 `cleanable` 与 `risk` 一律以通过门禁的内置规则为准；资源包只对内置**未识别**的项目给出结论，其余情况只能补充说明文字。
+
+## 接入自有 AI（可选）
+
+不填接口时该功能完全不参与工作，程序也不会发起任何相关网络请求。
+
+- 支持任何 OpenAI 兼容的 `chat/completions` 接口：填写接口地址、模型名与 API Key
+- 两个用途：解释单个清理项、按自然语言要求生成清理方案
+- 方案只能从**已被内置规则判定为可清理**的项目里挑选，未知 id 会被丢弃并说明；AI 无法直接执行删除，勾选结果仍需人工确认后由底部按钮走同一套删除流程
+- API Key 保存在 `config/ai.json`（已加入 `.gitignore`，不会进版本库）。界面只回显 Key 的尾 4 位，完整 Key 不会通过任何接口返回
 
 ## 删除目标的保护规则
 
@@ -108,11 +140,13 @@ start-ocleaner.bat
 ```
 O-Cleaner\
 ├─ start-ocleaner.bat      启动脚本
-├─ app.py                  主程序（扫描 / 占用分析 / HTTP 接口 / 删除 / 换算 / 定时任务）
+├─ app.py                  主程序（扫描 / 占用分析 / HTTP 接口 / 删除 / 换算 / 资源包 / AI 调用）
 ├─ README.md               本文件
 ├─ docs\USAGE.md           完整使用指南
 ├─ config\                 drives.json · targets.json · filetypes.json
 │                          game-names.json · convert.json · custom-rules.json
+│                          （运行期生成：ai.json · packs-state.json · packs-user\）
+├─ packs\                  内置资源包（4 个 json + 格式说明 README.md）
 ├─ web\index.html          界面（HTML + CSS + JavaScript 均在单个文件内）
 └─ tools\                  selftest.py · lint_rules.py · cdp_check.js
                            doctor.py · fix-encoding.ps1 · make-package.ps1
@@ -120,15 +154,20 @@ O-Cleaner\
 
 ## 测试与贡献
 
-仓库包含三道检查，均在 Windows 上运行，已接入 GitHub Actions：
+仓库包含四道检查，均在 Windows 上运行，已接入 GitHub Actions：
 
 ```
-python -X utf8 tools/lint_rules.py --strict     # 规则检查（6 项检查，警告计为失败）
-python -X utf8 tools/selftest.py                # 功能自测（300+ 项断言，完整环境 314 项）
-node tools/cdp_check.js http://127.0.0.1:8770   # 浏览器渲染与交互检查（80 项断言）
+python -X utf8 tools/lint_rules.py --strict     # 规则检查（7 项检查，警告计为失败）
+python -X utf8 tools/_lint_selftest.py          # 验证 linter 自身有检出能力（缺陷注入）
+python -X utf8 tools/selftest.py                # 功能自测（300+ 项断言，含真实删除与 HTTP 端到端）
+node tools/cdp_check.js http://127.0.0.1:8770   # 浏览器渲染与交互检查（50+ 项断言）
 ```
+
+断言总数随机器环境浮动（数据盘数量、磁盘内容密度、是否装 Steam 等），因此文档不写死单一数字；CI 上的实际条数见 Actions 日志。
 
 `config\filetypes.json` 是占用识别的知识库，决定哪些目录会被判定为可清理。修改该文件必须通过 `tools/lint_rules.py`（CI 强制）。linter 会做结构校验、语义矛盾检测、关键词跨规则冲突检测，并使用实际识别引擎验证每条关键词的归属规则。
+
+`packs\` 下的资源包同样受门禁约束：linter 会校验包结构、清单与文件是否互相对得上、正则能否编译、关键词是否过于宽泛、分类是否会在界面上排到末尾。`tools/_lint_selftest.py` 会向 linter 注入缺陷以确认这些检查确实生效。
 
 贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全模型与漏洞报告见 [SECURITY.md](SECURITY.md)。
 
