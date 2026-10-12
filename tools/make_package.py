@@ -42,6 +42,7 @@ INCLUDE = [
     "start-ocleaner.bat",
     "README.md",
     "docs/USAGE.md",
+    "docs/CUSTOMIZE.md",
     "LICENSE",
     "CONTRIBUTING.md",
     "SECURITY.md",
