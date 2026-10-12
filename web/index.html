@@ -30,6 +30,18 @@
               padding-left:10px}
   .grow{flex:1 1 auto}
 
+  /* 视图导航：三个功能页（常规清理 / 扫描概览 / Steam 游戏库）此前只能靠
+     工具栏两个按钮来回切，而且那两个按钮的文字会翻面（「全盘扫描本盘」↔
+     「返回常规清理」），用户看不出自己现在在哪一页。这里给一个常驻的
+     分段控件：高亮当前页，点击直达任意页 —— 包括扫描页直接跳 Steam 页，
+     不必先「返回」再进去。 */
+  .viewnav{display:flex;gap:3px;background:var(--panel2);border:1px solid var(--line);
+           border-radius:9px;padding:3px}
+  .viewnav button{border:0;background:transparent;padding:5px 13px;border-radius:7px;
+                  font-size:12.5px;color:var(--dim)}
+  .viewnav button:hover{background:#252b36;color:var(--fg)}
+  .viewnav button.on{background:var(--accent);color:#fff;font-weight:600}
+
   .drives{display:flex;gap:7px;flex-wrap:wrap}
   .drv{display:flex;flex-direction:column;gap:3px;padding:6px 11px;border-radius:9px;
        background:var(--panel);border:1px solid var(--line);cursor:pointer;
@@ -137,6 +149,16 @@
   .panel.acc.open > h3::after{transform:rotate(180deg)}
   .panel.acc > .ab{display:none;padding:13px 14px}
   .panel.acc.open > .ab{display:block}
+
+  /* 侧栏面板导航：11 个折叠面板堆在右栏里，想找某个面板只能整列滚动、
+     逐个展开找。这条吸顶的目录条列出全部面板，点一下就展开并滚到它 ——
+     配合上面的 scrollIntoView，长列表里也能一步到位。 */
+  .pnav{position:sticky;top:0;z-index:5;flex:0 0 auto;
+        display:flex;flex-wrap:wrap;gap:5px;
+        background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:9px 11px}
+  .pnav button{font-size:11.5px;padding:3px 10px;border-radius:99px}
+  .pnav button:hover{border-color:var(--accent)}
 
   /* ================= 按钮 ================= */
   button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel2);
@@ -618,6 +640,11 @@
       <span class="tag" id="tag">磁盘清理助手</span>
     </div>
     <div class="grow"></div>
+    <nav class="viewnav" id="viewNav" aria-label="功能视图导航">
+      <button data-v="normal">常规清理</button>
+      <button data-v="full">扫描概览</button>
+      <button data-v="steam">Steam 游戏库</button>
+    </nav>
     <div class="drives" id="drives"></div>
   </div>
   <div id="adminwarn" class="warnbar" style="display:none">
@@ -698,6 +725,8 @@
   </section>
 
   <aside>
+    <nav class="pnav" id="panelNav" aria-label="侧栏面板导航"></nav>
+
     <div class="panel acc open" data-acc="guide">
       <h3>运行环境自检 <span class="hint">首次使用看这里</span></h3>
       <div class="ab"><div id="guide"></div></div>
@@ -2368,6 +2397,13 @@ function setToolbars(visible, mode) {
   });
 }
 
+/** 视图导航高亮当前页。view 变化的所有路径（switchView / startFullScan 手动置值）
+    都要走到这里，否则会出现「页面在扫描概览、导航却亮着常规清理」的错位。 */
+function renderViewNav() {
+  document.querySelectorAll("#viewNav button").forEach(b =>
+    b.classList.toggle("on", b.dataset.v === view));
+}
+
 /** 统一切换三个子页面：常规清理 / 磁盘概览 / Steam 游戏库 */
 function switchView(name) {
   view = name;
@@ -2378,6 +2414,7 @@ function switchView(name) {
   $("btnFullScan").textContent = name === "full" ? "返回常规清理"
     : (FS ? "查看磁盘概览" : "全盘扫描本盘");
   $("btnSteam").textContent = name === "steam" ? "返回常规清理" : "Steam 游戏库";
+  renderViewNav();
   if (name === "steam") renderSteamPage();
 }
 
@@ -2407,6 +2444,7 @@ async function startFullScan() {
   const b = $("btnFullScan");
   b.disabled = true; b.textContent = "全盘扫描中…";
   view = "full";
+  renderViewNav();                   // 扫描页可能还没机会走 switchView，先同步导航
   fsStack = [];
   $("normalView").style.display = "none";
   $("fullView").style.display = "flex";
@@ -3187,6 +3225,20 @@ async function showPartition(it) {
 /* ==================== 事件 ==================== */
 $("btnScan").addEventListener("click", () => scan());
 $("btnFullScan").addEventListener("click", () => startFullScan());
+/* 视图导航：三个页常驻可达。扫描概览没扫过时与工具栏按钮同一行为 ——
+   点一下就自动开扫，不需要再点第二次。 */
+document.querySelectorAll("#viewNav button").forEach(b => b.addEventListener("click", async () => {
+  const v = b.dataset.v;
+  if (v === view) return;
+  if (v === "normal") { showNormalView(); return; }
+  if (v === "full") {
+    if (FS) { fsStack = []; showFullView(); renderOverview(); renderChart(); }
+    else await startFullScan();
+    return;
+  }
+  switchView("steam");
+  loadSteam();
+}));
 $("btnSteam").addEventListener("click", () => {
   if (view === "steam") { showNormalView(); return; }
   switchView("steam");
@@ -3400,9 +3452,41 @@ function initAccordions() {
   });
 }
 
+/* 侧栏面板导航：把 11 个折叠面板做成一条吸顶目录。
+   标签取自各面板标题的**首个文本节点** —— 有的标题里嵌了按钮
+   （「最近清理记录」的「清空全部」）或提示词（`<span class="hint">`），
+   整段 innerText 会把这些也带进去。点击 = 展开 + 滚到该面板，
+   并把展开状态写回 localStorage，与手动点标题的行为完全一致。 */
+function initPanelNav() {
+  const nav = $("panelNav");
+  const ps = [...document.querySelectorAll("aside > .panel.acc")];
+  if (!nav || !ps.length) return;
+  nav.innerHTML = ps.map(p => {
+    const h = p.querySelector(":scope > h3");
+    const label = ((h && h.childNodes[0] && h.childNodes[0].textContent) || p.dataset.acc).trim();
+    return `<button data-acc="${p.dataset.acc}" title="展开并定位到该面板">${esc(label)}</button>`;
+  }).join("");
+  nav.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    const p = document.querySelector(`aside > .panel.acc[data-acc="${CSS.escape(b.dataset.acc)}"]`);
+    if (!p) return;
+    p.classList.add("open");
+    const h = p.querySelector(":scope > h3");
+    if (h) h.setAttribute("aria-expanded", "true");
+    p.scrollIntoView({ block: "start", behavior: "smooth" });
+    try {
+      localStorage.setItem(ACC_KEY, JSON.stringify({
+        v: 1,
+        open: [...document.querySelectorAll("aside .panel.acc.open")]
+                .map(x => x.dataset.acc),
+      }));
+    } catch (e) { /* 存储不可用就算了，不影响功能 */ }
+  }));
+}
+
 /* ==================== 启动 ==================== */
 (async () => {
   initAccordions();          // 先按上次的折叠状态把右侧栏摆好，再拉数据
+  initPanelNav();            // 侧栏目录条：只依赖静态 DOM，不依赖任何接口
   // 先用默认盘拉一次，拿到盘符列表后切到后端认定的当前盘，再正式加载
   await loadState();
   if (STATE.current_drive && STATE.current_drive !== drive) {

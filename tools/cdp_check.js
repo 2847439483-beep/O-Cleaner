@@ -299,6 +299,24 @@ class CDP {
         accInfo.err || `aside 视口 ${accInfo.asideClient}px / 内容 ${accInfo.asideScroll}px，`
                         + `仍可收缩 ${(accInfo.shrink || []).join(" / ") || "无"}`);
 
+  // 各功能界面导航：三个视图的常驻标签 + 侧栏面板的吸顶目录条。
+  // 只验证结构与「有且仅有一个高亮」—— 具体点击跳转在下面切页的流程里自然覆盖。
+  const navInfo = await evaluate(`(() => {
+    const tabs = [...document.querySelectorAll('#viewNav button')];
+    const chips = [...document.querySelectorAll('#panelNav button')];
+    const panels = [...document.querySelectorAll('aside > .panel.acc')];
+    return { tabs: tabs.length, labels: tabs.map(b => b.textContent.trim()),
+             chips: chips.length, panels: panels.length,
+             on: tabs.filter(b => b.classList.contains('on')).map(b => b.dataset.v) };
+  })()`);
+  check("视图导航有三个功能页入口",
+        navInfo.tabs === 3, JSON.stringify(navInfo.labels));
+  check("视图导航有且仅有一个高亮页",
+        navInfo.on.length === 1, `当前高亮: ${navInfo.on.join(",") || "无"}`);
+  check("侧栏面板目录覆盖全部折叠面板",
+        navInfo.chips > 0 && navInfo.chips === navInfo.panels,
+        `${navInfo.chips} / ${navInfo.panels}`);
+
   // 卡片布局：操作区宽度合理、靠右、不是窄高竖条
   const layout = await evaluate(`(() => {
     const out = { narrow: [], high: [], left: [], overflow: [], minW: 1e9 };

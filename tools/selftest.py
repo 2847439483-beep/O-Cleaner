@@ -606,6 +606,11 @@ def phase3_http() -> None:
               "/__oc__/clean-game" in html)
         check("游戏行徽标由后端 cleanable 数据切换",
               "g.cleanable" in html)
+        # 各功能界面导航：三个视图常驻可达（高亮当前页），11 个折叠面板有吸顶目录
+        check("视图导航提供三个功能页入口",
+              'id="viewNav"' in html and html.count('data-v="') == 3)
+        check("侧栏面板目录条存在（吸顶导航）",
+              'id="panelNav"' in html and "initPanelNav" in html)
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检中的「跨设备兼容」已改为「兼容性分析」",
