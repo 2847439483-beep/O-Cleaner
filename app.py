@@ -1175,10 +1175,10 @@ def _watch_walk_progress(prog_file: str, stop: threading.Event,
             pass
 
 
-def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict:
-    """带进度上报的外壳。真正的实现在 _scan_overview_impl()。
+def _scan_overview_reported(drive: str, max_depth: int) -> dict:
+    """带进度上报的扫描主体。真正的实现在 _scan_overview_impl()。
 
-    拆成两层是为了让每条 return 路径（包括报错早退）都能落到 prog_done()，
+    拆出来是为了让每条 return 路径（包括报错早退）都能落到 prog_done()，
     否则一次失败的扫描会让进度条永远停在半路。
     """
     letter = (drive or "C").rstrip(":").upper()
@@ -1193,6 +1193,38 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
     else:
         prog_done(True, f"扫描完成：{r.get('node_count', 0)} 个节点")
     return r
+
+
+# 同盘全盘扫描的并发闸门。为什么必须串行：浏览器对耗时几十秒的请求可能内部
+# 静默重试（原连接异常断开时），用户也可能在扫描中快速换盘再换回来 —— 于是
+# 同盘的两个扫描并发跑。两条路径会共用同一个 WizTree 导出 CSV 路径互相干扰，
+# 输掉的那条退化到 PowerShell 全量递归（系统盘 4 分钟起步），请求迟迟不返回。
+# 处理：同盘同时只跑一份；后来者等它结束直接复用结果，不发第二份扫描。
+_OVERVIEW_LOCKS: dict = {}
+_OVERVIEW_RESULTS: dict = {}
+_OVERVIEW_REG_LOCK = threading.Lock()
+
+
+def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict:
+    letter = (drive or "C").rstrip(":").upper()
+    with _OVERVIEW_REG_LOCK:
+        lock = _OVERVIEW_LOCKS.setdefault(letter, threading.Lock())
+    if lock.acquire(blocking=False):
+        try:
+            r = _scan_overview_reported(drive, max_depth)
+            if not r.get("error"):
+                _OVERVIEW_RESULTS[letter] = r
+            return r
+        finally:
+            lock.release()
+    # 已有同盘扫描在跑：等它结束，复用刚扫出来的结果（等待期间进度条
+    # 继续反映那一次扫描，前端轮询的是同一份快照）。
+    with lock:
+        cached = _OVERVIEW_RESULTS.get(letter)
+    if cached is not None:
+        return cached
+    # 走到这里说明前一次扫描报错早退（没留结果）：自己重扫一遍。
+    return _scan_overview_reported(drive, max_depth)
 
 
 def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict:

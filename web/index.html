@@ -2556,6 +2556,9 @@ async function findLockHolders(bad, btn) {
 let FS = null, fsMode = "dirs", view = "normal";
 // 下钻路径栈：元素 { path, name, size }
 let fsStack = [];
+// 在途全盘扫描属于哪个盘、用什么作废。换盘时旧盘的扫描必须作废重开：
+// 否则「扫描中」守卫会把新盘的扫描吞掉，用户点 E 盘却一直看 C 盘的扫描面板。
+let fsScanDrive = null, fsAbort = null;
 
 function setToolbars(visible, mode) {
   // mode: 'normal' 两个工具栏都显示；'compact' 只显示第一个
@@ -2595,8 +2598,9 @@ function showFullView() {
 
 /** 全盘扫描：点一次就自动开扫，不需要再点第二次。
  *
- * 三种情形：
- *   * 已经在扫（手动点了又点）→ 只切到扫描页，不重复发请求；
+ * 四种情形：
+ *   * 已经在扫且是同一盘（手动点了又点）→ 只切到扫描页，不重复发请求；
+ *   * 已经在扫但是别的盘（扫描中换盘）→ 作废旧扫描，立刻开扫新盘；
  *   * 扫完了 → 切到扫描页看到上次结果，再点一次则返回常规清理；
  *   * 从没扫过 → 立刻进入扫描页并**自动发起扫描**（这是本次的改动重点：
  *     以前点一下只是切页，用户得再点一次「开始」，很容易以为没反应）。
@@ -2607,8 +2611,13 @@ async function startFullScan() {
     else { fsStack = []; showFullView(); renderOverview(); renderChart(); }
     return;
   }
-  // 正在扫：只切页，别重复发请求
-  if ($("fsScanning")) { showFullView(); return; }
+  // 正在扫：同一盘就只切页，别重复发请求；换了盘则作废旧扫描、立即开扫新盘
+  if ($("fsScanning")) {
+    if (fsScanDrive === drive) { showFullView(); return; }
+    fsAbort?.abort();
+  }
+  const ac = fsAbort = new AbortController();
+  fsScanDrive = drive;
   const b = $("btnFullScan");
   b.disabled = true; b.textContent = "全盘扫描中…";
   view = "full";
@@ -2672,7 +2681,8 @@ async function startFullScan() {
   paint(null);
   const timer = setInterval(poll, 500);
   try {
-    const r = await (await fetch(`${API}/__oc__/overview?drive=${drive}`)).json();
+    const r = await (await fetch(`${API}/__oc__/overview?drive=${drive}`,
+                                 { signal: ac.signal })).json();
     if (r.error) throw new Error(r.error);
     FS = r;
     buildKidsIndex();     // 预先按父路径归拢，下钻与「本层」视图都靠它
@@ -2681,6 +2691,7 @@ async function startFullScan() {
     renderOverview();
     renderChart();     // 概览与排行必须一起渲染，否则只有统计没有列表
   } catch (e) {
+    if (ac.signal.aborted) return;   // 被换盘作废：界面已交给新扫描，静默退出
     $("fsOverview").innerHTML =
       `<div class="errline">磁盘概览扫描失败：${esc(e.message)}</div>` +
       '<div style="color:var(--dim2);font-size:12px;margin-top:8px">' +
@@ -2689,7 +2700,13 @@ async function startFullScan() {
     b.textContent = "重试全盘扫描";
   } finally {
     clearInterval(timer);
-    b.disabled = false;
+    // 只有当自己仍是「当前扫描」时才清理状态与解禁按钮 —— 被换盘作废的旧扫描
+    // 绝不能碰新扫描的面板、进度定时器与按钮状态。
+    if (fsAbort === ac) {
+      fsAbort = null;
+      fsScanDrive = null;
+      b.disabled = false;
+    }
   }
 }
 

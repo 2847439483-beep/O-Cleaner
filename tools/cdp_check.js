@@ -417,20 +417,37 @@ class CDP {
   // （checkbox 被 disabled、卡片带 .dead），点它不会产生任何勾选。
   // CDP 在 CI 上默认落在 C: 盘，首卡恰好常是不可选中的系统项，
   // 旧写法点死第一张，于是「勾选后可用」永远为 false。
-  const picked = await evaluate(`(() => {
+  // 优先挑「有实际体积」的卡片：0 B 的目标（盘上恰好没有这类垃圾）套用
+  // 规则后统计必然是 0 B，那是正确行为而不是统计坏了；「—」是目标不存在。
+  let pickedSize = await evaluate(`(() => {
+      const szOf = el => ((el.querySelector('.cnum .size')||{}).innerText || '').trim();
       const c = [...document.querySelectorAll('.card')].find(el => {
         const cb = el.querySelector('input[type=checkbox]');
-        return cb && !cb.disabled;
+        if (!cb || cb.disabled) return false;
+        const s = szOf(el);
+        return s && s !== '0 B' && s !== '—';
       });
-      if (!c) return false;
+      if (!c) return null;
       c.click();
-      return true;
+      return szOf(c);
     })()`);
+  if (pickedSize === null) {
+    // 整盘找不到有体积的可勾选项：退而求其次，只验证按钮随勾选启用。
+    pickedSize = await evaluate(`(() => {
+        const c = [...document.querySelectorAll('.card')].find(el => {
+          const cb = el.querySelector('input[type=checkbox]');
+          return cb && !cb.disabled;
+        });
+        if (!c) return null;
+        c.click();
+        return ((c.querySelector('.cnum .size')||{}).innerText || '').trim() || '0 B';
+      })()`);
+  }
   await sleep(500);
   const r1 = await evaluate(`!document.querySelector('#btnRuleSave').disabled`);
   const rinfo = await evaluate(`document.querySelector('#ruleSelInfo').innerText`);
-  checkInit("规则保存按钮随勾选启用", r0 === true && r1 === true,
-        `初始禁用=${r0} 勾选后可用=${r1}${picked ? "" : "（未找到可勾选的卡片）"} 提示="${rinfo}"`);
+  checkInit("规则保存按钮随勾选启用", r0 === true && r1 === true && pickedSize !== null,
+        `初始禁用=${r0} 勾选后可用=${r1}${pickedSize === null ? "（未找到可勾选的卡片）" : ""} 提示="${rinfo}"`);
 
   if (!scanReady) {
     // 上一批卡片没有回填体积，也就没有可勾选的项，规则链路的断言全部失去前提。
@@ -450,13 +467,18 @@ class CDP {
 
   // 勾选同步：套用规则（规则列表可能为空，取不到按钮时跳过而不是抛 Uncaught）
   const hasApply = await evaluate(`!!document.querySelector('#ruleList [data-apply]')`);
-  if (hasApply) {
+  if (hasApply && pickedSize !== null && pickedSize !== '0 B' && pickedSize !== '—') {
     await evaluate(`document.querySelector('#ruleList [data-apply]').click()`);
     await sleep(700);
     const applied = await evaluate(`({sel: document.querySelector('#selN').innerText,
                                      size: document.querySelector('#selSize').innerText})`);
-    check("套用规则后底部统计正确", parseInt(applied.sel) > 0 && applied.size !== "0 B",
-          `已选 ${applied.sel} 项 / ${applied.size}`);
+    // 真不变量：只勾了一张卡时，底部统计必须与该卡自身的体积一致 ——
+    // 这比「非 0 B」更强，也不依赖盘上恰好有垃圾。
+    check("套用规则后底部统计正确",
+          parseInt(applied.sel) > 0 && applied.size === pickedSize,
+          `已选 ${applied.sel} 项 / ${applied.size}（目标自身 ${pickedSize}）`);
+  } else if (hasApply) {
+    skip2("套用规则统计（勾到的目标体积为 0 B 或不可量，盘上恰好没有该类垃圾）");
   } else {
     skip2("套用规则（规则列表为空，说明前面的保存未成功）");
   }
