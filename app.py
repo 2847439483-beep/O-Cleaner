@@ -3764,8 +3764,11 @@ def _error_result(t: dict, drive: str | None, exc: Exception) -> dict:
 _PACKS_CACHE: dict = {"key": None, "data": None}
 PACK_TYPE_LABELS = {"games": "游戏", "system": "系统", "apps": "软件",
                     "custom": "自定义"}
+# packs 分发仓库（公开）：只放资源包数据，不放代码。
+# 主仓库是私有的，raw 链接对外不可达，所以「从 GitHub 检查更新」指向这个独立公开仓库。
+# 本仓库 packs/ 与它保持同内容，lint 的 index.json ↔ 磁盘一致性检查两边都适用。
 DEFAULT_PACKS_REMOTE = ("https://raw.githubusercontent.com/"
-                        "2847439483-beep/O-Cleaner/main/packs")
+                        "2847439483-beep/O-Cleaner-packs/main")
 
 
 def load_packs_state() -> dict:

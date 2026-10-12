@@ -210,7 +210,7 @@ node tools\cdp_check.js http://127.0.0.1:8770
 | 操作 | 说明 |
 |---|---|
 | 导入资源包 | 选择本地 `.json` 文件，校验通过后写入 `config/packs-user/` |
-| 从 GitHub 检查更新 | 按远端 `packs/index.json` 逐个下载并导入；与内置包同 id 时覆盖内置版本 |
+| 从 GitHub 检查更新 | 按远端 `packs/index.json` 逐个下载并导入；与内置包同 id 时覆盖内置版本。默认远端是公开的 [O-Cleaner-packs](https://github.com/2847439483-beep/O-Cleaner-packs) 仓库，也可在界面上改成自己的地址 |
 | 启用 / 停用 | 停用后该包不参与识别，内置清单立即生效（无需重启） |
 
 匹配与覆盖规则：
