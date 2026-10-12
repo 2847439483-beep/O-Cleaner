@@ -219,7 +219,7 @@ class CDP {
       const s = c.querySelector('.cnum .size');
       return s && s.innerText.trim() && s.innerText.trim() !== '—';
     }).length;
-    const sec = document.querySelector('main > #normalView');
+    const sec = document.querySelector('#normalView');
     const asd = document.querySelector('aside');
     return {
       cards: cards.length,

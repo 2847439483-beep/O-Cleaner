@@ -8,8 +8,9 @@
   说明:
     * 只打包运行必需的文件，自动排除运行数据与缓存
     * .bat 会被强制转成 CRLF + 纯 ASCII（cmd.exe 对 LF 换行和 UTF-8 中文支持很差）
-    * 所有 .ps1/.py/.json/.html/.md 统一转成 UTF-8 BOM + CRLF，
-      保证在记事本、PowerShell 5.1、中文 Windows 上都不乱码
+    * 其余文本文件的编码与换行按 tools\fix-encoding.ps1 的规则统一：
+      只有 .ps1 用 UTF-8 BOM，.py/.json/.html/.md/.js/.yml 一律 UTF-8 无 BOM，换行统一 CRLF
+      （规则只有一处定义，就在 fix-encoding.ps1 里，本脚本调用它而不再自带一套）
 #>
 [CmdletBinding()]
 param(
@@ -44,6 +45,12 @@ $include = @(
     "config\convert.json",
     "config\filetypes.json",
     "config\game-names.json",
+    "packs\index.json",
+    "packs\README.md",
+    "packs\windows-system.json",
+    "packs\games-platform.json",
+    "packs\games-titles.json",
+    "packs\apps-common.json",
     "web\index.html",
     "tools\selftest.py",
     "tools\lint_rules.py",
@@ -54,6 +61,8 @@ $include = @(
     "tools\make-package.ps1"
 )
 # 明确不打包：history.json / schedule.json / custom-rules.json / __pycache__
+# 也不打包运行期生成的用户数据：config\ai.json（含 API Key）、
+# config\packs-state.json、config\packs-user\（用户自己导入的资源包）
 
 New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
 $packed = @()
@@ -137,7 +146,7 @@ if ($fail.Count -gt 0) {
 
 # ---------- 4. 打包 zip ----------
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
-$ver = "2.2"
+$ver = "2.3"
 $zip = Join-Path $OutDir ("{0}-v{1}.zip" -f $AppName, $ver)
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 

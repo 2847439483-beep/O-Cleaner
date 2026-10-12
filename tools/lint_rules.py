@@ -6,7 +6,8 @@
 所以在接受任何规则贡献之前，必须先过这一关。
 
 检查内容：
-  结构层  ID 唯一、必填字段、类型正确、枚举合法、关键词非空且不重复
+  结构层  内置规则 ID 唯一、必填字段、类型正确、枚举合法、关键词非空且不重复
+  资源包  packs/ 下的包与清单互相对得上、条目结构合法、匹配串可用
   语义层  分类是否在已知集合内、cleanable 与 risk 是否自相矛盾
   冲突层  关键词在规则之间撞车（A 的词被 B 抢走）
   路由层  用知识库自己的每个关键词去跑真实识别，验证「归属规则」能否赢
@@ -22,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -33,6 +35,26 @@ CONFIG = HERE / "config"
 FILETYPES = CONFIG / "filetypes.json"
 TARGETS = CONFIG / "targets.json"
 DRIVES = CONFIG / "drives.json"
+PACKS = HERE / "packs"
+WEB_INDEX = HERE / "web" / "index.html"
+
+# 资源包（packs/）的校验常量。
+# 资源包是可替换的外部数据，会被 UI 直接当成「这是什么、能不能删」展示，
+# 所以结构和语义都要在这一关挡住，不能等运行到用户机器上再报错。
+PACK_ID_RE = r"[A-Za-z0-9._-]{2,64}"
+PACK_REQUIRED_META = ("id", "name", "version", "type", "description")
+PACK_MAX_ENTRIES = 5000
+PACK_ONLY_VALUES = {"", "dir", "file"}
+# 文本字段的下限。这里刻意设得很低，只用来挡住「空壳条目」：
+# 实测现有包里 effect 最短是「删除等于卸载。」、rebuild 是「不适用。」、
+# keep 是「保留。」—— 这些短句本身就是准确表述，按内置规则的 15 字标准去卡
+# 只会逼作者往句子里注水，反而降低信息密度。所以只对 what 设一个下限，
+# 因为「这是什么」字段若短到 8 字以下，基本上等于没说。
+PACK_WHAT_MIN = 8
+PACK_TEXT_FIELDS = ("what", "effect", "rebuild", "keep")
+# 已知包类型。新增类型不会让运行时报错（只是标签退化成「自定义」），
+# 但在这里提醒一句，免得作者以为加个 type 就能在界面上分出新的组。
+KNOWN_PACK_TYPES = {"games", "system", "apps", "custom"}
 
 # 已知分类集合。出现新分类多半是拼写错误；确实要新增时把它加到这里。
 KNOWN_CATEGORIES = {
@@ -150,7 +172,7 @@ def load(path: Path):
 #  1. 结构层
 # ======================================================================
 def lint_structure(all_rules: list[dict]) -> None:
-    print("\n[1/6] 结构检查")
+    print("\n[1/7] 结构检查")
     seen_ids: dict[str, str] = {}
     for src, rules in (("folder", [r for r in all_rules if r.get("_src") == "folder"]),
                        ("file", [r for r in all_rules if r.get("_src") == "file"])):
@@ -203,10 +225,195 @@ def lint_structure(all_rules: list[dict]) -> None:
 
 
 # ======================================================================
-#  2. 语义自相矛盾
+#  2. 资源包
+# ======================================================================
+def _pack_cat_order() -> list[str]:
+    """从前端读分类排序表，用于提示「这个分类会排到最后」。"""
+    try:
+        txt = WEB_INDEX.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    m = re.search(r"const CAT_ORDER\s*=\s*\[(.*?)\];", txt, re.S)
+    return re.findall(r'"([^"]+)"', m.group(1)) if m else []
+
+
+def _pack_tokens_of(entry: dict) -> list[str]:
+    m = entry.get("match")
+    if not isinstance(m, dict):
+        return []
+    out: list[str] = []
+    for k in ("any", "all"):
+        v = m.get(k)
+        if isinstance(v, str):
+            v = [v]
+        if isinstance(v, list):
+            out += [str(x).strip() for x in v]
+    return out
+
+
+def lint_packs() -> None:
+    """检查 packs/ 下的资源包与清单。
+
+    这一关要和运行时校验（app.py 的 pack_validate）**分别实现**：
+    运行时校验只挡「会让程序崩」的输入，而这里是发布前的闸门，
+    还要挡「能跑但会把界面搞乱」的问题（分类排到最后、文件名与 id 不一致、
+    匹配串太宽泛以至于抓错目录）。
+    """
+    print("\n[2/7] 资源包检查")
+    n0 = len(ERRORS)
+
+    if not PACKS.is_dir():
+        # 缺目录不算错：用户可以不装任何资源包，功能退化成只有内置规则。
+        warn("缺 packs/ 目录（没有资源包时功能仍可用，只是释义较少）")
+        print("  跳过（无 packs/ 目录）")
+        return
+
+    index = load(PACKS / "index.json")
+    listed: list[str] = []
+    if index is None:
+        pass
+    elif not isinstance(index, dict):
+        err("packs/index.json 必须是一个 JSON 对象")
+    else:
+        raw = index.get("packs")
+        if not isinstance(raw, list) or not raw:
+            err("packs/index.json 的 packs 必须是非空数组")
+        else:
+            listed = [str(x) for x in raw]
+            if len(set(listed)) != len(listed):
+                err("packs/index.json 的 packs 列表有重复项")
+
+    on_disk = sorted(f.name for f in PACKS.glob("*.json")
+                     if f.name.lower() != "index.json")
+    # 清单与实际文件必须对得上：漏登会让「从 GitHub 检查更新」少下载一个包，
+    # 多登会下载一个 404，两种情况都只在用户点按钮时才暴露。
+    for name in listed:
+        if name not in on_disk:
+            err(f"packs/index.json 列了 {name}，但磁盘上没有这个文件")
+    for name in on_disk:
+        if name not in listed:
+            err(f"packs/ 下的 {name} 没被 index.json 收录（检查更新时会漏掉它）")
+
+    cat_order = _pack_cat_order()
+    unknown_cats: set[str] = set()
+    total_entries = 0
+    for name in on_disk:
+        p = PACKS / name
+        d = load(p)
+        if d is None:
+            continue
+        if not isinstance(d, dict):
+            err(f"{name} 必须是 JSON 对象")
+            continue
+        for k in PACK_REQUIRED_META:
+            if not str(d.get(k) or "").strip():
+                err(f"{name} 缺字段 {k}")
+        pid = str(d.get("id") or "").strip()
+        if pid and not re.fullmatch(PACK_ID_RE, pid):
+            err(f"{name} 的 id {pid!r} 非法（只允许字母数字点下划线连字符，2~64 字符）")
+        elif pid and pid != p.stem:
+            # 运行时按 id 决定「谁覆盖谁」，按文件名决定「下载哪个」，两者不一致
+            # 会让「同名覆盖内置包」这件事在远端更新时失效。
+            warn(f"{name} 的 id 是 {pid!r}，与文件名不一致（建议改成同一个）")
+        ptype = str(d.get("type") or "")
+        if ptype and ptype not in KNOWN_PACK_TYPES:
+            warn(f"{name} 的 type {ptype!r} 不在已知集合"
+                 f"（{'/'.join(sorted(KNOWN_PACK_TYPES))}），界面会显示成「自定义」")
+
+        ents = d.get("entries")
+        if not isinstance(ents, list) or not ents:
+            err(f"{name} 的 entries 必须是非空数组")
+            continue
+        if len(ents) > PACK_MAX_ENTRIES:
+            err(f"{name} 的 entries 过多（{len(ents)} 条，上限 {PACK_MAX_ENTRIES}）")
+        total_entries += len(ents)
+        seen_eids: dict[str, int] = {}
+        for i, e in enumerate(ents):
+            where = f"{name} entries[{i}]"
+            if not isinstance(e, dict):
+                err(f"{where} 不是对象")
+                continue
+            eid = str(e.get("id") or "").strip()
+            if eid:
+                if eid in seen_eids:
+                    err(f"{where} 的 id {eid!r} 与 entries[{seen_eids[eid]}] 重复")
+                else:
+                    seen_eids[eid] = i
+                where = f"{name} entries[{i}] id={eid}"
+            if not str(e.get("title") or "").strip():
+                err(f"{where} 缺 title（界面直接显示它，不能为空）")
+            m = e.get("match")
+            if not isinstance(m, dict):
+                err(f"{where} 缺 match 对象")
+            elif not (m.get("any") or m.get("all")):
+                err(f"{where} 的 match 既没有 any 也没有 all")
+            for k in ("any", "all"):
+                v = m.get(k) if isinstance(m, dict) else None
+                if v is not None and not isinstance(v, (str, list)):
+                    err(f"{where} 的 match.{k} 必须是字符串或数组")
+            toks = _pack_tokens_of(e)
+            if isinstance(m, dict) and (m.get("any") or m.get("all")) and not toks:
+                err(f"{where} 的 match 里没有有效关键词")
+            for tok in toks:
+                if not tok:
+                    err(f"{where} 的 match 含空关键词")
+                    continue
+                if tok.startswith("re:"):
+                    try:
+                        re.compile(tok[3:])
+                    except re.error as ex:
+                        err(f"{where} 的正则 {tok!r} 编译失败：{ex}")
+                    continue
+                # 单段关键词（不含路径分隔符）直接拿名称做子串匹配，
+                # 太泛会抓走一堆无关目录：`temp` 会命中所有临时目录。
+                segs = [x for x in re.split(r"[\\/]+", tok) if x]
+                if len(segs) == 1:
+                    key = segs[0].lower()
+                    if key in GENERIC_KEYWORDS:
+                        warn(f"{where} 的关键词 {tok!r} 过于宽泛，建议写成带目录的路径")
+                    elif len(key) < 3 and all(ord(c) < 128 for c in key):
+                        # 只在纯 ASCII 时判「过短」：两个字母（ab）会命中一切，
+                        # 而两个汉字（原神）已经足够特指，跟内置规则的口径一致。
+                        warn(f"{where} 的关键词 {tok!r} 过短，有误匹配风险")
+            if e.get("only") is not None and str(e.get("only")) not in PACK_ONLY_VALUES:
+                err(f"{where} 的 only 非法：{e.get('only')!r}（应为 dir 或 file）")
+            if e.get("risk") is not None and str(e.get("risk")) not in KNOWN_RISKS:
+                err(f"{where} 的 risk 非法：{e.get('risk')!r}")
+            if e.get("cleanable") is not None and not isinstance(e.get("cleanable"), bool):
+                err(f"{where} 的 cleanable 必须是布尔值")
+            # category 是可选的。注意这里不能用 `continue` 提前退出 ——
+            # 一旦某条不相关的字段缺失就跳过本条目的其余检查，检查会静默失效
+            # （这个坑已被单元测试抓到一次：不带 category 的条目会绕过文本字段检查）。
+            cat = e.get("category")
+            if cat is not None:
+                if not str(cat).strip():
+                    err(f"{where} 的 category 不能是空字符串")
+                elif cat_order and str(cat) not in cat_order:
+                    unknown_cats.add(str(cat))
+            for fld in PACK_TEXT_FIELDS:
+                if fld not in e:
+                    continue
+                v = e.get(fld)
+                if not isinstance(v, str) or not v.strip():
+                    err(f"{where} 的 {fld} 存在但为空（不想覆盖就整项省略）")
+                elif fld == "what" and len(v.strip()) < PACK_WHAT_MIN:
+                    warn(f"{where} 的 what 只有 {len(v.strip())} 字，"
+                         f"短于 {PACK_WHAT_MIN} 字基本等于没说清这是什么")
+
+    if unknown_cats:
+        # 只是排序问题（未知分类排到最后），不影响正确性，所以只提示不判失败。
+        note(f"资源包用到 {len(unknown_cats)} 个不在前端排序表里的分类："
+             f"{sorted(unknown_cats)}")
+    note(f"资源包 {len(on_disk)} 个、条目 {total_entries} 条")
+    print(f"  包 {len(on_disk)} 个、条目 {total_entries} 条"
+          f"（错误 {len(ERRORS) - n0}，警告 {len(WARNINGS)}）")
+
+
+# ======================================================================
+#  3. 语义自相矛盾
 # ======================================================================
 def lint_semantics(all_rules: list[dict]) -> None:
-    print("\n[2/6] 语义一致性检查")
+    print("\n[3/7] 语义一致性检查")
     n0 = len(ERRORS)
     for r in all_rules:
         rid = r.get("id")
@@ -237,7 +444,7 @@ def lint_semantics(all_rules: list[dict]) -> None:
 #  3. 关键词跨规则冲突
 # ======================================================================
 def lint_keyword_collisions(all_rules: list[dict]) -> None:
-    print("\n[3/6] 关键词冲突检查")
+    print("\n[4/7] 关键词冲突检查")
     n0 = len(ERRORS)
     k2r: dict[str, list[dict]] = {}
     for r in all_rules:
@@ -277,7 +484,7 @@ def lint_keyword_collisions(all_rules: list[dict]) -> None:
 # ======================================================================
 def lint_routing(all_rules: list[dict]) -> None:
     """对每条规则的每个关键词，构造样本跑真实 identify()，验证归属规则能赢。"""
-    print("\n[4/6] 路由验证（用真实引擎跑知识库自己的关键词）")
+    print("\n[5/7] 路由验证（用真实引擎跑知识库自己的关键词）")
     n0 = len(ERRORS)
     try:
         import app
@@ -341,7 +548,7 @@ def lint_routing(all_rules: list[dict]) -> None:
 #  5. 与项目文档/配置的一致性
 # ======================================================================
 def lint_consistency() -> None:
-    print("\n[5/6] 文档与配置一致性")
+    print("\n[6/7] 文档与配置一致性")
     n0 = len(ERRORS)
     readme = (HERE / "README.md")
     if not readme.exists():
@@ -386,7 +593,7 @@ def lint_consistency() -> None:
 #  6. 危险删除面 —— 明确列出「这条规则会让工具去删什么」
 # ======================================================================
 def lint_delete_surface(all_rules: list[dict]) -> None:
-    print("\n[6/6] 可清理规则清单（人工复核用）")
+    print("\n[7/7] 可清理规则清单（人工复核用）")
     cl = [r for r in all_rules if r.get("cleanable")]
     print(f"  共 {len(cl)} 条规则会把项目列入清理建议：")
     for r in sorted(cl, key=lambda x: (x.get("risk") != "高", x.get("id") or "")):
@@ -424,6 +631,7 @@ def main() -> int:
         all_rules.append({**r, "_src": "file"})
 
     lint_structure(all_rules)
+    lint_packs()
     lint_semantics(all_rules)
     lint_keyword_collisions(all_rules)
     lint_routing(all_rules)

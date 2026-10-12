@@ -565,11 +565,35 @@ def phase3_http() -> None:
         check("前端含自定义换算单位表单", "btnUnitAdd" in html and "btnUnitExample" in html)
         check("预设样式已修复溢出",
               "white-space:normal" in html and "overflow-wrap:anywhere" in html)
-        # 布局回归：工具栏用 grid-column:1 占位后，section/aside 必须显式指定列，
-        # 否则 auto-placement 会把卡片区挤进 392px 的侧栏列（"挤在左上侧"的根因）
-        check("卡片区与侧栏显式指定了网格列",
-              "main > section{grid-column:1" in html.replace(" ", "")
-              or "main > section{grid-column:1;" in html)
+        # 布局回归：工具栏占位后，section / aside 必须显式指定位置，
+        # 否则 grid 的 auto-placement 会把卡片区挤进 392px 的侧栏列（"挤在左上侧"的根因）。
+        # 现在改用 grid-template-areas 命名每一格，同样是"显式定位"，
+        # 所以断言检查的是"两栏都被命名区域覆盖"，而不是某一处 grid-column 写法。
+        _css = html.replace(" ", "")
+        check("卡片区与侧栏显式指定了网格位置",
+              ('main>section{grid-area:view' in _css and 'aside{grid-area:side' in _css)
+              or "main > section{grid-column:1" in html)
+        check("网格用命名区域覆盖左列四行与右列整列",
+              'grid-template-areas:' in _css
+              and '"tool1side"' in _css and '"viewside"' in _css)
+        # v2.3 UI：右侧堆叠折叠、磁盘概览并入左栏、两栏独立滚动、Esc 返回
+        check("右侧面板改为可折叠堆叠",
+              'class="panel acc' in html and "data-acc=" in html
+              and "initAccordions" in html)
+        check("侧栏不再有磁盘概览面板（已并入左栏）",
+              'id="paneDisk"' in html and 'id="driveHint"' in html
+              and html.count('id="driveHint"') == 1)
+        check("全盘页的面板改称扫描概览，避免与左栏重名",
+              "<h3>扫描概览" in html and 'id="fsHint"' in html)
+        check("左右两栏各自独立滚动",
+              "body{display:flex;flex-direction:column;height:100vh;overflow:hidden}" in _css
+              # 唯一一行必须钉死在容器高度上，否则网格隐式行会被内容撑高、无法内滚动
+              and "grid-template-rows:autoautoautominmax(0,1fr)" in _css
+              and "main>section{grid-area:view;min-width:0;min-height:0;overflow-y:auto" in _css)
+        check("Esc 绑定为返回上一级子目录",
+              'e.key !== "Escape"' in html and "fsStack.pop()" in html)
+        check("运行环境自检中的「跨设备兼容」已改为「兼容性分析」",
+              "兼容性分析" in html and "跨设备兼容" not in html)
         check("换算与累积已合并（旧面板标记已移除）",
               "累积清理与换算" in html and "换算成什么" not in html)
         check("规则区按新语义（勾选固定项）",
@@ -584,6 +608,48 @@ def phase3_http() -> None:
               {"sandbox-tree", "sandbox-files"} <= sb_bases,
               f"共 {len(state.get('targets', []))} 项")
         check("state 含盘符列表", len(state.get("drives", [])) >= 1)
+        # 兼容性分析：必须是后端实测出来的条目，而不是前端写死的一句话
+        _cp = state.get("compat") or {}
+        check("state 携带兼容性分析结果",
+              isinstance(_cp.get("items"), list) and len(_cp["items"]) >= 5,
+              f"{_cp.get('ok_count')}/{_cp.get('total')} 项通过")
+        check("兼容性分析每条都带标题与实测依据",
+              all(i.get("title") and i.get("detail") for i in _cp.get("items", [])))
+        check("兼容性分析含判断依据的关键项",
+              {"os", "arch", "powershell", "portable"} <=
+              {i.get("key") for i in _cp.get("items", [])})
+        check("配置可移植性判定与实测一致",
+              _cp.get("portable") is (not app._literal_paths()),
+              f"写死盘符的路径 {len(app._literal_paths())} 条")
+
+        # 扫描进度：必须是真实阶段，而不是把时间映射成百分比
+        _pg = get("/__oc__/progress")
+        check("进度端点在不扫描时明确标记为未激活",
+              isinstance(_pg, dict) and _pg.get("active") is False)
+        check("进度条不再用时间估算（旧公式已移除）",
+              "Math.exp(-s / 90)" not in html and "/__oc__/progress" in html)
+        app.prog_start("C")
+        app.prog_set("parse", "正在解析 MFT 明细（42%）", 42.5)
+        _s1 = app.prog_snapshot()
+        check("扫描进度按真实阶段上报",
+              _s1["active"] and _s1["phase"] == "parse" and _s1["pct"] == 42.5
+              and isinstance(_s1.get("elapsed"), float), str(_s1.get("text")))
+        app.prog_set("walk", "正在递归统计目录体积", 60, indeterminate=True)
+        check("没有分母的阶段标记为「不确定进度」而不是伪造百分比",
+              app.prog_snapshot()["indeterminate"] is True)
+        app.prog_set("identify", "越界百分比被夹紧", 250)
+        check("百分比写入时被夹在 0-100", app.prog_snapshot()["pct"] == 100.0)
+        app.prog_done(True, "扫描完成")
+        _s2 = app.prog_snapshot()
+        check("扫描结束后进度归位（active=False 且 100%）",
+              _s2["active"] is False and _s2["pct"] == 100.0
+              and _s2["indeterminate"] is False)
+        app.prog_start("D")
+        app.prog_done(False, "盘符不存在")
+        _s3 = app.prog_snapshot()
+        check("失败的扫描也把进度收尾（不会永远停在半路）",
+              _s3["active"] is False and _s3["phase"] == "error",
+              _s3.get("text", ""))
         check("state 含磁盘信息", "free_h" in state.get("disk", {}))
         check("state 含累积统计", "stats" in state and "total_freed_h" in state["stats"])
         check("state 含换算单位表", "units" in state and len(state["units"]) > 0)
@@ -842,6 +908,31 @@ def phase4_repo() -> None:
                    ("CONTRIBUTING.md", "贡献者需要知道安全门槛"),
                    ("SECURITY.md", "规则投毒是本项目特有攻击面")):
         check(f"包含 {f}", (HERE / f).exists(), why)
+
+    # 版本号必须三处一致。
+    # 这条是被实际漏改逼出来的：升 v2.3 时只改了 app.py 的 server_version，
+    # 漏掉 config/drives.json（界面显示仍是 2.2）与两个 User-Agent。
+    # 现在 app.py 内已收敛为 APP_VERSION 常量，这里再钉住它与另外两处的同步。
+    mkp = TOOLS_DIR / "make-package.ps1"
+    drives_ver = str((app.load_drives_cfg().get("app") or {}).get("version") or "")
+    mkp_txt = mkp.read_text(encoding="utf-8", errors="replace") if mkp.exists() else ""
+    mkp_ver = ""
+    for line in mkp_txt.splitlines():
+        s = line.strip()
+        if s.startswith("$ver"):
+            mkp_ver = s.split("=", 1)[-1].strip().strip('"')
+            break
+    check("app.py 版本常量与 drives.json 一致",
+          drives_ver == app.APP_VERSION,
+          f"app={app.APP_VERSION} drives={drives_ver}")
+    check("打包脚本版本号与 app.py 一致",
+          mkp_ver == app.APP_VERSION,
+          f"app={app.APP_VERSION} make-package={mkp_ver or '(未找到)'}")
+    check("User-Agent 由版本常量派生（不再各写各的）",
+          app.APP_UA == f"O-Cleaner/{app.APP_VERSION}"
+          and '"User-Agent": "O-Cleaner/' not in
+          (app.__file__ and open(app.__file__, encoding="utf-8").read()),
+          app.APP_UA)
 
     # 仓库专用文件：分发包里不该有 .gitattributes / .github，
     # 所以只有确认身处源码仓库时才检查（用 .git 目录作为判据）。
@@ -1420,6 +1511,51 @@ def phase7_scoping_and_accel() -> None:
           all(c.get("size_h") for c in sub["children"])
           and any(c["size"] > 0 for c in sub["children"]))
     shutil.rmtree(SANDBOX, ignore_errors=True)
+
+    # ---- 5) 子进程调用的超时有界性 ----
+    # 这一段对应一次实际观察到的卡死：扫描停在「正在读取 Steam 库清单」不动，
+    # 进度条（当时还是按时长估算的假进度）继续往上爬，看起来像在正常工作。
+    #
+    # 根因不在被测脚本，而在 subprocess.run(timeout=…) 的超时实现：
+    # Windows 上它超时后会先 kill()，再调一次 communicate() 去收输出；
+    # 若残留子进程仍持有 stdout 管道，这次 communicate() 会永久等待。
+    # 因此 run_ps 改成显式 Popen + 结束整棵进程树 + 有上限的收尾。
+    #
+    # 断言只钉「一定会返回」这一条性质，不钉具体耗时，以免在慢机器上误报。
+    if os.name == "nt":
+        t0 = time.time()
+        r = app.run_ps("Start-Sleep -Seconds 120; 'never'", timeout=3)
+        dt = time.time() - t0
+        check("run_ps 超时后必定返回（不会无限阻塞）", dt < 30,
+              f"{dt:.1f}s")
+        check("run_ps 超时返回明确的错误并写明秒数",
+              isinstance(r, dict) and "超时" in str(r.get("error")),
+              str(r.get("error"))[:50])
+
+        # 子进程持有 stdout 管道 —— 旧实现在这里会永久挂住
+        t0 = time.time()
+        r = app.run_ps(
+            "$p = Start-Process -FilePath cmd "
+            "-ArgumentList '/c','ping -n 90 127.0.0.1 > NUL' "
+            "-WindowStyle Hidden -PassThru; Start-Sleep -Seconds 120; 'done'",
+            timeout=4)
+        dt = time.time() - t0
+        check("run_ps 在子进程持有管道时也能返回", dt < 30, f"{dt:.1f}s")
+
+        # 正常路径不受影响：中文往返、数组、错误分支
+        check("run_ps 中文输出往返正确",
+              app.run_ps('[pscustomobject]@{t="中文 ✓"} | ConvertTo-Json -Compress'
+                         ).get("t") == "中文 ✓")
+        check("run_ps 数组输出不被折成首元素",
+              app.run_ps('@(1,2,3) | ConvertTo-Json -Compress') == [1, 2, 3])
+        check("run_ps 无输出时给出带退出码的错误",
+              "无输出" in str(app.run_ps("Write-Error 'x' 2>&1 | Out-Null"
+                                         ).get("error")))
+        check("run_ps 非 JSON 输出被识别",
+              "不是合法 JSON" in str(app.run_ps("Write-Output 'not json'"
+                                                ).get("error")))
+    else:
+        skip("run_ps 超时有界性", "只在 Windows 上有 PowerShell")
 
 
 def main() -> int:
