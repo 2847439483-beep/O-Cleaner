@@ -723,6 +723,48 @@ clean-game 非游戏仍 400 / disk-trend 落盘且 CRLF / games 聚合带孤儿�
 _lint_selftest 44/0、JS 语法、py_compile、编码契约全绿。分发清单 +1
 （sync_packs.py）→ 28 个文件 / 322.8 KB。
 
+### 22. 界面批次：主题三态 + 兼容性分析移除 + 面板合并 + 自定义释义（2026-10-13）
+
+1. **主题三态（亮 / 暗 / 随系统）**：配色从「12 个核心变量 + 大量硬编码色值」
+   收敛为**变量分层**——`:root` 暗色默认 + `[data-theme="light"]` 整组覆盖；
+   硬编码色按八组语义色族（ok/warn/danger/info/purple/teal/orange/neutral）与
+   结构面（hover/选中底/轨道/滚动条/页眉页脚）映射成派生变量。批量替换脚本
+   带逐条出现次数断言（三次纠偏：渐变对计数、`#fbbf24` 少 1、`#60a5fa` 的
+   3 处是刚插入的兜底参数不能动）。**坑**：`:root` 新旧块里都有与新全局替换
+   冲突的色值（如 `--teal-fg:#5eead4`），解法是先把 `:root` 换成占位注释、
+   跑完全局替换再回填双主题块。header/footer 的 rgba 漏替换导致浅色模式下
+   页眉仍是深色——截图核对抓出来的，别只信断言。`<head>` 里有**首帧前内联
+   脚本**读 localStorage 定主题防闪色；趋势画布颜色改读 `getComputedStyle`
+   变量 + `hexToRgba` 兜底，切主题后要重画。CDP 断言踩过的坑：点「暗」之后
+   才量 `bgLight`（顺序 bug，应用本身没问题）。
+2. **兼容性分析移除**：`compat_report()` 及两个辅助函数、state 的 `compat`
+   字段、前端折叠区与样式、USAGE 小节全删；selftest 断言改为「已移除」。
+3. **换算单位并入「累积清理与换算」**：删掉 `data-acc="units"` 独立面板，
+   convToggle 与添加/管理表单移入 cum 面板正文；panelNav 按静态 DOM 自动
+   生成无需改；注意 `statRange` span 别丢（renderCumulative 会写它）。
+   CDP 本机 76/0/1 验证。
+4. **用户自定义释义与结论**（三条优先级的最上一条：用户 > 资源包 > 内置）：
+   - 存储 `config/custom-overrides.json`（gitignore），键由后端算好下发
+     （`ovkey`）：普通项用 `base_id`（跨盘符通用），**自动发现 / 自定义目录
+     项分别共用泛化 base_id（"auto"/"custom"），必须改用归一化路径**；
+   - `build_targets` 在资源包合并**之后**应用覆盖；`build_state` 的字段
+     白名单补了 `cleanable`/`custom`（此前 state 里根本没有 cleanable，
+     前端 `aiCandidates` 一直在拿 undefined）；
+   - 接口三件：GET `/__oc__/overrides`、POST `set`（全空 = 删条目；非法 id
+     400）、POST `delete`；
+   - 前端：卡片「编辑」按钮 → 弹窗四段释义 + 结论三态（默认/可清理/不可
+     清理）+ 恢复默认；徽章「已自定义」「已改为建议保留」；高风险项翻转
+     结论后 risk 保持「高」（清进回收站的默认不放松）。CDP 断言注意弹窗
+     内容在 fetch 之后才填，必须 `awaitPromise` + 延时再查。
+5. **释义增强包 +6（18 → 24 条，总 172）**：聊天软件数据、视频剪辑草稿、
+   BT 下载工具、虚拟机目录、AI 模型缓存、开发工具链缓存。实测内置专属规则
+   （`xwechat_files`、`.ollama`）仍压过通用条目——三层优先级按设计工作。
+   **改包后记得双仓同步**（sync_packs.py push + check；api.github.com 晚间
+   会 TLS 超时，push 挂重试循环）。
+
+**验证**：linter 0/0、_lint_selftest 44/0、CDP 本机 79/0/1、覆盖接口
+端到端（set→state 反映→delete→恢复默认→非法 id 400）全绿。
+
 ---
 
 ## 七、文件资产与代码清单
