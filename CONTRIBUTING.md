@@ -81,7 +81,7 @@ python -X utf8 tools/lint_rules.py     # 看「路由验证」一节
 资源包是补充/改写清理项释义的数据（格式见 [packs/README.md](packs/README.md)）。它同样受门禁约束：
 
 ```
-python -X utf8 tools/lint_rules.py --strict     # 第 [2/7] 节专门检查资源包
+python -X utf8 tools/lint_rules.py --strict     # 第 [2/8] 节专门检查资源包
 ```
 
 - **新增包**：在 `packs/` 下放 `你的包名.json`，并把文件名加进 `packs/index.json` 的 `packs` 列表。两处必须一致 —— linter 会双向核对，漏登或写了不存在的文件都会失败。
@@ -98,8 +98,8 @@ python -X utf8 tools/lint_rules.py --strict     # 第 [2/7] 节专门检查资�
 
 ```
 python -X utf8 tools/selftest.py              # 300+ 项断言，含真实删除与 HTTP 端到端
-python -X utf8 tools/lint_rules.py --strict   # 规则与资源包门禁（7 项检查，警告计为失败）
-python -X utf8 tools/_lint_selftest.py        # 验证 linter 有检出能力（知识库 15 类 + 资源包 20 类注入）
+python -X utf8 tools/lint_rules.py --strict   # 规则与资源包门禁（8 项检查，警告计为失败）
+python -X utf8 tools/_lint_selftest.py        # 验证 linter 有检出能力（知识库 15 类 + 资源包 20 类 + 脚本模板 5 类注入，共 44 项）
 node tools/cdp_check.js "http://127.0.0.1:8770"   # 真实浏览器渲染与交互检查（50+ 项断言）
 ```
 

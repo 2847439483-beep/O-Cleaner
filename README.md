@@ -157,7 +157,7 @@ O-Cleaner\
 仓库包含四道检查，均在 Windows 上运行，已接入 GitHub Actions：
 
 ```
-python -X utf8 tools/lint_rules.py --strict     # 规则检查（7 项检查，警告计为失败）
+python -X utf8 tools/lint_rules.py --strict     # 规则检查（8 项检查，警告计为失败）
 python -X utf8 tools/_lint_selftest.py          # 验证 linter 自身有检出能力（缺陷注入）
 python -X utf8 tools/selftest.py                # 功能自测（300+ 项断言，含真实删除与 HTTP 端到端）
 node tools/cdp_check.js http://127.0.0.1:8770   # 浏览器渲染与交互检查（50+ 项断言）

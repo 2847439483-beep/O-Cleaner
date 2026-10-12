@@ -6,6 +6,7 @@
   资源包组 —— 在系统临时目录里造一个假 packs/，进程内调用 lint_packs() 确认抓到缺陷。
               刻意不往仓库的 packs/ 里写文件：那样会被宿主的删除保护拦下，
               留下测试残渣反而污染仓库。用临时目录既不碰仓库也不依赖删文件。
+  模板组   —— 在临时目录里放一个假的 app.py，进程内调用 lint_ps_templates()。
 
 只修改 config/filetypes.json，运行后必定还原（finally）。
 """
@@ -152,6 +153,51 @@ def run_pack_lint(pack: dict, file_name: str = "probe.json",
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# 内嵌脚本模板组用的最小样本。故意写得很短，让「配平」一眼可数：
+#   @{ k = 1 }                      花括号一对
+#   foreach ($x in 1..3) { ... }     圆括号一对、花括号一对
+TPL_BASE = (
+    'PS_DEMO = r"""\n'
+    "$a = @{ k = 1 }\n"
+    "foreach ($x in 1..3) { $a[$x] = $x }\n"
+    '"""\n'
+)
+
+# 用例：(名称, 变换函数)。返回 None 表示连 app.py 都不存在。
+TPL_CASES = [
+    ("少一个右花括号（真实事故：整段脚本解析失败）",
+     lambda s: s.replace("= $x }", "= $x ")),
+    ("少一个左花括号", lambda s: s.replace("{ $a[$x] = $x }", "$a[$x] = $x }")),
+    ("少一个右圆括号", lambda s: s.replace("($x in 1..3)", "($x in 1..3")),
+    ("模板被删空（正则失效保护）", lambda s: "X = 1\n"),
+    ("app.py 不存在", lambda s: None),
+]
+
+
+def run_tpl_lint(src: str | None) -> tuple[list[str], list[str]]:
+    """在临时目录里放一个假的 app.py，跑一次 lint_ps_templates()。
+
+    做法与资源包组一致：只换模块里的路径常量，不往仓库写任何文件。
+    """
+    import lint_rules as L
+    tmp = Path(tempfile.mkdtemp(prefix="oc_lint_tpl_"))
+    saved = L.HERE
+    try:
+        if src is not None:
+            (tmp / "app.py").write_text(src, encoding="utf-8")
+        L.HERE = tmp
+        L.ERRORS.clear()
+        L.WARNINGS.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            L.lint_ps_templates()
+        return list(L.ERRORS), list(L.WARNINGS)
+    finally:
+        L.HERE = saved
+        L.ERRORS.clear()
+        L.WARNINGS.clear()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_lint(strict: bool = True) -> tuple[int, str]:
     cmd = [sys.executable, "-X", "utf8", str(HERE / "tools" / "lint_rules.py")]
     if strict:
@@ -234,6 +280,31 @@ def main() -> int:
                 print(("  [OK]   " if caught else "  [严重] ") + f"能检出：{name}")
                 if not caught:
                     print("        （lint_packs 通过了，说明这一类缺陷没被覆盖）")
+
+        # --------------------------------------------------------------
+        #  内嵌脚本模板组
+        # --------------------------------------------------------------
+        print("\n  —— 内嵌脚本模板检查的检出能力 ——")
+        try:
+            errs, warns = run_tpl_lint(TPL_BASE)
+        except Exception as e:                        # noqa: BLE001
+            print(f"  [跳过] 模板组：无法调用 lint_ps_templates（{e}）")
+            errs = None
+        if errs is not None:
+            if not errs and not warns:
+                PASS.append("干净脚本模板应通过")
+                print("  [OK]   干净脚本模板通过 lint_ps_templates")
+            else:
+                FAIL.append("干净脚本模板应通过")
+                print(f"  [严重] 干净脚本模板没通过：{errs} {warns}")
+
+            for name, mutate in TPL_CASES:
+                errs, warns = run_tpl_lint(mutate(TPL_BASE))
+                caught = bool(errs) or bool(warns)
+                (PASS if caught else FAIL).append("模板：" + name)
+                print(("  [OK]   " if caught else "  [严重] ") + f"能检出：{name}")
+                if not caught:
+                    print("        （lint_ps_templates 通过了，说明这一类缺陷没被覆盖）")
     finally:
         shutil.move(str(BAK), str(CFG))
 

@@ -1557,6 +1557,64 @@ def phase7_scoping_and_accel() -> None:
     else:
         skip("run_ps 超时有界性", "只在 Windows 上有 PowerShell")
 
+    # ---- 6) 内嵌脚本模板的语法 ----
+    # 对应一次真实事故：v2.3 给磁盘递归脚本加「按节点预算上报进度」时，
+    # `if (...) {` 少写了一个右花括号。模板能渲染、占位符能替换、静态 linter
+    # 也只看数据文件，Python 侧完全看不出问题；但脚本一交给系统 shell 就在
+    # 解析阶段直接失败（Missing closing '}' in statement block or type
+    # definition.），全盘扫描因此整条不可用 —— 浏览器检查里三十多条依赖它的
+    # 断言成片跳过，而唯一那条会让作业变红的断言又长期被误判成「CI 环境超时」。
+    # 所以这里不只数括号，把渲染结果直接交给解析器判一次。
+    tpl_names = sorted(n for n in dir(app)
+                       if n.startswith("PS_") and isinstance(getattr(app, n), str))
+    unbalanced = []
+    for n in tpl_names:
+        body = getattr(app, n)
+        if body.count("{") != body.count("}"):
+            unbalanced.append(
+                f"{n}({{={body.count('{')} }}={body.count('}')})")
+    check("内嵌脚本模板的花括号配平（少一个右花括号会让整段脚本语法失败）",
+          not unbalanced,
+          "；".join(unbalanced) or f"检查了 {len(tpl_names)} 个模板")
+
+    depth_cap = max(1, min(app.DISK_TREE_MAX_DEPTH, 6))
+    rendered = (app.PS_TREE_WALK
+                .replace("__ROOT__", "C:" + os.sep)
+                .replace("__PROGFILE__", "")
+                .replace("__MINCHILD__", "1048576")
+                .replace("__RATIO__", repr(app.DISK_TREE_MIN_DESCEND_RATIO))
+                .replace("__FLOOR__", str(app.DISK_TREE_MIN_DESCEND_FLOOR))
+                .replace("__MAXDEPTH__", str(depth_cap))
+                .replace("__MAXPERDIR__", str(app.DISK_TREE_MAX_PER_DIR))
+                .replace("__MAXNODES__", str(app.DISK_TREE_MAX_NODES))
+                .replace("__MAXDESCENTS__", str(app.DISK_TREE_MAX_DESCENTS)))
+    leftover = [t for t in ("__ROOT__", "__PROGFILE__", "__MINCHILD__", "__RATIO__",
+                            "__FLOOR__", "__MAXDEPTH__", "__MAXPERDIR__",
+                            "__MAXNODES__", "__MAXDESCENTS__") if t in rendered]
+    check("磁盘递归脚本渲染后无残留占位符", not leftover,
+          "、".join(leftover) or "9 个占位符全部替换")
+
+    if os.name == "nt":
+        tdir = tempfile.mkdtemp(prefix="oc-tpl-syntax-")
+        try:
+            sp = os.path.join(tdir, "walk-check.ps1")
+            with open(sp, "w", encoding="utf-8-sig", newline="\r\n") as fh:
+                fh.write(rendered)
+            probe = ("$e=$null;"
+                     "[void][System.Management.Automation.Language.Parser]"
+                     "::ParseFile('" + sp + "',[ref]$null,[ref]$e);"
+                     "@{n=@($e).Count; first=(@($e) | Select-Object -First 1 | "
+                     "ForEach-Object { $_.Message })} | ConvertTo-Json -Compress")
+            r = app.run_ps(probe, timeout=120)
+            n = r.get("n") if isinstance(r, dict) else None
+            first = r.get("first") if isinstance(r, dict) else r
+            check("磁盘递归脚本能被解析器接受（0 处语法错误）", n == 0,
+                  f"错误 {n} 处：{first}")
+        finally:
+            shutil.rmtree(tdir, ignore_errors=True)
+    else:
+        skip("磁盘递归脚本的语法解析", "只在 Windows 上有对应解析器")
+
 
 def main() -> int:
     if os.name == "nt":

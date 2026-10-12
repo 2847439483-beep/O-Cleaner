@@ -56,6 +56,13 @@ PACK_TEXT_FIELDS = ("what", "effect", "rebuild", "keep")
 # 但在这里提醒一句，免得作者以为加个 type 就能在界面上分出新的组。
 KNOWN_PACK_TYPES = {"games", "system", "apps", "custom"}
 
+# app.py 里内嵌的 Windows 脚本模板（PS_* = r"""..."""）。
+# 这些模板由 Python 拼字符串生成、再交给系统 shell 执行，所以语法错误
+# 不会在 Python 侧暴露。此处做一条最便宜的静态检查：括号配平。
+# 对应的真实事故见 lint_ps_templates() 的注释。
+SCRIPT_TEMPLATE_RE = re.compile(
+    r'^(?P<name>PS_[A-Z0-9_]+)\s*=\s*r?"""(?P<body>.*?)"""', re.S | re.M)
+
 # 已知分类集合。出现新分类多半是拼写错误；确实要新增时把它加到这里。
 KNOWN_CATEGORIES = {
     "游戏", "模拟器", "个人数据", "下载", "聊天软件", "云盘", "创作软件", "创作数据",
@@ -172,7 +179,7 @@ def load(path: Path):
 #  1. 结构层
 # ======================================================================
 def lint_structure(all_rules: list[dict]) -> None:
-    print("\n[1/7] 结构检查")
+    print("\n[1/8] 结构检查")
     seen_ids: dict[str, str] = {}
     for src, rules in (("folder", [r for r in all_rules if r.get("_src") == "folder"]),
                        ("file", [r for r in all_rules if r.get("_src") == "file"])):
@@ -259,7 +266,7 @@ def lint_packs() -> None:
     还要挡「能跑但会把界面搞乱」的问题（分类排到最后、文件名与 id 不一致、
     匹配串太宽泛以至于抓错目录）。
     """
-    print("\n[2/7] 资源包检查")
+    print("\n[2/8] 资源包检查")
     n0 = len(ERRORS)
 
     if not PACKS.is_dir():
@@ -413,7 +420,7 @@ def lint_packs() -> None:
 #  3. 语义自相矛盾
 # ======================================================================
 def lint_semantics(all_rules: list[dict]) -> None:
-    print("\n[3/7] 语义一致性检查")
+    print("\n[3/8] 语义一致性检查")
     n0 = len(ERRORS)
     for r in all_rules:
         rid = r.get("id")
@@ -444,7 +451,7 @@ def lint_semantics(all_rules: list[dict]) -> None:
 #  3. 关键词跨规则冲突
 # ======================================================================
 def lint_keyword_collisions(all_rules: list[dict]) -> None:
-    print("\n[4/7] 关键词冲突检查")
+    print("\n[4/8] 关键词冲突检查")
     n0 = len(ERRORS)
     k2r: dict[str, list[dict]] = {}
     for r in all_rules:
@@ -484,7 +491,7 @@ def lint_keyword_collisions(all_rules: list[dict]) -> None:
 # ======================================================================
 def lint_routing(all_rules: list[dict]) -> None:
     """对每条规则的每个关键词，构造样本跑真实 identify()，验证归属规则能赢。"""
-    print("\n[5/7] 路由验证（用真实引擎跑知识库自己的关键词）")
+    print("\n[5/8] 路由验证（用真实引擎跑知识库自己的关键词）")
     n0 = len(ERRORS)
     try:
         import app
@@ -548,7 +555,7 @@ def lint_routing(all_rules: list[dict]) -> None:
 #  5. 与项目文档/配置的一致性
 # ======================================================================
 def lint_consistency() -> None:
-    print("\n[6/7] 文档与配置一致性")
+    print("\n[6/8] 文档与配置一致性")
     n0 = len(ERRORS)
     readme = (HERE / "README.md")
     if not readme.exists():
@@ -590,10 +597,47 @@ def lint_consistency() -> None:
 
 
 # ======================================================================
-#  6. 危险删除面 —— 明确列出「这条规则会让工具去删什么」
+#  6. 内嵌脚本模板的语法（app.py 的 PS_* 模板）
+# ======================================================================
+def lint_ps_templates() -> None:
+    """检查 app.py 内嵌脚本模板的括号是否配平。
+
+    这一关是被一次真实事故催出来的：v2.3 给磁盘递归脚本加「按节点预算上报
+    进度」时，`if (...) {` 少写了一个右花括号。模板本身能渲染、占位符也都能
+    替换，Python 侧毫无异样；但脚本一交给系统 shell 就在解析阶段直接失败
+    （Missing closing '}' in statement block or type definition.），
+    全盘扫描因此整条不可用 —— 界面表现为「概览扫描失败」，浏览器检查里
+    依赖它的三十多条断言成片跳过。
+
+    静态检查只能数括号，正式的语法判定交给自测里那次解析器调用
+    （tools/selftest.py 阶段七）。两者角度不同：这里保证「一眼可见的配平
+    问题」在提交前就被挡下，而且不依赖 Windows 环境也能跑。
+    """
+    print("\n[7/8] 内嵌脚本模板语法（app.py 的 PS_* 模板）")
+    n0 = len(ERRORS)
+    app_py = HERE / "app.py"
+    if not app_py.exists():
+        err("找不到 app.py，无法检查内嵌脚本模板")
+        return
+    found = SCRIPT_TEMPLATE_RE.findall(app_py.read_text(encoding="utf-8"))
+    if not found:
+        err("app.py 里没有匹配到任何 PS_* 脚本模板（检查用的正则可能已失效）")
+        return
+    for name, body in found:
+        for open_ch, close_ch in (("{", "}"), ("(", ")")):
+            a, b = body.count(open_ch), body.count(close_ch)
+            if a != b:
+                err(f"{name} 的 {open_ch}{close_ch} 不配平："
+                    f"{open_ch}={a} {close_ch}={b}"
+                    f"（少一个 {close_ch} 会让整段脚本在解析阶段直接失败）")
+    print(f"  检查了 {len(found)} 个脚本模板，错误 {len(ERRORS) - n0} 项")
+
+
+# ======================================================================
+#  7. 危险删除面 —— 明确列出「这条规则会让工具去删什么」
 # ======================================================================
 def lint_delete_surface(all_rules: list[dict]) -> None:
-    print("\n[7/7] 可清理规则清单（人工复核用）")
+    print("\n[8/8] 可清理规则清单（人工复核用）")
     cl = [r for r in all_rules if r.get("cleanable")]
     print(f"  共 {len(cl)} 条规则会把项目列入清理建议：")
     for r in sorted(cl, key=lambda x: (x.get("risk") != "高", x.get("id") or "")):
@@ -636,6 +680,7 @@ def main() -> int:
     lint_keyword_collisions(all_rules)
     lint_routing(all_rules)
     lint_consistency()
+    lint_ps_templates()
     lint_delete_surface(all_rules)
     lint_accepted_list()
 
