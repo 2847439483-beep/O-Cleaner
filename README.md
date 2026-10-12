@@ -154,7 +154,7 @@ O-Cleaner\
 ├─ packs\                  内置资源包（4 个 json + 格式说明 README.md）
 ├─ web\index.html          界面（HTML + CSS + JavaScript 均在单个文件内）
 └─ tools\                  selftest.py · lint_rules.py · cdp_check.js
-                           doctor.py · fix-encoding.ps1 · make-package.ps1
+                           doctor.py · fix-encoding.ps1 · make_package.py
 ```
 
 ## 测试与贡献

@@ -3,7 +3,7 @@
 > **文档版本**：v2.3（资源包 + 自有 AI 接入版）
 > **项目定位**：Windows 原生、本地零第三方依赖的磁盘清理与空间占用查看工具。
 > **代码仓库**：`github.com/2847439483-beep/O-Cleaner`（私有），`main` 分支，CI 已接入。
-> **分发包**：由 `tools/make-package.ps1` 生成，输出到 `dist\O-Cleaner-<版本>.zip`。
+> **分发包**：由 `tools/make_package.py` 生成（内存打包，无暂存目录；版本号 import 自 `app.APP_VERSION`），输出到 `dist\O-Cleaner-<版本>.zip`。
 
 ---
 
@@ -648,6 +648,27 @@ CI 上出现一次此前未见的 `ui` 失败（`通过 21 项，失败 4 项，
 `game_display_name` 逐游戏调用无性能问题；占用树渲染的三次全量 `filter`
 在万级节点下微不足道；`app.py` 拆模块与「零依赖单文件」的分发形态冲突，留待明确需求再做。
 
+### 20. 打包工具从 PowerShell 换成 Python（2026-10-12 深夜）
+
+`tools/make_package.py` 替代 `make-package.ps1`（已删除）。动机与设计：
+
+1. **内存打包，没有暂存目录**。旧流程「复制到 Temp → 规范化 → 压缩 → 删暂存」
+   在受限环境下会被删除配额拦死（暂存目录清理就是删除操作）。现在直接从源码树
+   读字节写 zip：源码树本身就是合规产物（CI 与 fix-encoding.ps1 守着），复制再
+   规范化是多余的。
+2. **规则仍然只有一处定义**。打包前对源码树跑 `fix-encoding.ps1 -Check`（只读），
+   不通过就中止；打包器自己不复制任何编码规则。实测预检确实抓到了问题：
+   新写的 .py 是 LF、被脚本改过的运行数据也是 LF —— 全部在打包前被拦下修复。
+3. **版本号 `import app.APP_VERSION`**，不再各写一份；selftest 对应断言改为
+   「打包工具导入版本常量且无写死的版本字面量」。
+4. **产物自校验 + 可复现**：zip 条目时间戳固定（2026-01-01），写完逐条目 sha256
+   与源文件比对；实测同内容两次打包字节完全一致。
+
+**教训（会再踩）**：打包不要与 `_lint_selftest` 交错跑 —— 它会临时替换
+`config/filetypes.json` 再恢复，恢复周期与打包交叠时，两次打包会差在一个条目上
+（打包器本身是确定性的，连续两次打包 sha256 一致）。另：本机如有 O-Cleaner
+服务进程在跑，源码树里的运行数据文件可能随时被改写，打包前先看 `git status`。
+
 **验证**：`--version` 实测输出 `O-Cleaner v2.3`；重启服务后端点回归
 （非游戏目录仍 400）；括号配平、`node --check`、`py_compile`、两道 linter 门禁、
 编码契约全部通过。selftest +2 条（CLI 冒烟 + 残留入口静态）。
@@ -675,7 +696,7 @@ CI 上出现一次此前未见的 `ui` 失败（`通过 21 项，失败 4 项，
 | `tools/_lint_selftest.py`| ~14 KB | 针对 linter 自身的缺陷注入自测（知识库 15 类 + 资源包 20 类 + 脚本模板 5 类 + 4 个基线，共 44 项） |
 | `tools/doctor.py` | ~6.6 KB | 新设备 27 项环境自检排查脚本 |
 | `tools/fix-encoding.ps1`| ~4.9 KB | 编码与换行契约的唯一规范化工具（CI 的 `lint` 第一步） |
-| `tools/make-package.ps1`| ~7.8 KB | 分发包构建工具（分发清单含 `packs/`；含预校验与编码复核） |
+| `tools/make_package.py` | ~7.7 KB | 分发包构建工具（分发清单含 `packs/`；打包前跑编码契约预检，包后逐条 sha256 自校验，内存打包无暂存目录） |
 | `.github/workflows/ci.yml`| ~6.8 KB | GitHub Actions 持续集成配置（Windows 平台，快慢两级：每次推送跑 lint，自测与界面检查按定时/手动/`[ci]` 触发） |
 | `.gitattributes` | ~1.4 KB | 换行与编码契约的声明（`eol=crlf` 写死，CI 依此校验） |
 | `tools/local-cases.json.example`| ~0.6 KB | `local-cases.json` 的模板（真实用例在 gitignore 中隔离） |
@@ -685,7 +706,7 @@ CI 上出现一次此前未见的 `ui` 失败（`通过 21 项，失败 4 项，
 | `CONTRIBUTING.md` | ~9.0 KB | 贡献指南与提交前自查清单（含资源包提交流程、CI 快慢两级说明） |
 | `HANDOFF.md` | ~88 KB | 本文档：需求追溯、架构规格、踩坑记录与接手注意事项 |
 | `_legacy/` | ~180 KB | 前身版本归档（已 gitignore，不属于本仓库） |
-| `dist/O-Cleaner-v2.3.zip`| ~269 KB | 便携分发包：27 个文件（含 4 个内置资源包），由 `tools/make-package.ps1` 生成 |
+| `dist/O-Cleaner-v2.3.zip`| ~269 KB | 便携分发包：27 个文件（含 4 个内置资源包），由 `tools/make_package.py` 生成 |
 
 ---
 

@@ -546,7 +546,7 @@ O-Cleaner\
 │   ├─ cdp_check.js        真实浏览器渲染检查（用系统 Edge/Chrome，零安装）
 │   ├─ doctor.py           新设备环境自检
 │   ├─ fix-encoding.ps1    编码与换行契约的唯一规范化工具
-│   ├─ make-package.ps1    打包成可拷贝的 zip
+│   ├─ make_package.py     打包成可拷贝的 zip（内存打包，无暂存目录）
 │   └─ local-cases.json.example   本机真实用例的干净模板
 ├─ history.json            清理历史与累计统计（运行后生成）
 ├─ schedule.json           定时设置（运行后生成）

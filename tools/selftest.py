@@ -15,6 +15,7 @@ import glob
 import json
 import os
 import random
+import re
 import shutil
 import socket
 import subprocess
@@ -961,25 +962,21 @@ def phase4_repo() -> None:
                    ("SECURITY.md", "规则投毒是本项目特有攻击面")):
         check(f"包含 {f}", (HERE / f).exists(), why)
 
-    # 版本号必须三处一致。
+    # 版本号必须一致。
     # 这条是被实际漏改逼出来的：升 v2.3 时只改了 app.py 的 server_version，
     # 漏掉 config/drives.json（界面显示仍是 2.2）与两个 User-Agent。
-    # 现在 app.py 内已收敛为 APP_VERSION 常量，这里再钉住它与另外两处的同步。
-    mkp = TOOLS_DIR / "make-package.ps1"
+    # 现在 app.py 内已收敛为 APP_VERSION 常量，打包工具直接 import 它，
+    # 这里钉住 drives.json 与「打包工具不得再写死版本号」。
+    mkt = TOOLS_DIR / "make_package.py"
     drives_ver = str((app.load_drives_cfg().get("app") or {}).get("version") or "")
-    mkp_txt = mkp.read_text(encoding="utf-8", errors="replace") if mkp.exists() else ""
-    mkp_ver = ""
-    for line in mkp_txt.splitlines():
-        s = line.strip()
-        if s.startswith("$ver"):
-            mkp_ver = s.split("=", 1)[-1].strip().strip('"')
-            break
+    mkt_txt = mkt.read_text(encoding="utf-8", errors="replace") if mkt.exists() else ""
     check("app.py 版本常量与 drives.json 一致",
           drives_ver == app.APP_VERSION,
           f"app={app.APP_VERSION} drives={drives_ver}")
-    check("打包脚本版本号与 app.py 一致",
-          mkp_ver == app.APP_VERSION,
-          f"app={app.APP_VERSION} make-package={mkp_ver or '(未找到)'}")
+    check("打包工具从 app.py 导入版本常量（不再各写各的）",
+          "import app" in mkt_txt and "APP_VERSION" in mkt_txt
+          and not re.search(r"""=\s*["']\d+\.\d+["']""", mkt_txt),
+          "make_package.py: import app.APP_VERSION")
     check("User-Agent 由版本常量派生（不再各写各的）",
           app.APP_UA == f"O-Cleaner/{app.APP_VERSION}"
           and '"User-Agent": "O-Cleaner/' not in
@@ -1081,9 +1078,9 @@ def phase4_repo() -> None:
           all(x < 128 for x in bat))
     check("start-ocleaner.bat 无孤立 LF（LF 会让 cmd 吃掉下一行）",
           _lone_lf(bat) == 0, f"{_lone_lf(bat)} 个")
-    ps1 = _bytes("tools/make-package.ps1")
-    check("make-package.ps1 带 UTF-8 BOM（否则 PS 5.1 按 GBK 解析会语法报错）",
-          _has_bom(ps1))
+    mkt = _bytes("tools/make_package.py")
+    check("make_package.py 不带 BOM（.py 契约：UTF-8 无 BOM）",
+          not _has_bom(mkt))
     py = _bytes("app.py")
     check("app.py 不带 BOM（Python 会把它当 \\ufeff 留在字面量里）",
           not _has_bom(py))
