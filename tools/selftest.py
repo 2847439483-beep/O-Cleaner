@@ -274,6 +274,25 @@ def phase1() -> None:
             continue
         ok, why = app.check_deletable(good)
         check(f"允许 {good}", ok, why)
+
+    # 回归：非绝对路径必须拒绝。
+    # os.path.abspath 会把「盘符相对」路径按**当前工作目录**解析 ——
+    # abspath("E:") 得到的是 E 盘上的 CWD（本机即仓库自身），而不是盘符根，
+    # 于是它曾能伪装成合法目录通过后续全部检查。同理 "..\Windows"、"/etc"
+    # 也会被归一化到 CWD 之下。这类输入必须在归一化前卡死。
+    cwd_drive = os.path.splitdrive(os.getcwd())[0]   # 形如 "E:"，无盘符时为空串
+    rel_bad = ["C:", "D:", r"..\Windows", r"..\..\Windows", ".", "..",
+               "/etc", "temp", r"Windows\Temp"]
+    if cwd_drive:
+        rel_bad.append(cwd_drive)
+    for rel in dict.fromkeys(rel_bad):               # 去重但保持顺序
+        ok, why = app.check_deletable(rel)
+        check(f"拒绝非绝对路径 {rel!r}", not ok, why)
+    check("files 模式同样拒绝盘符相对路径",
+          not app.check_deletable("C:", "files")[0])
+    check("明确给出盘符相对被拒的原因",
+          "绝对路径" in app.check_deletable("C:")[1])
+
     check("拒绝在盘符根目录删文件", not app.check_deletable("C:\\x.tmp", "files")[0])
     # 回归：kind="files" 的 target 其 path 是**目录**（内部按 glob 删文件），
     # 不能被当成“要删的文件”而拒绝 —— 否则所有 glob 类目标都会失效。

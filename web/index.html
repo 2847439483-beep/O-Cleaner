@@ -889,12 +889,11 @@ function renderGuide() {
     ? `<b class="ok">已就绪</b>${w.version ? " · v" + esc(w.version) : ""}
        ${w.portable ? '<span class="vbadge clean">本目录自带</span>'
                     : '<span class="vbadge unk">系统已安装</span>'}
-       <div class="gd">全盘扫描走 MFT，实测比逐目录递归快约 9 倍。
+       <div class="gd">全盘扫描走 MFT，比逐目录递归快。
          ${w.portable ? "这个副本在 O-Cleaner 文件夹里，拷到别的电脑能直接用。"
                       : ""}</div>`
     : `<b class="warn">未安装</b>
-       <div class="gd">没有它也能用，只是全盘扫描要逐目录递归，慢很多
-         （C 盘实测约 258 秒 vs 21 秒）。</div>`;
+       <div class="gd">没有它也能用，只是全盘扫描要逐目录递归，耗时明显更长。</div>`;
   $("guide").innerHTML = `
     <div class="glist">
       ${rows.map(r => `<div class="grow">
@@ -1548,7 +1547,7 @@ function renderSteam() {
         : "未检测到 Steam 安装或库中没有已安装游戏。") +
       '<div style="margin-top:6px;color:var(--dim2);font-size:11.5px">' +
       '数据读自 Steam 自己的清单文件（libraryfolders.vdf / appmanifest_*.acf），' +
-      '不扫描磁盘，秒级且精确。</div></div>';
+      '不扫描磁盘，直接读取 Steam 自身的记录。</div></div>';
     return;
   }
   $("steamHint").textContent = `${s.game_count} 个 · ${s.total_size_h}`;
@@ -1992,9 +1991,9 @@ async function startFullScan() {
       : s < 120 ? "正在沿最大的分支逐层深入"
       : s < 240 ? "仍在深入…系统盘小文件极多"
       : "仍在统计…如果一直没结果，可用命令行核对";
-    const hint = s < 40 ? "数据盘约 30-60 秒，系统盘约 2-5 分钟"
+    const hint = s < 40 ? "数据盘通常较快，系统盘因小文件多会慢一些"
       : s < 120 ? "已过 1 分钟，系统盘属正常范围"
-      : "系统盘（Windows 所在盘）小文件多，慢是正常的";
+      : "系统盘（Windows 所在盘）小文件多，耗时更长";
     const pct = Math.min(97, Math.round(100 * (1 - Math.exp(-s / 90))));
     $("fsOverview").innerHTML = `
       <div class="scanning" id="fsScanning">
@@ -2011,7 +2010,7 @@ async function startFullScan() {
           会逐层展开大目录（最深 5 层），这样才能挖到
           <code>E:\\SteamLibrary\\steamapps\\common\\游戏名</code> 这类深层大项。
           <b>请保持本窗口与命令行窗口开启。</b>
-          ${STATE?.wiztree?.found ? "（已启用 WizTree 加速，通常几十秒内完成）"
+          ${STATE?.wiztree?.found ? "（已启用 WizTree 加速）"
                                   : "（未装 WizTree，逐目录递归会慢一些）"}
         </div>
       </div>`;
@@ -2098,8 +2097,8 @@ function renderOverview() {
       <b>${FS.engine === "wiztree" ? "WizTree MFT 加速" : "PowerShell 递归扫描"}</b>
       <span>${esc(FS.engine_note || "")}</span>
       ${FS.engine === "wiztree"
-        ? "<span>借本机已装的 WizTree 读 MFT，比逐目录递归快约 9 倍；不安装、不修改它。</span>"
-        : "<span>装一个 WizTree 可把全盘扫描从几分钟压到几十秒（本工具只调用，不捆绑）。</span>"}
+        ? "<span>借本机已装的 WizTree 读 MFT，比逐目录递归快；不安装、不修改它。</span>"
+        : "<span>装入 WizTree 可显著缩短全盘扫描耗时（本工具只调用，不捆绑）。</span>"}
     </div>` : ""}
     <div style="margin-top:15px;padding-top:13px;border-top:1px solid var(--line)">
       <div style="color:var(--dim2);font-size:11.5px;margin-bottom:3px">
@@ -2618,7 +2617,7 @@ async function showPartition(it) {
       <div class="empty">这个目录里没有识别到可清理的缓存子目录，
       所以它整体都不建议动。</div></div>`}
     <div class="dsec">
-      <div class="dh">② 这些千万不要删</div>
+      <div class="dh">② 这些不要删除</div>
       ${partList(kp)}
       <div class="dtip">${esc(keepTip)}</div>
     </div>`;

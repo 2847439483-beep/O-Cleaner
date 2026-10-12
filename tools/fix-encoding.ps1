@@ -2,16 +2,16 @@
   fix-encoding.ps1 -- normalize text file encoding and line endings.
 
   WHY THIS EXISTS
-  This project was bitten three times by the same class of bug:
+  This project has been bitten more than once by the same class of bug:
     * cmd.exe mis-parses .bat files that use LF line endings
       (it swallows the next line into the previous echo)
     * PowerShell 5.1 reads files WITHOUT a UTF-8 BOM as GBK on
       Chinese Windows, which turns Chinese text into mojibake and
       breaks the parser with confusing "missing closing brace" errors
 
-  Editing a .ps1 with an editor that drops the BOM silently breaks the
-  script. This file is intentionally written in pure ASCII so it can
-  still run when everything else is broken.
+  Editing a .ps1 with an editor that drops the BOM breaks the script.
+  This file is intentionally written in pure ASCII so it can still run
+  when everything else is broken.
 
   USAGE
     powershell -NoProfile -ExecutionPolicy Bypass -File tools\fix-encoding.ps1
@@ -32,9 +32,9 @@ if (-not $Root) {
 #
 # BOM 策略：只有 .ps1 需要 BOM。
 #   * PowerShell 5.1 会把没有 BOM 的文件当 GBK 读，中文变乱码，并报出
-#     难以理解的 "missing closing brace"（这个坑踩过三次）
+#     难以理解的 "missing closing brace"（这个项目多次遇到）
 #   * Python 3 / 浏览器 / JSON 解析器都能正确处理无 BOM 的 UTF-8
-#   * 给 .py 加 BOM 虽不致命（实测 argparse 与 --help 都正常），但没有必要
+#   * 给 .py 加 BOM 虽不影响运行，但没有必要
 $rules = @{
     '.bat'  = @{ Encoding = 'ascii';   Eol = 'crlf' }
     '.cmd'  = @{ Encoding = 'ascii';   Eol = 'crlf' }

@@ -2475,12 +2475,19 @@ def check_deletable(path: str, kind: str = "tree") -> tuple[bool, str]:
     注意：kind="files" 时 path 是**要扫描的目录**（不是要删的文件），
     真正的删除对象是它内部匹配 glob 的文件，所以同样按目录校验。
     """
-    norm = os.path.normpath(os.path.abspath(path))
-    low = norm.lower()
     # 空路径必须显式拒绝：os.path.abspath("") 会返回**当前工作目录**，
     # 于是空串会伪装成一个合法目录并通过后续检查（对抗性审查发现的漏点）。
-    if not str(path).strip():
+    raw = str(path).strip()
+    if not raw:
         return False, "拒绝：路径为空"
+    # 同样的问题也发生在「盘符相对路径」上：abspath("E:") 得到的是
+    # **E 盘上的当前工作目录**（在本机即仓库自身 E:\O-Cleaner），
+    # 而不是盘符根；"..\Windows"、"/etc" 之类也会被 abspath 归一化到 CWD 之下。
+    # 这类输入在归一化前必须卡死，否则它会伪装成一个合法目录通过后续全部检查。
+    if not os.path.isabs(raw):
+        return False, "拒绝：路径必须是绝对路径"
+    norm = os.path.normpath(os.path.abspath(raw))
+    low = norm.lower()
     if len(low) < 3 or low[1] != ":" or low[2] != "\\":
         return False, "拒绝：目标不是有效的盘符路径"
     drive_root = low[:3]
