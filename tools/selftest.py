@@ -569,6 +569,11 @@ def phase3_http() -> None:
               < html.index('data-acc="rules"'))
         check("前端含自定义目录输入", "customPath" in html)
         check("前端含自定义换算单位表单", "btnUnitAdd" in html and "btnUnitExample" in html)
+        check("主题系统：三态切换与浅色变量组",
+              '[data-theme="light"]' in html and "themeSeg" in html
+              and "oc-theme" in html and "prefers-color-scheme" in html)
+        check("画布趋势颜色取自主题变量",
+              "getPropertyValue" in html and "hexToRgba" in html)
         check("预设样式已修复溢出",
               "white-space:normal" in html and "overflow-wrap:anywhere" in html)
         # 布局回归：工具栏占位后，section / aside 必须显式指定位置，

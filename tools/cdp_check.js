@@ -258,6 +258,30 @@ class CDP {
         `标题: ${stats.heads.slice(0, 6).join(" / ")}`);
   check("旧的独立换算面板已移除", !stats.heads.includes("换算成什么"));
 
+  // 主题三态：亮 / 暗 / 跟随系统，切换要真实写 <html data-theme> 并回存偏好
+  const th = await evaluate(`(() => {
+    const seg = document.querySelector('#themeSeg');
+    if (!seg) return { err: 'no themeSeg' };
+    const btn = t => seg.querySelector('button[data-t="' + t + '"]');
+    const cur = () => document.documentElement.dataset.theme;
+    const before = cur();
+    btn('light').click(); const l = cur();
+    const bgLight = getComputedStyle(document.body).backgroundColor;
+    btn('dark').click(); const d = cur();
+    const bgDark = getComputedStyle(document.body).backgroundColor;
+    btn('system').click(); const s = cur();
+    return { before, l, d, s, bgLight, bgDark,
+             saved: localStorage.getItem('oc-theme') };
+  })()`);
+  check("主题切换生效（亮/暗写 data-theme，背景真实变化）",
+        th.l === "light" && th.d === "dark" && th.bgLight !== th.bgDark,
+        `亮=${th.l}(${th.bgLight}) 暗=${th.d}(${th.bgDark})`);
+  check("主题「跟随系统」可用且偏好已回存",
+        typeof th.s === "string" && th.s !== undefined &&
+        ["light", "dark"].includes(th.s) &&
+        (th.saved === null || ["light", "dark", "system"].includes(th.saved)),
+        `随系统=${th.s} 偏好=${th.saved}`);
+
   // 右侧栏面板堆叠：aside 是「定高的滚动容器」，面板必须保持自然高度、由 aside 滚动。
   // 这里量的是真实渲染高度而不是 CSS 文本 —— 曾经踩过的坑：面板带 overflow:hidden，
   // 按 flex 规范自动最小高度按 0 算，叠加默认的 flex-shrink:1，11 个面板被整体压扁去
