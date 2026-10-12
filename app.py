@@ -4562,121 +4562,6 @@ def _extract_json(text: str):
         return None
 
 
-def _win_long_paths_enabled() -> bool:
-    """是否启用了 NTFS 长路径（>260 字符）。
-
-    只读一个注册表键，不写、不提权。读不到就按「未启用」算 ——
-    这只影响提示文案，不影响任何清理判断。
-    """
-    if not IS_WINDOWS:
-        return False
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
-                            r"SYSTEM\CurrentControlSet\Control\FileSystem") as k:
-            return bool(winreg.QueryValueEx(k, "LongPathsEnabled")[0])
-    except Exception:
-        return False
-
-
-def _literal_paths() -> list[str]:
-    """配置里**没有**使用变量、直接写死盘符的路径。
-
-    这是「能不能整包拷到别的机器上跑」的判据：只要有一条写死，
-    换盘符或换用户名就会失效。返回空列表说明配置是可移植的。
-    """
-    out: list[str] = []
-
-    def walk(o) -> None:
-        if isinstance(o, dict):
-            for v in o.values():
-                walk(v)
-        elif isinstance(o, list):
-            for v in o:
-                walk(v)
-        elif isinstance(o, str):
-            if re.match(r"^[A-Za-z]:[\\/]", o) and not re.search(r"%[A-Za-z_]+%", o):
-                out.append(o)
-
-    for loader in (load_targets, load_filetypes):
-        try:
-            walk(loader())
-        except Exception:
-            pass
-    return sorted(set(out))
-
-
-def compat_report() -> dict:
-    """兼容性分析：逐条给出「在这台机器上哪些能力可用」，并附上判断依据。
-
-    与首页「运行环境自检」的分工：自检回答「现在能不能用」，
-    这里回答「换一台机器 / 换一个 Windows 版本会怎样」，
-    所以每条都带实测值（读到的真实配置），而不是一句结论。
-    """
-    ver = sys.getwindowsversion() if IS_WINDOWS else None
-    bits = 64 if sys.maxsize > 2 ** 32 else 32
-    arch = os.environ.get("PROCESSOR_ARCHITECTURE") or platform.machine() or "未知"
-    ps = shutil.which("powershell") or shutil.which("pwsh") or ""
-    wz = wiztree_status()
-    literals = _literal_paths()
-    frozen = bool(getattr(sys, "frozen", False))
-    cfg_writable = False
-    try:
-        cfg_writable = os.access(CONFIG_DIR, os.W_OK)
-    except Exception:
-        cfg_writable = False
-
-    items = [
-        {"key": "os", "ok": IS_WINDOWS,
-         "title": "操作系统",
-         "detail": (f"{platform.system()} {platform.release()} "
-                    f"（内部版本 {ver.build if ver else '未知'}）"
-                    if IS_WINDOWS else f"{platform.system()} —— 本工具只在 Windows 上工作")},
-        {"key": "arch", "ok": bits == 64,
-         "title": "系统架构",
-         "detail": f"{arch} · Python {platform.python_version()}（{bits} 位）"
-                   + ("" if bits == 64 else "　32 位环境下大目录的统计会明显变慢")},
-        {"key": "powershell", "ok": bool(ps),
-         "title": "PowerShell",
-         "detail": (f"已找到 {ps}"
-                    if ps else "未找到。全盘扫描在没有 WizTree 时依赖它，会退化为不可用")},
-        {"key": "wiztree", "ok": bool(wz.get("found")),
-         "title": "WizTree 加速",
-         "detail": ("已就绪" + (f" · v{wz['version']}" if wz.get("version") else "")
-                    + ("（本目录自带）" if wz.get("portable") else "（系统已安装）"))
-                   if wz.get("found") else "未安装。不影响可用性，只是全盘扫描更慢"},
-        {"key": "admin", "ok": is_admin(),
-         "title": "管理员权限",
-         "detail": ("已具备，回收站与 Windows\\Temp 可完整统计" if is_admin()
-                    else "未具备，这两项会提示需要管理员权限")},
-        {"key": "longpaths", "ok": _win_long_paths_enabled(),
-         "title": "长路径支持",
-         "detail": ("已启用（>260 字符的路径可正常处理）" if _win_long_paths_enabled()
-                    else "未启用（注册表 LongPathsEnabled 非 1；"
-                         "不影响本工具，本工具全程使用 \\\\?\\ 前缀的宽字符串")},
-        {"key": "portable", "ok": not literals,
-         "title": "配置可移植性",
-         "detail": (f"全部路径都使用 %DRIVE% / %LOCALAPPDATA% 变量，"
-                    f"整包拷贝到别的机器可直接用"
-                    if not literals else
-                    f"有 {len(literals)} 条路径写死了盘符，换机器会失效："
-                    + "、".join(literals[:3]))},
-        {"key": "write", "ok": cfg_writable,
-         "title": "配置目录可写",
-         "detail": f"{CONFIG_DIR}" + ("（可写）" if cfg_writable
-                                      else "（不可写，规则 / 资源包 / AI 设置无法保存）")},
-        {"key": "packaging", "ok": True,
-         "title": "运行形态",
-         "detail": ("已打包为独立可执行文件" if frozen
-                    else f"以源码运行（{sys.version_info.major}."
-                         f"{sys.version_info.minor}."
-                         f"{sys.version_info.micro}）")},
-    ]
-    ok_n = sum(1 for i in items if i["ok"])
-    return {"items": items, "ok_count": ok_n, "total": len(items),
-            "portable": not literals}
-
-
 def build_state(drive: str | None = None, custom_path: str | None = None,
                 scope: str = "all") -> dict:
     cfg = load_targets()
@@ -4716,8 +4601,6 @@ def build_state(drive: str | None = None, custom_path: str | None = None,
         "config_dir": str(CONFIG_DIR),
         # 首屏引导要用：加速是否可用、能不能自动装、许可证怎么算
         "wiztree": wiztree_status(),
-        # 兼容性分析：逐条给出实测值，供「运行环境自检」面板展开显示
-        "compat": compat_report(),
         # 资源包元信息（不含逐条 entries，条目只在服务端参与识别）
         "packs": load_packs()["packs"],
         "packs_remote": load_packs_state().get("remote") or "",

@@ -658,8 +658,8 @@ def phase3_http() -> None:
               and (TOOLS_DIR / "sync_packs.py").exists())
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
-        check("运行环境自检中的「跨设备兼容」已改为「兼容性分析」",
-              "兼容性分析" in html and "跨设备兼容" not in html)
+        check("运行环境自检已移除兼容性分析（面板只留环境与权限）",
+              "兼容性分析" not in html and "gcompat" not in html)
         check("换算与累积已合并（旧面板标记已移除）",
               "累积清理与换算" in html and "换算成什么" not in html)
         check("规则区按新语义（勾选固定项）",
@@ -674,19 +674,6 @@ def phase3_http() -> None:
               {"sandbox-tree", "sandbox-files"} <= sb_bases,
               f"共 {len(state.get('targets', []))} 项")
         check("state 含盘符列表", len(state.get("drives", [])) >= 1)
-        # 兼容性分析：必须是后端实测出来的条目，而不是前端写死的一句话
-        _cp = state.get("compat") or {}
-        check("state 携带兼容性分析结果",
-              isinstance(_cp.get("items"), list) and len(_cp["items"]) >= 5,
-              f"{_cp.get('ok_count')}/{_cp.get('total')} 项通过")
-        check("兼容性分析每条都带标题与实测依据",
-              all(i.get("title") and i.get("detail") for i in _cp.get("items", [])))
-        check("兼容性分析含判断依据的关键项",
-              {"os", "arch", "powershell", "portable"} <=
-              {i.get("key") for i in _cp.get("items", [])})
-        check("配置可移植性判定与实测一致",
-              _cp.get("portable") is (not app._literal_paths()),
-              f"写死盘符的路径 {len(app._literal_paths())} 条")
 
         # 扫描进度：必须是真实阶段，而不是把时间映射成百分比
         _pg = get("/__oc__/progress")
