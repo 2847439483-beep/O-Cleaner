@@ -2009,11 +2009,14 @@ function renderSteamPage() {
     };
     $("stGames").innerHTML = games.map(g => {
       const stale = staleOf(g);
+      // 游戏本体是可清理项：没在玩的大作就是最值得回收的空间。
+      // 徽标跟着后端的 cleanable 走，不在前端写死。
+      const badge = !g.installed ? `<span class="vbadge unk">${esc(g.state)}</span>`
+        : (g.cleanable ? '<span class="vbadge clean">游戏本体 · 可清理</span>'
+                       : '<span class="vbadge keep">游戏本体 · 建议保留</span>');
       return `<div class="vrow ${g.installed ? "" : "c-keep"}" data-appid="${esc(g.appid)}">
         <div class="vtop">
-          <span class="fname">${esc(g.display_name || g.name)}${
-            g.installed ? '<span class="vbadge keep">游戏本体 · 建议保留</span>'
-                        : `<span class="vbadge unk">${esc(g.state)}</span>`}${
+          <span class="fname">${esc(g.display_name || g.name)}${badge}${
             stale ? `<span class="vbadge keep">${esc(stale)}</span>` : ""}</span>
           <span class="fsize">${esc(g.size_h)}</span>
         </div>
@@ -2030,6 +2033,8 @@ function renderSteamPage() {
       showDetail({
         ...g, type: "dir", title: "Steam 游戏（读自 Steam 清单）",
         confidence_label: "高（Steam 自己的记录）",
+        // 已安装且目录还在的游戏才给「删除」入口；其余只是记录，没有可删的东西
+        game_body: (g.installed && g.exists && g.cleanable) ? "steam" : "",
         impact: `Steam 记录体积 ${g.size_h}；最后更新 ${g.last_updated || "无记录"}；`
                 + `最后游玩 ${g.last_played || "无记录"}（${stale || "近期有玩"}）。`,
       });
@@ -2084,7 +2089,7 @@ function renderOtherPlatforms() {
     $(listId).innerHTML = games.map(g => `
       <div class="vrow" data-gpath="${esc(g.path)}">
         <div class="vtop">
-          <span class="fname">${esc(g.display_name || g.name)}<span class="vbadge keep">游戏本体 · 建议保留</span></span>
+          <span class="fname">${esc(g.display_name || g.name)}<span class="vbadge ${g.cleanable ? "clean" : "keep"}">游戏本体 · ${g.cleanable ? "可清理" : "建议保留"}</span></span>
           <span class="fsize">${esc(g.size_h)}</span>
         </div>
         <div class="vtop" style="margin:4px 0 0">
@@ -2100,6 +2105,7 @@ function renderOtherPlatforms() {
       showDetail({
         ...g, type: "dir", title: `${label}（读自${source}）`,
         confidence_label: `高（${label}自己的记录）`,
+        game_body: (g.exists && g.cleanable) ? g.platform : "",
         impact: `清单/注册表记录体积 ${g.size_h}。`,
       });
     }));
@@ -2836,6 +2842,9 @@ function showDetail(it) {
   const clean = it.cleanable;
   const adviceCls = clean ? "yes" : "no";
   const adviceHead = clean ? "可以清理" : "建议保留 / 不要直接删";
+  // 游戏本体走专门的删除通道：树节点带 steam_game / game_platform 标记，
+  // Steam 页的行带 game_body。三者都指回后端能二次确认的那条安全边界。
+  const gamePlat = it.steam_game ? "steam" : (it.game_platform || it.game_body || "");
   $("modal").innerHTML = `
     <h2>这一项是什么</h2>
     <div class="mbody">
@@ -2872,16 +2881,94 @@ function showDetail(it) {
       ${STATE?.ai?.ready ? '<button id="dAi" class="ghost">让 AI 解释</button>' : ""}
       ${it.path && it.type !== "file"
         ? `<button id="dPart" class="ghost">细分查看：哪些能删</button>` : ""}
+      ${gamePlat ? '<button id="dDelGame" class="go">删除这个游戏</button>' : ""}
       <button id="dReveal" class="ghost">在资源管理器中打开</button>
       <button id="dClose" class="primary">知道了</button>
     </div>`;
   $("mask").classList.add("on");
   $("dClose").addEventListener("click", closeModal);
   $("dReveal").addEventListener("click", () => revealPath(it.path));
+  const bd = $("dDelGame");
+  if (bd) bd.addEventListener("click", () => confirmDeleteGame(it, gamePlat));
   const bp = $("dPart");
   if (bp) bp.addEventListener("click", () => showPartition(it));
   const ba = $("dAi");
   if (ba) ba.addEventListener("click", () => aiExplainInto(it, ba));
+}
+
+/* 删除单个游戏本体 —— 「游戏是可清理项」的落地动作。
+   与常规清理不同，这里删的是整个游戏目录（动辄几十 GB），所以：
+   * 确认弹窗把游戏名、体积、路径和存档风险全部写明，按钮用红色；
+   * 真正的删除由后端二次校验（路径必须是后端自己识别出的游戏安装目录），
+     前端这段只负责把后果讲清楚，不承担安全判断。 */
+function confirmDeleteGame(it, plat) {
+  const platName = plat === "steam" ? "Steam"
+                 : (plat === "epic" ? "Epic Games" : "GOG");
+  $("modal").innerHTML = `
+    <h2>删除游戏 —— ${esc(platName)} · 执行后无法恢复</h2>
+    <div class="mbody">
+      <div class="warnpane"><b>将永久删除整个游戏目录</b>：游戏本体，以及放在这个
+        目录里的存档、配置和 Mod。多数游戏把存档存在 <code>文档\\My Games</code>、
+        <code>AppData</code> 或平台云存档里，不受影响 —— 但删之前请确认
+        这款游戏没有你想保留的东西。</div>
+      <dl class="dfacts">
+        <dt>游戏</dt><dd><b>${esc(it.display_name || it.name)}</b></dd>
+        <dt>占用</dt><dd>${fmt(it.size)}</dd>
+        <dt>位置</dt><dd class="mono" style="word-break:break-all">${esc(it.path)}</dd>
+      </dl>
+      <div class="dadv no"><b>更稳妥的做法</b><br>在 ${esc(platName)} 客户端里卸载，
+        它会同时清掉库记录，不留残留；直接删目录也能释放空间，之后客户端里会显示
+        「未安装」，想再玩重新下载即可。</div>
+      <div id="delGameMsg" style="color:var(--dim);font-size:12px;margin-top:9px"></div>
+    </div>
+    <div class="mfoot">
+      <div class="left">预计释放 <b style="color:var(--ok)">${fmt(it.size)}</b></div>
+      <button id="dgCancel" class="ghost">取消</button>
+      <button id="dgGo" class="go">确认删除</button>
+    </div>`;
+  $("mask").classList.add("on");
+  $("dgCancel").addEventListener("click", closeModal);
+  $("dgGo").addEventListener("click", async () => {
+    const btn = $("dgGo"), msg = $("delGameMsg");
+    if (!btn || !msg) return;
+    btn.disabled = true; btn.textContent = "正在删除…";
+    msg.textContent = "正在删除整个游戏目录，大游戏可能要几十秒…";
+    try {
+      const r = await (await fetch(`${API}/__oc__/clean-game`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: it.path }),
+      })).json();
+      if (r.error) {
+        btn.disabled = false; btn.textContent = "确认删除";
+        msg.innerHTML = `<span style="color:var(--danger)">${esc(r.error)}</span>`;
+        return;
+      }
+      $("modal").innerHTML = `
+        <h2>已删除</h2>
+        <div class="mbody">
+          <div class="dadv yes"><b>删除完成</b><br>
+            ${esc(r.name)} 已删除，释放 <b style="color:var(--ok)">${esc(r.freed_h)}</b>。
+            ${r.disk && r.disk.free_h
+              ? `${esc(r.disk.letter)}: 盘当前可用 ${esc(r.disk.free_h)}。` : ""}</div>
+          <div style="color:var(--dim2);font-size:12px;margin-top:9px">
+            磁盘概览是删除之前扫的，数字已经过期；需要最新数据时再点「全盘扫描本盘」。</div>
+        </div>
+        <div class="mfoot">
+          <button id="dgClose" class="primary">知道了</button>
+        </div>`;
+      $("dgClose").addEventListener("click", async () => {
+        closeModal();
+        FS = null;                     // 树是删除前扫的，作废；下次进概览会重新扫
+        if (view === "steam") { await loadSteam(); renderSteamPage(); }
+        else showNormalView();
+        toast(`已删除 ${r.name}，释放 ${r.freed_h}`);
+      });
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "确认删除";
+      msg.innerHTML =
+        `<span style="color:var(--danger)">请求失败：${esc(e.message || String(e))}</span>`;
+    }
+  });
 }
 
 /* 让自有 AI 解释当前这一项。结果只追加在弹窗里，不写入任何配置文件，

@@ -1270,20 +1270,9 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
     # Steam 游戏整合进磁盘树：读一次 Steam 清单，得到各库的 steamapps\\common 路径。
     # 这样全盘占用树里能直接标出「这个目录是一个 Steam 游戏」，
     # 用户不必在「磁盘空间」和「Steam 页面」之间来回对照 —— 这正是本次的诉求。
-    # discover_steam() 只读几 KB 清单，代价很小。
-    steam_common: set[str] = set()
-    steam_libs: set[str] = set()
-    try:
-        ds = discover_steam()
-        for g in (ds.get("games") or []):
-            lib = str(g.get("library") or "")
-            if lib:
-                steam_libs.add(os.path.normpath(lib).lower())
-        for lib in list(steam_libs):
-            steam_common.add(os.path.normpath(
-                os.path.join(lib, "steamapps", "common")).lower())
-    except Exception:
-        pass
+    # discover_steam() 只读几 KB 清单，代价很小。（common/lib 集合由
+    # steam_common_dirs() 统一提供，删除游戏的端点也用同一份做二次确认。）
+    steam_common, steam_libs = steam_common_dirs()
     # Epic/GOG 游戏目录索引（带 60 秒缓存，清单级读取；冷启动要读多个库目录，
     # 耗时不可预知，所以这一小段同样标为不确定进度）
     prog_set("games", "正在读取 Epic / GOG 游戏清单", 78, indeterminate=True)
@@ -1314,15 +1303,25 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
         if parent_low in steam_common:
             item["steam_game"] = True
             item["category"] = "游戏"
-            item["cleanable"] = False      # 游戏本体不是垃圾，工具不删
+            # 游戏本体是「可清理项」：一台机器上最大的可回收空间往往就是
+            # 几款没在玩的大作。允许删，但风险等级保持「高」—— 删掉的是
+            # 整款游戏，且个别游戏的存档/Mod 也可能放在安装目录里。
+            item["cleanable"] = True
             item["risk"] = "高"
             # 磁盘树里也用中文名，和 Steam 面板保持一致
             disp, zh = game_display_name(None, name)
             if zh:
                 item["display_name"] = disp
                 item["zh_name"] = zh
-            if not item.get("what"):
-                item["what"] = "Steam 游戏安装目录，体积来自 Steam 清单与磁盘扫描。"
+            item["what"] = "Steam 游戏本体：整个目录就是这款游戏的全部文件。"
+            item["advice"] = (
+                "没在玩的游戏可以整目录删除，一次就能回收几 GB 到上百 GB。"
+                "更推荐在 Steam 客户端里右键游戏 → 管理 → 卸载（会同时清掉库记录）；"
+                "直接删这个文件夹也能释放空间，之后 Steam 库里它会显示为「未安装」，"
+                "想再玩重新下载即可。"
+                "注意：少数游戏把存档、配置或 Mod 存在安装目录里"
+                "（多数游戏存档其实在 文档\\My Games、AppData 或 Steam 云存档），"
+                "删前确认没有想保留的东西。")
         elif low in steam_common or low in steam_libs:
             item["steam_library"] = True
             item["category"] = "游戏"
@@ -1333,11 +1332,22 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
             plat = other_game_dirs[low]
             item["game_platform"] = plat
             item["category"] = "游戏"
-            item["cleanable"] = False      # 游戏本体不是垃圾，工具不删
+            # 与 Steam 游戏本体同一待遇：可清理，但给出完整中文说明
+            item["cleanable"] = True
             item["risk"] = "高"
-            if not item.get("what"):
-                item["what"] = ("Epic Games 安装的游戏本体。" if plat == "epic"
-                                else "GOG 安装的游戏本体。")
+            disp, zh = game_display_name(None, name)
+            if zh:
+                item["display_name"] = disp
+                item["zh_name"] = zh
+            item["what"] = (f"{'Epic Games' if plat == 'epic' else 'GOG'}"
+                            "安装的游戏本体：整个目录就是这款游戏的全部文件。")
+            item["advice"] = (
+                "没在玩的游戏可以整目录删除。"
+                + ("更推荐在 Epic 启动器里删除（设置 → 管理），会一并清理记录。"
+                   if plat == "epic" else
+                   "更推荐用 GOG Galaxy 卸载，会一并清理注册表记录。")
+                + "直接删文件夹也能释放空间。注意：GOG/老游戏常把存档放在"
+                  "安装目录或 文档\\My Games 里，删前确认没有想保留的存档。")
         elif low in other_game_libs:
             item["game_library"] = True
             item["category"] = "游戏"
@@ -2376,10 +2386,16 @@ def discover_steam() -> dict:
             "buildid": state.get("buildid") or "",
             "category": info.get("category", "游戏"),
             "title": info.get("title", "Steam 游戏"),
-            "risk": "高", "cleanable": False,
-            "what": info.get("what") or "Steam 安装的游戏本体。",
-            "advice": "要卸载请在 Steam 客户端里操作（右键游戏 → 管理 → 卸载），"
-                      "它会同时清理库记录，不留残留。",
+            # 游戏本体是可清理项（与磁盘树里的判定保持一致）：没在玩的大作
+            # 就是最值得回收的空间。risk 保持「高」，说明删掉的量级与影响。
+            "risk": "高", "cleanable": True,
+            "what": "Steam 安装的游戏本体，整个目录就是这款游戏的全部文件。",
+            "advice": "没在玩的游戏可以删除来释放空间。更推荐在 Steam 客户端里"
+                      "右键游戏 → 管理 → 卸载，它会同时清理库记录、不留残留；"
+                      "也可以在这里直接删除整个目录，之后库里会显示「未安装」，"
+                      "想再玩重新下载即可。"
+                      "注意：少数游戏把存档/Mod 放在安装目录里，删前确认没有"
+                      "想保留的东西（多数存档在 文档\\My Games、AppData 或云存档）。",
             "tip": "Steam 的『已安装 → 按大小排序』可按体积找出最久没玩的大作。",
         })
 
@@ -2701,6 +2717,33 @@ def discover_games() -> dict:
 
 
 _GAME_DIRS_CACHE: dict = {"ts": 0.0, "dirs": {}, "libs": set()}
+_STEAM_COMMON_CACHE: dict = {"ts": 0.0, "common": set(), "libs": set()}
+
+
+def steam_common_dirs() -> tuple[set[str], set[str]]:
+    """Steam 各库的 steamapps\\common 目录与库根目录（小写归一化）。
+
+    返回 (common 集合, 库根集合)。占用树用它判定「这个目录是不是游戏本体」，
+    删除游戏的端点也用它做**服务端二次确认** —— 前端传来的路径必须后端自己
+    也认得出是游戏本体，否则一律拒绝（不能让页面拥有任意目录删除能力）。
+    60 秒缓存：读清单只要几毫秒，但树识别与删除校验都会高频调用。"""
+    now = time.time()
+    if now - _STEAM_COMMON_CACHE["ts"] < 60:
+        return _STEAM_COMMON_CACHE["common"], _STEAM_COMMON_CACHE["libs"]
+    common: set[str] = set()
+    libs: set[str] = set()
+    try:
+        ds = discover_steam()
+        for g in (ds.get("games") or []):
+            lib = str(g.get("library") or "")
+            if lib:
+                libs.add(os.path.normpath(lib).lower())
+        for lib in libs:
+            common.add(os.path.normpath(os.path.join(lib, "steamapps", "common")).lower())
+    except Exception:
+        pass
+    _STEAM_COMMON_CACHE.update({"ts": now, "common": common, "libs": libs})
+    return common, libs
 
 
 def game_install_dirs() -> tuple[dict, set]:
@@ -4620,6 +4663,67 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(paths, list):
                 return self._json({"error": "paths 必须是路径数组"}, 400)
             return self._json(find_lock_holders(paths))
+
+        # ---- 删除单个游戏本体（Steam / Epic / GOG）----
+        # 安全边界（重要）：这不是通用删除接口。路径必须**后端自己**也识别为
+        # 游戏安装目录（steamapps\common 的直接子目录，或 Epic/GOG 清单里的
+        # 精确安装路径），再过一遍 check_deletable 的系统目录保护。
+        # 缺任何一层，这个端点就会退化成「页面可以删任意目录」的口子。
+        if route == "/__oc__/clean-game":
+            p = str(body.get("path") or "")
+            ok, why = check_deletable(p, "tree")
+            if not ok:
+                return self._json({"error": why}, 400)
+            norm = os.path.normpath(os.path.abspath(p))
+            low = norm.lower()
+            steam_common, _libs = steam_common_dirs()
+            if os.path.dirname(low) in steam_common:
+                plat = "steam"
+            else:
+                dirs, _glibs = game_install_dirs()
+                plat = dirs.get(low, "")
+            if not plat:
+                return self._json({
+                    "error": "拒绝：这个目录不是已识别的游戏本体"
+                             "（只允许删除 Steam / Epic / GOG 的游戏安装目录）"}, 400)
+            if not os.path.isdir(norm):
+                return self._json({"error": "目录不存在（可能已删除）"}, 400)
+            if getattr(self.server, "busy", False):
+                return self._json({"error": "已有清理任务在执行，请等待完成"}, 409)
+            self.server.busy = True
+            try:
+                t0 = time.time()
+                name = os.path.basename(norm)
+                disp, _zh = game_display_name(None, name)
+                size = _size_of_dir(norm)
+                okrm = rm(norm)
+                freed = size if okrm else 0
+                letter = norm[:1].upper()
+                result = {
+                    "id": f"game-{abs(hash(low)) % 10**8}", "target_id": "game",
+                    "label": f"游戏：{disp or name}", "category": "游戏",
+                    "path": norm, "drive": letter,
+                    "before": size, "after": 0, "freed": freed,
+                    "deleted": 1 if okrm else 0,
+                    "failed": 0 if okrm else 1, "skipped": [],
+                    "error": None if okrm else "删除失败（文件可能被占用或需要管理员权限）",
+                    "seconds": round(time.time() - t0, 2),
+                }
+                append_history({
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "trigger": f"删除游戏（{letter}:）",
+                    "results": [result], "freed": freed,
+                    "failed": result["failed"], "targets": 1,
+                    "freed_h": human(freed),
+                })
+                return self._json({
+                    "ok": okrm, "freed": freed, "freed_h": human(freed),
+                    "name": disp or name, "path": norm,
+                    "disk": get_disk_info(letter),
+                    "error": result["error"],
+                })
+            finally:
+                self.server.busy = False
 
         # ---- 定时设置 ----
         if route == "/__oc__/schedule":

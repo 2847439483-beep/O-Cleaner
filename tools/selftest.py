@@ -597,6 +597,15 @@ def phase3_http() -> None:
         # （_css 已去掉全部空格，所以 flex:0 0 auto 在这里是 flex:00auto。）
         check("右侧栏面板禁止收缩，溢出改由 aside 滚动",
               "aside>.panel{flex:00auto}" in _css)
+        # 「游戏是可清理项」：详情弹窗对游戏本体提供删除入口，走专用确认流程。
+        # 真正的安全判断在后端 —— 路径必须被后端自己识别为游戏安装目录，
+        # 前端这里只负责把后果讲清楚，所以静态断言只确认入口与流程存在。
+        check("游戏本体在详情弹窗里有删除入口",
+              'id="dDelGame"' in html and "confirmDeleteGame" in html)
+        check("删除游戏走专用端点而非通用清理",
+              "/__oc__/clean-game" in html)
+        check("游戏行徽标由后端 cleanable 数据切换",
+              "g.cleanable" in html)
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检中的「跨设备兼容」已改为「兼容性分析」",
@@ -709,6 +718,32 @@ def phase3_http() -> None:
             check("空选择被拒绝", False, "竟然返回 200")
         except urllib.error.HTTPError as e:
             check("空选择被拒绝（400）", e.code == 400, f"code={e.code}")
+
+        # ---- 删除游戏端点：安全边界比功能本身更重要 ----
+        # 它**不是**通用删除接口：路径必须被后端自己也识别为游戏安装目录
+        # （steamapps\common 的直接子目录，或 Epic/GOG 清单里的精确路径），
+        # 否则一律 400。这里拿一个真实存在、但绝不是游戏的目录去敲它 ——
+        # 如果它真把目录删了，下面的断言会失败（目录还在），这是双保险。
+        sandbox_tree = str(SANDBOX / "tree")
+        try:
+            get("/__oc__/clean-game", "POST", {"path": sandbox_tree}, timeout=15)
+            check("删除游戏端点拒绝非游戏目录", False, "竟然返回 200")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")
+            check("删除游戏端点拒绝非游戏目录",
+                  e.code == 400 and "游戏本体" in body,
+                  f"code={e.code} body={body[:120]}")
+        check("非游戏目录在拒绝后仍然存在", (SANDBOX / "tree").exists())
+        try:
+            get("/__oc__/clean-game", "POST", {"path": "不是\\绝对路径"}, timeout=15)
+            check("删除游戏端点拒绝相对路径", False, "竟然返回 200")
+        except urllib.error.HTTPError as e:
+            check("删除游戏端点拒绝相对路径", e.code == 400, f"code={e.code}")
+        try:
+            get("/__oc__/clean-game", "POST", {}, timeout=15)
+            check("删除游戏端点拒绝空路径", False, "竟然返回 200")
+        except urllib.error.HTTPError as e:
+            check("删除游戏端点拒绝空路径", e.code == 400, f"code={e.code}")
 
         hist = get("/__oc__/history")
         check("历史记录了刚才的清理", len(hist) >= 1 and hist[0]["freed"] == 768)
