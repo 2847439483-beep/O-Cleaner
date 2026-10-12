@@ -487,6 +487,7 @@ function Walk([string]$p, [int]$depth, [string]$parentKey, [int64]$selfSize) {
             try {
                 [System.IO.File]::WriteAllText($progFile, "$($maxNodes - $script:budget)/$maxNodes")
             } catch { }
+        }
         $key = $k.path.ToLower()
         $hasKids = $false
         if ($k.type -eq 'dir' -and $k.size -ge $minDescend -and $depth -lt $maxDepth `
