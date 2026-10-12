@@ -4928,7 +4928,16 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/__oc__/overview":
             letter = (q.get("drive") or "C").rstrip(":").upper()
             depth = int(q.get("depth") or DISK_TREE_MAX_DEPTH)
-            return self._json(scan_disk_overview(letter, max(1, min(depth, 6))))
+            try:
+                r = scan_disk_overview(letter, max(1, min(depth, 6)))
+            except BaseException as e:
+                # 线程级兜底：扫描线程里的异常（含 Exception 之外的类型）
+                # 若直接放行，客户端只会拿到一条空响应，无从排查。
+                print(f"[overview] 扫描线程异常退出：{type(e).__name__}: {e}",
+                      file=sys.stderr)
+                return self._json({"error": f"扫描线程异常退出"
+                                            f"（{type(e).__name__}）"}, 500)
+            return self._json(r)
         if route == "/__oc__/dirlevel":
             # 整棵树已在 overview 里一次扫完，这里不再单独扫一层。
             # 保留该路由但明确返回提示，避免旧前端静默失败。

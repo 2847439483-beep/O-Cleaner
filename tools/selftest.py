@@ -718,17 +718,24 @@ def phase3_http() -> None:
               and isinstance(_ex.get("units"), list)
               and isinstance(_ex.get("overrides"), dict)
               and isinstance(_ex.get("rules"), list))
+        # 规则里的 ids 用的是 state 目标的实际 id —— 盘符专属目标（%DRIVE%
+        # 沙箱）在具体盘上是 sandbox-tree@C 这种带盘符后缀的形态，
+        # 与前端「勾选保存」的行为一致；用 base_id 会被判为不存在的项。
+        _sand_id = next((t["id"] for t in get("/__oc__/state?drive=C")
+                         .get("targets", [])
+                         if t.get("base_id") == "sandbox-tree"), None)
         _bi = get("/__oc__/bundle/import", method="POST", payload={
             "kind": "ocleaner-custom", "version": 1,
             "units": [{"label": "自测导入单位", "size": {"value": 1, "unit": "GB"}}],
             "overrides": {"sandbox-tree": {"what": "自测包释义"}},
-            "rules": [{"name": "自测导入规则", "ids": ["sandbox-tree"]}],
+            "rules": [{"name": "自测导入规则",
+                       "ids": [_sand_id] if _sand_id else []}],
         })
         check("自定义数据包可导入（单位/覆盖/规则各收下一项）",
               _bi.get("ok") and _bi.get("units_added") == 1
               and _bi.get("overrides_applied") == 1
               and _bi.get("rules_added") == 1,
-              str((_bi or {}).get("units_skipped")))
+              json.dumps(_bi, ensure_ascii=False)[:180])
         _s4 = get("/__oc__/state?drive=C")
         check("导入的单位与释义覆盖已反映到状态",
               any(u.get("label") == "自测导入单位" for u in _s4.get("units", []))
@@ -736,14 +743,15 @@ def phase3_http() -> None:
                         if t.get("base_id") == "sandbox-tree"),
                        {}).get("what") == "自测包释义")
         get("/__oc__/units/delete", method="POST", payload={
-            "id": next(u["id"] for u in _s4.get("units", [])
-                       if u.get("label") == "自测导入单位")})
+            "id": next((u["id"] for u in _s4.get("units", [])
+                        if u.get("label") == "自测导入单位"), "")})
         get("/__oc__/overrides/delete", method="POST",
             payload={"id": "sandbox-tree"})
         _rl = get("/__oc__/bundle/export").get("rules", [])
-        get("/__oc__/custom-rules", method="POST", payload={
-            "action": "delete",
-            "id": next(r["id"] for r in _rl if r.get("name") == "自测导入规则")})
+        _rid = next((r["id"] for r in _rl if r.get("name") == "自测导入规则"), None)
+        if _rid:
+            get("/__oc__/custom-rules", method="POST", payload={
+                "action": "delete", "id": _rid})
         try:
             get("/__oc__/bundle/import", method="POST", payload={"kind": "x"})
             _bad_kind = False

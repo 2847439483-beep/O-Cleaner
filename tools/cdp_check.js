@@ -411,7 +411,11 @@ class CDP {
   })()`);
   check("一键预设文字不溢出框位", presetOverflow.length === 0, presetOverflow.join(" | "));
 
-  // 规则功能
+  // 规则功能。先「全不选」：前面的预设/勾选检查可能残留选中项，
+  // 不清掉的话保存出的规则会带上一批无关 id，套用后统计对不上单卡体积。
+  await evaluate(`(() => { const b = document.querySelector('#btnNone');
+                           if (b) b.click(); })()`);
+  await sleep(300);
   const r0 = await evaluate(`document.querySelector('#btnRuleSave').disabled`);
   // 必须点一张「真的能勾选」的卡片：盘上第一张卡可能是危险/只读项
   // （checkbox 被 disabled、卡片带 .dead），点它不会产生任何勾选。
