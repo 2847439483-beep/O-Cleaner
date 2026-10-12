@@ -1,6 +1,7 @@
 # 运行数据 —— 不进版本库
 history.json
 schedule.json
+disk-trend.json
 config/custom-rules.json
 # 资源包的启用状态与远端地址（本机选择，不该跟着仓库走）
 config/packs-state.json

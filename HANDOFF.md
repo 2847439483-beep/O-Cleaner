@@ -673,6 +673,56 @@ CI 上出现一次此前未见的 `ui` 失败（`通过 21 项，失败 4 项，
 （非游戏目录仍 400）；括号配平、`node --check`、`py_compile`、两道 linter 门禁、
 编码契约全部通过。selftest +2 条（CLI 冒烟 + 残留入口静态）。
 
+### 21. 清理与游戏库五项增强 + 释义增强包（2026-10-13 凌晨）
+
+**删除链路三件**：
+1. **高风险项「删进回收站」**：确认弹窗复选框（选中含高风险项时出现，默认勾选）→
+   `POST /__oc__/clean` 带 `trash` → 后端只对 `risk=="高"` 项走 `rm_trash()`
+   （ctypes `SHFileOperationW` + `FOF_ALLOWUNDO`）。两个关键决定：
+   - **容量守卫**：目标超过回收站容量上限（注册表 BitBucket MaxCapacity，
+     缺省按盘容量 5% 估）时**必须拒绝**——带 FOF_NOCONFIRMATION 的超限删除会被
+     系统静默转成永久删除，那恰好是要避免的事；
+   - **freed 如实报 0**：移入回收站不释放空间（同卷改名），结果弹窗显示
+     「→ 回收站」并说明「清空回收站后才释放」。中/低风险项不受影响（缓存进
+     回收站白占地方）。
+2. **删除游戏前自动查存档**：`POST /__oc__/game-saves`（只读）在 文档\My Games、
+   文档、AppData\\Roaming、AppData\\Local 里按「安装目录名分词 / AppID 包含匹配」
+   找疑似存档，体积用**预算化统计**（2 万条目封顶，超了按下限报「约」）；0 字节
+   目录过滤掉。确认弹窗异步回填「发现 N 处疑似本地存档——删除游戏不会动它们
+   （都在安装目录之外），想彻底清就先备份」。启发式匹配，所以措辞是「疑似」。
+3. **Epic/GOG 残留目录**：`platform_install_roots()` 从平台自己的记录（Epic
+   .item 清单 / GOG 注册表）+ 默认根推导「安装位置的可能父目录」（60 秒缓存），
+   安装根的**直接子目录**且平台记录里没有的 = 疑似残留，与 Steam 孤儿同一信任
+   级别。`clean-game` 的二次识别同步扩展：路径父目录在安装根集合里且不在平台
+   记录中 → 放行。启动器目录（Launcher）显式排除防误报。
+
+**界面两件**：
+4. **磁盘空间趋势**：`record_disk_snapshot()` 挂在 `get_disk_info` 成功路径上，
+   `disk-trend.json`（运行数据，gitignore）每天每盘至多一条、留 90 天；同日再查
+   只在可用空间变化时更新（清理后趋势立即反映）。`GET /__oc__/disk-trend` +
+   磁盘概览面板的 canvas 折线（近 30 天可用空间，少于 2 个点如实写「积累中」）。
+5. **详情弹窗加「定位到这个目录」与「复制路径」**：`/__oc__/reveal` 支持
+   `select`（explorer /select 高亮，项不存在退回打开父级）；复制走剪贴板 API
+   带 execCommand 兜底。
+
+**释义增强包（explanations.json，166 条总量的 +18）**：对内置 18 条通用
+cleanable 规则（缓存/日志/下载目录/安装包/压缩包/ISO/回收站/开发环境……）
+提供更详尽的四段说明。三层优先级：具体软件包条目（位置最深）> 释义包（匹配
+同一批通用路径）> 内置文本（保底）；**结论（cleanable/risk）依旧只有内置能定**。
+实测：`SomeApp\cache` 命中释义包增强文案、`pip\cache` 仍由 apps-common 优先。
+linter 抓掉两个过于宽泛的关键词（`\\temp`、`\\下载`——会把未识别节点也卷进来）。
+
+**双仓同步（tools/sync_packs.py）**：`check` 只读比对主仓 packs/ ↔ 公开仓
+（raw + sha256 逐文件）；`push` 经 GitHub Contents API 推差异文件。两个实测
+出来的坑：Contents API 的现状 sha 是 **git blob sha1**（`sha1("blob <len>\0"+内容)`，
+裸 sha1 会 409）；api.github.com 时段性劣化，PUT 带三次重试。
+
+**验证**：dev server 实机端到端（game-saves 真实游戏 3 处命中 / 相对路径 400 /
+clean-game 非游戏仍 400 / disk-trend 落盘且 CRLF / games 聚合带孤儿字段 / 首页含
+全部新 UI 元素）；rm_trash 三态 + 容量守卫 + 存档匹配沙箱单测；linter 0/0、
+_lint_selftest 44/0、JS 语法、py_compile、编码契约全绿。分发清单 +1
+（sync_packs.py）→ 28 个文件 / 322.8 KB。
+
 ---
 
 ## 七、文件资产与代码清单
@@ -706,7 +756,7 @@ CI 上出现一次此前未见的 `ui` 失败（`通过 21 项，失败 4 项，
 | `CONTRIBUTING.md` | ~9.0 KB | 贡献指南与提交前自查清单（含资源包提交流程、CI 快慢两级说明） |
 | `HANDOFF.md` | ~88 KB | 本文档：需求追溯、架构规格、踩坑记录与接手注意事项 |
 | `_legacy/` | ~180 KB | 前身版本归档（已 gitignore，不属于本仓库） |
-| `dist/O-Cleaner-v2.3.zip`| ~269 KB | 便携分发包：27 个文件（含 4 个内置资源包），由 `tools/make_package.py` 生成 |
+| `dist/O-Cleaner-v2.3.zip`| ~323 KB | 便携分发包：28 个文件（含 5 个内置资源包），由 `tools/make_package.py` 生成 |
 
 ---
 

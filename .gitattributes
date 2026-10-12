@@ -34,6 +34,7 @@
 # 这些是运行数据，不要合并、也不要规范化
 history.json   -text
 schedule.json  -text
+disk-trend.json -text
 
 # 二进制
 *.png binary

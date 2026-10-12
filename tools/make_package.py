@@ -65,6 +65,7 @@ INCLUDE = [
     "tools/cdp_check.js",
     "tools/fix-encoding.ps1",
     "tools/make_package.py",
+    "tools/sync_packs.py",
 ]
 
 # zip 条目时间戳固定（这里用 2026-01-01），同内容 -> 同字节 -> 可复现。

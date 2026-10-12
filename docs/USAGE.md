@@ -547,6 +547,7 @@ O-Cleaner\
 │   ├─ doctor.py           新设备环境自检
 │   ├─ fix-encoding.ps1    编码与换行契约的唯一规范化工具
 │   ├─ make_package.py     打包成可拷贝的 zip（内存打包，无暂存目录）
+│   ├─ sync_packs.py       主仓 packs/ 与公开分发仓的一致性校验与同步
 │   └─ local-cases.json.example   本机真实用例的干净模板
 ├─ history.json            清理历史与累计统计（运行后生成）
 ├─ schedule.json           定时设置（运行后生成）
