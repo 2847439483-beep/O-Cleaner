@@ -2084,8 +2084,16 @@ function renderSteamPage() {
         <div class="sgl"><span class="sgn">${esc(o.name)}</span>
           <span class="sgs mono">${esc(o.path)}</span></div>
         <span class="fsize">${esc(o.size_h || "")}</span>
+        <button class="tiny" data-delgame="${esc(o.path)}" data-orphan="1">删除</button>
         <button class="tiny ghost" data-reveal="${esc(o.path)}">打开目录</button>
       </div>`).join("")}`;
+    // 残留目录一键删除：它就在 steamapps\common 的顶层，后端的二次识别天然放行；
+    // 点击直接进确认弹窗（体积行上已可见），与删游戏同一道后端校验。
+    $("stOrphans").querySelectorAll("[data-delgame]").forEach(b =>
+      b.addEventListener("click", () => {
+        const o = (s.orphans || []).find(x => x.path === b.dataset.delgame);
+        if (o) confirmDeleteGame({ ...o }, "steam", true);
+      }));
   } else {
     $("stOrphanPanel").style.display = "none";
   }
@@ -2934,29 +2942,37 @@ function showDetail(it) {
   if (ba) ba.addEventListener("click", () => aiExplainInto(it, ba));
 }
 
-/* 删除单个游戏本体 —— 「游戏是可清理项」的落地动作。
-   与常规清理不同，这里删的是整个游戏目录（动辄几十 GB），所以：
-   * 确认弹窗把游戏名、体积、路径和存档风险全部写明，按钮用红色；
+/* 删除单个游戏本体 / Steam 残留目录 —— 「游戏是可清理项」的落地动作。
+   与常规清理不同，这里删的是整个目录（动辄几十 GB），所以：
+   * 确认弹窗把名称、体积、路径和存档风险全部写明，按钮用红色；
    * 真正的删除由后端二次校验（路径必须是后端自己识别出的游戏安装目录），
-     前端这段只负责把后果讲清楚，不承担安全判断。 */
-function confirmDeleteGame(it, plat) {
+     前端这段只负责把后果讲清楚，不承担安全判断。
+   orphan=true 时是「Steam 无记录但目录还在」的残留：没有客户端卸载可言，
+   但要多提醒一句「可能是清单漏记的活游戏」。 */
+function confirmDeleteGame(it, plat, orphan) {
   const platName = plat === "steam" ? "Steam"
                  : (plat === "epic" ? "Epic Games" : "GOG");
+  const head = orphan ? "删除残留目录" : "删除游戏";
   $("modal").innerHTML = `
-    <h2>删除游戏 —— ${esc(platName)} · 执行后无法恢复</h2>
+    <h2>${head} —— ${esc(platName)} · 执行后无法恢复</h2>
     <div class="mbody">
-      <div class="warnpane"><b>将永久删除整个游戏目录</b>：游戏本体，以及放在这个
-        目录里的存档、配置和 Mod。多数游戏把存档存在 <code>文档\\My Games</code>、
+      <div class="warnpane"><b>将永久删除整个目录</b>：${orphan
+        ? "这是 Steam 清单里已无记录的目录（通常是卸载不干净的残留）"
+        : "游戏本体，以及放在这个目录里的存档、配置和 Mod"}。
+        多数游戏把存档存在 <code>文档\\My Games</code>、
         <code>AppData</code> 或平台云存档里，不受影响 —— 但删之前请确认
-        这款游戏没有你想保留的东西。</div>
+        这个目录里没有你想保留的东西${orphan ? "（有些游戏的存档或 MOD 会留在这里）" : ""}。</div>
       <dl class="dfacts">
-        <dt>游戏</dt><dd><b>${esc(it.display_name || it.name)}</b></dd>
+        <dt>${orphan ? "目录" : "游戏"}</dt><dd><b>${esc(it.display_name || it.name)}</b></dd>
         <dt>占用</dt><dd>${fmt(it.size)}</dd>
         <dt>位置</dt><dd class="mono" style="word-break:break-all">${esc(it.path)}</dd>
       </dl>
-      <div class="dadv no"><b>更稳妥的做法</b><br>在 ${esc(platName)} 客户端里卸载，
-        它会同时清掉库记录，不留残留；直接删目录也能释放空间，之后客户端里会显示
-        「未安装」，想再玩重新下载即可。</div>
+      <div class="dadv no"><b>${orphan ? "先排除一种误报" : "更稳妥的做法"}</b><br>${
+        orphan
+        ? "如果它其实是被 Steam 清单漏记的活游戏，先在 Steam 里点一次「安装」——"
+          + "若 Steam 开始往这个目录写文件，就说明不是残留，别删。"
+        : `在 ${esc(platName)} 客户端里卸载，它会同时清掉库记录，不留残留；`
+          + "直接删目录也能释放空间，之后客户端里会显示「未安装」，想再玩重新下载即可。"}</div>
       <div id="delGameMsg" style="color:var(--dim);font-size:12px;margin-top:9px"></div>
     </div>
     <div class="mfoot">
@@ -2970,36 +2986,37 @@ function confirmDeleteGame(it, plat) {
     const btn = $("dgGo"), msg = $("delGameMsg");
     if (!btn || !msg) return;
     btn.disabled = true; btn.textContent = "正在删除…";
-    msg.textContent = "正在删除整个游戏目录，大游戏可能要几十秒…";
+    msg.textContent = "正在删除整个目录，大目录可能要几十秒…";
     try {
       const r = await (await fetch(`${API}/__oc__/clean-game`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: it.path }),
       })).json();
-      if (r.error) {
-        btn.disabled = false; btn.textContent = "确认删除";
-        msg.innerHTML = `<span style="color:var(--danger)">${esc(r.error)}</span>`;
-        return;
-      }
+      // 部分删除（目录还在但已腾出空间）也要如实展示，不能只报错误行
       $("modal").innerHTML = `
-        <h2>已删除</h2>
+        <h2>${r.ok ? "已删除" : (r.freed > 0 ? "部分删除" : "删除失败")}</h2>
         <div class="mbody">
-          <div class="dadv yes"><b>删除完成</b><br>
-            ${esc(r.name)} 已删除，释放 <b style="color:var(--ok)">${esc(r.freed_h)}</b>。
+          ${r.error ? `<div class="dadv no"><b>未完全删除</b><br>${esc(r.error)}</div>` : ""}
+          <div class="dadv ${r.ok ? "yes" : "no"}"><b>${r.ok ? "删除完成" : (r.freed > 0 ? "已腾出部分空间" : "空间未变化")}</b><br>
+            ${esc(r.name)} ${r.freed > 0 ? `释放 <b style="color:var(--ok)">${esc(r.freed_h)}</b>` : "没有释放空间"}。
             ${r.disk && r.disk.free_h
               ? `${esc(r.disk.letter)}: 盘当前可用 ${esc(r.disk.free_h)}。` : ""}</div>
-          <div style="color:var(--dim2);font-size:12px;margin-top:9px">
-            磁盘概览是删除之前扫的，数字已经过期；需要最新数据时再点「全盘扫描本盘」。</div>
+          ${r.ok ? `<div style="color:var(--dim2);font-size:12px;margin-top:9px">
+            磁盘概览是删除之前扫的，数字已经过期；需要最新数据时再点「全盘扫描本盘」。</div>` : ""}
         </div>
         <div class="mfoot">
           <button id="dgClose" class="primary">知道了</button>
         </div>`;
-      $("dgClose").addEventListener("click", async () => {
+      $("dgClose").addEventListener("click", () => {
         closeModal();
-        FS = null;                     // 树是删除前扫的，作废；下次进概览会重新扫
-        if (view === "steam") { await loadSteam(); renderSteamPage(); }
-        else showNormalView();
-        toast(`已删除 ${r.name}，释放 ${r.freed_h}`);
+        if (r.ok) {
+          FS = null;                 // 树是删除前扫的，作废；下次进概览会重新扫
+          if (view === "steam") { loadSteam(); renderSteamPage(); }
+          else showNormalView();
+          toast(`已删除 ${r.name}，释放 ${r.freed_h}`);
+        } else if (r.freed > 0 && view === "steam") {
+          loadSteam();               // 残留目录部分删除后体积变了，刷新列表
+        }
       });
     } catch (e) {
       btn.disabled = false; btn.textContent = "确认删除";

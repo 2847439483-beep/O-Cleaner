@@ -4695,18 +4695,29 @@ class Handler(BaseHTTPRequestHandler):
                 t0 = time.time()
                 name = os.path.basename(norm)
                 disp, _zh = game_display_name(None, name)
-                size = _size_of_dir(norm)
+                before = _size_of_dir(norm)
                 okrm = rm(norm)
-                freed = size if okrm else 0
+                # 释放量按「前-后」实测而不是「成功就记全量」：rm 用的是
+                # ignore_errors 的 rmtree，部分文件被占用时目录会留下但已删掉
+                # 一部分 —— 按「成功与否」二值记会把真实释放量报成 0，
+                # 累积统计因此偏低失真。
+                after = _size_of_dir(norm) if os.path.isdir(norm) else 0
+                freed = max(0, before - after)
+                if okrm:
+                    err = None
+                elif freed > 0:
+                    err = "部分文件未能删除（可能被占用或需要管理员权限），目录还在"
+                else:
+                    err = "删除失败（文件可能被占用或需要管理员权限）"
                 letter = norm[:1].upper()
                 result = {
                     "id": f"game-{abs(hash(low)) % 10**8}", "target_id": "game",
                     "label": f"游戏：{disp or name}", "category": "游戏",
                     "path": norm, "drive": letter,
-                    "before": size, "after": 0, "freed": freed,
+                    "before": before, "after": after, "freed": freed,
                     "deleted": 1 if okrm else 0,
                     "failed": 0 if okrm else 1, "skipped": [],
-                    "error": None if okrm else "删除失败（文件可能被占用或需要管理员权限）",
+                    "error": err,
                     "seconds": round(time.time() - t0, 2),
                 }
                 append_history({
@@ -4720,7 +4731,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": okrm, "freed": freed, "freed_h": human(freed),
                     "name": disp or name, "path": norm,
                     "disk": get_disk_info(letter),
-                    "error": result["error"],
+                    "error": err,
                 })
             finally:
                 self.server.busy = False
@@ -4965,6 +4976,8 @@ def main() -> None:
 
     ap = argparse.ArgumentParser(description="O-Cleaner 磁盘清理助手")
     ap.add_argument("--port", type=int, default=None)
+    ap.add_argument("--version", action="store_true",
+                    help="打印版本号后退出（排障/打包核对用，版本单点定义在 APP_VERSION）")
     ap.add_argument("--drive", default=None, help="命令行扫描时指定盘符，如 D")
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--scan-only", action="store_true")
@@ -4975,6 +4988,10 @@ def main() -> None:
     ap.add_argument("--lint", action="store_true",
                     help="只跑规则 linter（发布/贡献规则前用），不开服务")
     args = ap.parse_args()
+
+    if args.version:
+        print(f"O-Cleaner v{APP_VERSION}")
+        return
 
     dcfg = load_drives_cfg()
 

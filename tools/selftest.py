@@ -611,6 +611,11 @@ def phase3_http() -> None:
               'id="viewNav"' in html and html.count('data-v="') == 3)
         check("侧栏面板目录条存在（吸顶导航）",
               'id="panelNav"' in html and "initPanelNav" in html)
+        # Steam 残留目录（孤儿）的一键删除：与删游戏共用同一条后端校验链路，
+        # 前端这里只负责入口与「可能是清单漏记的活游戏」的提醒文案
+        check("Steam 残留目录有删除入口并走同一确认流程",
+              "data-delgame" in html and "confirmDeleteGame" in html
+              and "先排除一种误报" in html)
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检中的「跨设备兼容」已改为「兼容性分析」",
@@ -1091,6 +1096,22 @@ def phase4_repo() -> None:
         if _has_bom(f.read_bytes()):
             bad_enc.append(f.name)
     check("所有 .py/.json 都不带 BOM", not bad_enc, str(bad_enc[:4]))
+
+    # ---- CLI 入口冒烟：--version 必须能用且与单点定义一致 ----
+    # 版本号单点定义在 app.py 的 APP_VERSION，打包脚本与配置里的另两处
+    # 由别处断言对齐；这里只验证「这条命令真的能跑通、输出带版本号」。
+    try:
+        _r = subprocess.run(
+            [sys.executable, "-X", "utf8", str(HERE / "app.py"), "--version"],
+            capture_output=True, text=True, encoding="utf-8",
+            timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        out = (_r.stdout or "").strip()
+        check("app.py --version 可用且输出带版本号",
+              _r.returncode == 0 and out.startswith("O-Cleaner v"),
+              f"rc={_r.returncode} out={out[:60]!r}")
+    except Exception as exc:  # noqa: BLE001
+        check("app.py --version 可用且输出带版本号", False, f"执行异常：{exc}")
 
     # ---- 单文件前端的静态一致性 ----
     # 这几条是「一个真实 bug 逼出来的」：新写的 var(--dim3) 引用了并不存在的变量，
