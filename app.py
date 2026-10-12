@@ -70,6 +70,9 @@ PACKS_STATE_PATH = CONFIG_DIR / "packs-state.json"
 # AI 设置（含密钥）。只存本机、不进版本库，见 .gitignore。
 AI_CONFIG_PATH = CONFIG_DIR / "ai.json"
 HISTORY_PATH = BASE_DIR / "history.json"
+# 各盘用量快照（磁盘趋势曲线的数据源）：每天每盘最多记一条，保留 90 天。
+# 运行数据，不进版本库、不进分发包。
+DISK_TREND_PATH = BASE_DIR / "disk-trend.json"
 SCHEDULE_PATH = BASE_DIR / "schedule.json"
 
 # 绝不允许删除的目录名（即使配置文件被改坏也拦得住）
@@ -251,13 +254,41 @@ def get_disk_info(drive: str | None = None) -> dict:
     target = root if IS_WINDOWS else "/"
     try:
         total, used, free = shutil.disk_usage(target)
-        return {"letter": letter, "total": total, "used": used, "free": free,
+        info = {"letter": letter, "total": total, "used": used, "free": free,
                 "total_h": human(total), "used_h": human(used), "free_h": human(free),
                 "percent": round(used / total * 100, 1) if total else 0,
                 # 前端据此决定「清理范围」默认值：系统盘看全部，数据盘只看本盘
                 "is_system": is_system_drive(letter)}
+        record_disk_snapshot(info)
+        return info
     except Exception as exc:
         return {"error": str(exc)}
+
+
+def record_disk_snapshot(info: dict) -> None:
+    """把各盘用量记进趋势快照：每天每盘一条，超过 90 天的丢掉。
+
+    挂在 get_disk_info 的成功路径上。同一天同盘再查时，只有「可用空间变了」
+    才更新（比如刚做完清理）—— 否则一天首次的值就是冻结值，趋势反映不出
+    清理效果；而可用空间天然随时在变，所以平时不会反复写盘。"""
+    if info.get("error") or not info.get("total"):
+        return
+    today = datetime.now().strftime("%Y-%m-%d")
+    hist = _load_json(DISK_TREND_PATH, [], use_cache=False)
+    if not isinstance(hist, list):
+        hist = []
+    for day in hist:
+        if isinstance(day, dict) and day.get("d") == today:
+            drives = day.setdefault("u", {})
+            prev = drives.get(info["letter"])
+            if prev and prev.get("free") == info["free"]:
+                return                      # 今天记过且空间没变化
+            drives[info["letter"]] = {"total": info["total"], "free": info["free"]}
+            _atomic_write(DISK_TREND_PATH, hist)
+            return
+    hist.append({"d": today, "u": {info["letter"]: {"total": info["total"],
+                                                    "free": info["free"]}}})
+    _atomic_write(DISK_TREND_PATH, hist[-90:])
 
 
 # ======================================================================
@@ -2542,7 +2573,8 @@ def discover_epic() -> dict:
     """发现 Epic Games 已安装游戏。数据全部来自启动器自己的 .item JSON 清单，
     纯标准库读取几 KB 文件，微秒级，不需要注册表或外部进程。"""
     empty = {"found": False, "games": [], "game_count": 0,
-             "total_size": 0, "total_size_h": "0 B"}
+             "total_size": 0, "total_size_h": "0 B",
+             "orphans": [], "orphan_count": 0, "orphan_size_h": "0 B"}
     if not IS_WINDOWS:
         return empty
     mdir = os.path.join(os.environ.get("PROGRAMDATA") or r"C:\ProgramData",
@@ -2595,8 +2627,11 @@ def discover_epic() -> dict:
             dedup[k] = g
     games = sorted(dedup.values(), key=lambda g: -g["size"])
     total = sum(g["size"] for g in games)
+    orphans = _platform_orphans("epic", [g["path"] for g in games])
     return {"found": bool(games), "games": games, "game_count": len(games),
-            "total_size": total, "total_size_h": human(total)}
+            "total_size": total, "total_size_h": human(total),
+            "orphans": orphans[:20], "orphan_count": len(orphans),
+            "orphan_size_h": human(sum(o["size"] for o in orphans))}
 
 
 def _gog_game_from_values(game_id: str, vals: dict) -> dict | None:
@@ -2617,7 +2652,8 @@ def discover_gog() -> dict:
     HKLM\\SOFTWARE\\(WOW6432Node\\)GOG.com\\Games —— GOG 客户端自己维护的清单位置。
     注册表不记体积，逐个现场测量（GOG 库通常不大，代价可接受）。"""
     empty = {"found": False, "games": [], "game_count": 0,
-             "total_size": 0, "total_size_h": "0 B"}
+             "total_size": 0, "total_size_h": "0 B",
+             "orphans": [], "orphan_count": 0, "orphan_size_h": "0 B"}
     if not IS_WINDOWS:
         return empty
     try:
@@ -2679,8 +2715,109 @@ def discover_gog() -> dict:
             dedup[k] = g
     games = sorted(dedup.values(), key=lambda g: -g["size"])
     total = sum(g["size"] for g in games)
+    orphans = _platform_orphans("gog", [g["path"] for g in games])
     return {"found": bool(games), "games": games, "game_count": len(games),
-            "total_size": total, "total_size_h": human(total)}
+            "total_size": total, "total_size_h": human(total),
+            "orphans": orphans[:20], "orphan_count": len(orphans),
+            "orphan_size_h": human(sum(o["size"] for o in orphans))}
+
+
+# ---- Epic / GOG 的残留目录（孤儿）----
+# 与 Steam 孤儿同一信任级别：只看「安装根」的**直接子目录**，且此刻的平台
+# 记录里没有它。安装根 = 平台自己记录的安装目录的父目录 ∪ 默认安装根。
+# 启动器自己的目录（如 Epic Games Launcher）会被显式排除。
+_ORPHAN_NAME_EXCLUDES = {"launcher", "launchers", "epic games launcher"}
+_ORPHAN_ROOTS_CACHE: dict = {"key": None, "roots": {}}
+
+
+def platform_install_roots() -> dict[str, set[str]]:
+    """Epic / GOG「安装位置的可能父目录」（小写归一化），60 秒缓存。
+
+    孤儿检测与 clean-game 的二次识别共用这一份 —— 两边对「哪里算安装根」
+    的认识必须一致，否则前端列出来的删不掉，或后端允许的没被列出来。"""
+    key = time.time() // 60
+    if _ORPHAN_ROOTS_CACHE["key"] == key:
+        return _ORPHAN_ROOTS_CACHE["roots"]
+    roots: dict[str, set[str]] = {"epic": set(), "gog": set()}
+    if IS_WINDOWS:
+        mdir = os.path.join(os.environ.get("PROGRAMDATA") or r"C:\ProgramData",
+                            "Epic", "EpicGamesLauncher", "Data", "Manifests")
+        try:
+            for fn in os.listdir(mdir):
+                if not fn.lower().endswith(".item"):
+                    continue
+                try:
+                    with open(os.path.join(mdir, fn), "r",
+                              encoding="utf-8-sig", errors="replace") as fh:
+                        d = json.load(fh)
+                except (OSError, ValueError):
+                    continue
+                g = _epic_game_from_manifest(d)
+                if g and os.path.isdir(g["path"]):
+                    roots["epic"].add(os.path.normpath(
+                        os.path.dirname(g["path"])).lower())
+        except OSError:
+            pass
+        roots["epic"].add(r"c:\program files\epic games")
+        try:
+            import winreg
+            for hive in (r"SOFTWARE\WOW6432Node\GOG.com\Games",
+                         r"SOFTWARE\GOG.com\Games"):
+                try:
+                    k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, hive)
+                except OSError:
+                    continue
+                try:
+                    for i in range(winreg.QueryInfoKey(k)[0]):
+                        try:
+                            with winreg.OpenKey(k, winreg.EnumKey(k, i)) as sub:
+                                p, _ = winreg.QueryValueEx(sub, "path")
+                        except OSError:
+                            continue
+                        p = str(p or "").strip()
+                        if len(p) >= 4 and os.path.isdir(p):
+                            roots["gog"].add(os.path.normpath(
+                                os.path.dirname(os.path.normpath(p))).lower())
+                finally:
+                    winreg.CloseKey(k)
+        except (ImportError, OSError):
+            pass
+        roots["gog"].add(r"c:\gog games")
+        roots["gog"].add(r"c:\program files (x86)\gog galaxy\games")
+    _ORPHAN_ROOTS_CACHE["key"] = key
+    _ORPHAN_ROOTS_CACHE["roots"] = roots
+    return roots
+
+
+def _platform_orphans(plat: str, known_paths: list[str]) -> list[dict]:
+    """平台安装根下的直接子目录中，不在该平台记录里的 = 疑似残留。"""
+    roots = platform_install_roots().get(plat) or set()
+    known = {os.path.normpath(p).lower() for p in known_paths if p}
+    out: list[dict] = []
+    seen: set[str] = set()
+    for root in sorted(roots):
+        try:
+            with os.scandir(root) as it:
+                for e in it:
+                    if not e.is_dir(follow_symlinks=False):
+                        continue
+                    if e.name.lower() in _ORPHAN_NAME_EXCLUDES:
+                        continue
+                    low = os.path.normpath(e.path).lower()
+                    if low in known or low in seen:
+                        continue
+                    seen.add(low)
+                    out.append({"name": e.name, "path": e.path,
+                                "size": 0, "size_h": "未测量"})
+        except OSError:
+            continue
+    for o in out:
+        sz, _trunc = _size_of_dir_budgeted(o["path"], max_entries=50000)
+        o["size"] = sz
+        o["size_h"] = human(sz)
+    out = [o for o in out if o["size"] > 0]
+    out.sort(key=lambda o: -o["size"])
+    return out
 
 
 def discover_games() -> dict:
@@ -2707,10 +2844,16 @@ def discover_games() -> dict:
                       "total_size_h": steam.get("total_size_h", "0 B")},
             "epic": {"found": bool(epic.get("found")),
                      "game_count": epic.get("game_count", 0),
-                     "total_size_h": epic.get("total_size_h", "0 B")},
+                     "total_size_h": epic.get("total_size_h", "0 B"),
+                     "orphans": epic.get("orphans", []),
+                     "orphan_count": epic.get("orphan_count", 0),
+                     "orphan_size_h": epic.get("orphan_size_h", "0 B")},
             "gog": {"found": bool(gog.get("found")),
                     "game_count": gog.get("game_count", 0),
-                    "total_size_h": gog.get("total_size_h", "0 B")},
+                    "total_size_h": gog.get("total_size_h", "0 B"),
+                    "orphans": gog.get("orphans", []),
+                    "orphan_count": gog.get("orphan_count", 0),
+                    "orphan_size_h": gog.get("orphan_size_h", "0 B")},
         },
         "steam": steam,   # 完整 Steam 负载原样透传，面板继续用它渲染库/残留/分盘
     }
@@ -2860,6 +3003,77 @@ def rm(path: str) -> bool:
             return False
 
 
+# ---- 删进回收站（可恢复）----
+# 用 shell32.SHFileOperationW 带 FOF_ALLOWUNDO。两个刻意的决定：
+#   1. **必须先做容量守卫**：目标超过回收站容量上限时，带 FOF_NOCONFIRMATION 的
+#      删除会**静默转为永久删除**——那恰好是要避免的事。所以先按注册表里的
+#      MaxCapacity（缺省按盘容量 5% 估）算出上限，超限就拒绝并说清楚原因。
+#   2. **移入回收站不等于释放空间**（同卷只是改名），所以 trash 模式下 freed
+#      一律报 0，由结果弹窗说明「清空回收站后才真正释放」——不虚报。
+_FOF_ALLOWUNDO = 0x40
+_FOF_NOCONFIRMATION = 0x10
+_FOF_SILENT = 0x4
+_FOF_NOERRORUI = 0x400
+
+
+def _recycle_capacity_bytes(drive_root: str) -> int:
+    """该盘回收站的容量上限（字节）。注册表 MaxCapacity 缺失时按盘容量 5% 估。"""
+    import winreg
+    import ctypes
+    try:
+        guid_buf = ctypes.create_unicode_buffer(100)
+        # 路径必须是「X:\」形式，反斜杠结尾
+        root = drive_root if drive_root.endswith("\\") else drive_root + "\\"
+        if ctypes.windll.kernel32.GetVolumeNameForVolumeMountPointW(
+                ctypes.c_wchar_p(root), guid_buf, 100):
+            key = (r"Software\Microsoft\Windows\CurrentVersion\Explorer"
+                   r"\BitBucket\Volume") + "\\" + guid_buf.value.rstrip("\\")
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as k:
+                mb, _ = winreg.QueryValueEx(k, "MaxCapacity")
+                if isinstance(mb, int) and mb > 0:
+                    return mb * 1024 * 1024
+    except OSError:
+        pass
+    try:
+        import shutil
+        return int(shutil.disk_usage(drive_root).total * 0.05)
+    except OSError:
+        return 2 * 1024 * 1024 * 1024   # 兜底 2 GB
+
+
+def rm_trash(path: str) -> tuple[bool, str]:
+    """把文件/目录移入回收站。返回 (是否成功, 失败原因)。"""
+    import ctypes
+    from ctypes import wintypes
+    path = os.path.abspath(path)
+    if not os.path.exists(path):
+        return True, ""
+    root = os.path.splitdrive(path)[0] + "\\"
+    cap = _recycle_capacity_bytes(root)
+    size = _size_of(path)
+    if size > cap:
+        return False, (f"体积 {human(size)} 超过该盘回收站容量上限（约 {human(cap)}），"
+                       f"移入回收站会被系统转为永久删除，已拒绝。"
+                       f"可直接删除，或在回收站设置里调大上限后再试。")
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT),
+                    ("pFrom", wintypes.LPCWSTR), ("pTo", wintypes.LPCWSTR),
+                    ("fFlags", wintypes.WORD), ("fAnyOperationsAborted",
+                                                wintypes.BOOL),
+                    ("hNameMappings", wintypes.LPVOID),
+                    ("lpszProgressTitle", wintypes.LPCWSTR)]
+    op = SHFILEOPSTRUCTW()
+    op.hwnd = None
+    op.wFunc = 3                       # FO_DELETE
+    op.pFrom = path + "\0"             # 双 \0 结尾由 ctypes 自动补一个
+    op.fFlags = (_FOF_ALLOWUNDO | _FOF_NOCONFIRMATION | _FOF_SILENT
+                 | _FOF_NOERRORUI)
+    code = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+    if code == 0 and not op.fAnyOperationsAborted:
+        return True, ""
+    return False, f"系统回收站操作失败（错误码 {code}）"
+
+
 def _size_of(path: str) -> int:
     try:
         if os.path.isfile(path) and not os.path.islink(path):
@@ -2884,13 +3098,92 @@ def _size_of_dir(path: str) -> int:
     return total
 
 
+def _size_of_dir_budgeted(path: str, max_entries: int = 20000) -> tuple[int, bool]:
+    """带条目预算的目录体积。返回 (字节数, 是否因超预算被截断)。
+    截断时字节数是**下限**，前端统一按「约」处理。"""
+    total, seen = 0, 0
+    for root, _dirs, files in os.walk(path, onerror=lambda e: None):
+        for f in files:
+            seen += 1
+            if seen > max_entries:
+                return total, True
+            try:
+                fp = os.path.join(root, f)
+                if not os.path.islink(fp):
+                    total += os.path.getsize(fp)
+            except OSError:
+                continue
+    return total, False
+
+
+# ---- 删除游戏前的存档查询 ----
+# 只读操作：在几个「游戏最爱把存档放这」的位置里，找名字与这款游戏相关的目录。
+# 匹配是启发式的（名字包含安装目录名或 AppID），所以结果叫「疑似存档」，
+# 前端也如实写「建议先备份」——宁可提示了不需要的，也不漏掉要命的。
+_GAME_SAVE_ROOTS = (
+    ("文档", "~/Documents"),
+    ("文档\\My Games", "~/Documents/My Games"),
+    ("AppData\\Roaming", "~/AppData/Roaming"),
+    ("AppData\\Local", "~/AppData/Local"),
+)
+
+
+def find_game_save_candidates(install_path: str,
+                              appid: str = "") -> list[dict]:
+    install_path = os.path.abspath(install_path)
+    base = os.path.basename(install_path.rstrip("\\/"))
+    tokens = set()
+    if base:
+        tokens.add(base.lower().replace(" ", ""))
+        for w in re.split(r"[\s_\-]+", base):
+            if len(w) >= 4 and not w.isdigit():
+                tokens.add(w.lower())
+    appid = str(appid or "").strip()
+    if appid.isdigit():
+        tokens.add(appid)
+    tokens.discard("")
+    if not tokens:
+        return []
+    found = []
+    for label, root in _GAME_SAVE_ROOTS:
+        root = os.path.expanduser(root)
+        try:
+            with os.scandir(root) as it:
+                for e in it:
+                    if not e.is_dir(follow_symlinks=False):
+                        continue
+                    name = e.name.lower()
+                    if not any(t in name for t in tokens):
+                        continue
+                    # 排除把安装目录本身误当存档（不太可能出现在这些根下，但求稳）
+                    if os.path.abspath(e.path).lower() == install_path.lower():
+                        continue
+                    sz, truncated = _size_of_dir_budgeted(e.path)
+                    if sz == 0:
+                        continue          # 0 字节的空目录只会制造噪音
+                    found.append({"path": e.path, "where": label,
+                                  "size": sz, "size_h": human(sz),
+                                  "truncated": truncated})
+        except OSError:
+            continue
+    found.sort(key=lambda x: -x["size"])
+    return found[:5]
+
+
 def clean_target(t: dict, only_paths: list | None = None,
-                 drive: str | None = None) -> dict:
-    """删除一个目标的文件。only_paths 非空时只删这些子项。"""
+                 drive: str | None = None, trash: bool = False) -> dict:
+    """删除一个目标的文件。only_paths 非空时只删这些子项。
+
+    trash=True 时把**风险为「高」**的项改删进回收站（可恢复）。两个要点：
+      * 回收站删除不释放空间（同卷只是改名），所以这类项 freed 如实报 0，
+        计入 result["trashed"]，由前端说明「清空回收站后才真正释放」；
+      * 中/低风险项不受影响——缓存类东西进回收站只会白白占地方。
+    """
     t0 = time.time()
     path = expand(t["path"], drive)
     kind = t.get("kind", "tree")
     letter = (drive or "").rstrip(":").upper()
+    use_trash = bool(trash) and t.get("risk") == "高" and kind != "recyclebin"
     result = {
         "id": target_id_for(t, drive if is_drive_specific(t) else None),
         "target_id": t["id"],
@@ -2899,7 +3192,7 @@ def clean_target(t: dict, only_paths: list | None = None,
         "path": path, "drive": letter,
         "before": 0, "after": 0, "freed": 0,
         "deleted": 0, "failed": 0, "skipped": [], "error": None,
-        "seconds": 0.0,
+        "seconds": 0.0, "trashed": 0, "trash_errors": [],
     }
 
     ok, why = check_deletable(path, kind)
@@ -2969,7 +3262,18 @@ def clean_target(t: dict, only_paths: list | None = None,
 
     atomic = kind in ("tree", "files")
     for item in items:
-        if atomic:
+        if use_trash:
+            sz = _size_of(item)
+            ok, why = rm_trash(item)
+            if ok:
+                result["deleted"] += 1
+                result["trashed"] += 1     # 空间没释放，不计入 freed
+            else:
+                result["failed"] += 1
+                result["trash_errors"].append(f"{os.path.basename(item)}：{why}")
+                if len(result["skipped"]) < 20:
+                    result["skipped"].append(os.path.basename(item))
+        elif atomic:
             sz = _size_of(item)
             if rm(item):
                 result["deleted"] += 1
@@ -2987,7 +3291,11 @@ def clean_target(t: dict, only_paths: list | None = None,
                 if len(result["skipped"]) < 20:
                     result["skipped"].append(os.path.basename(item))
 
-    if atomic:
+    if use_trash:
+        result["after"] = max(0, result["before"] - result["freed"])
+        if result["trash_errors"]:
+            result["error"] = "；".join(result["trash_errors"][:3])
+    elif atomic:
         result["after"] = max(0, result["before"] - result["freed"])
     else:
         result["after"] = _size_of_dir(path)
@@ -4554,6 +4862,9 @@ class Handler(BaseHTTPRequestHandler):
                                          q.get("scope", "all")))
         if route == "/__oc__/history":
             return self._json(load_history())
+        if route == "/__oc__/disk-trend":
+            data = _load_json(DISK_TREND_PATH, [], use_cache=False)
+            return self._json(data if isinstance(data, list) else [])
         if route == "/__oc__/stats":
             return self._json(history_stats())
         if route == "/__oc__/steam":
@@ -4632,6 +4943,7 @@ class Handler(BaseHTTPRequestHandler):
             custom_path = body.get("custom_path") or None
             ids = set(body.get("ids") or [])
             only = body.get("only_paths") or {}
+            trash = bool(body.get("trash"))
             targets = build_targets(drive, custom_path)
             selected = [t for t in targets if t["id"] in ids]
             if not selected:
@@ -4646,7 +4958,7 @@ class Handler(BaseHTTPRequestHandler):
                          "targets": len(selected)}
                 for t in selected:
                     try:
-                        r = clean_target(t, only.get(t["id"]), drive)
+                        r = clean_target(t, only.get(t["id"]), drive, trash=trash)
                     except Exception as exc:  # noqa: BLE001
                         traceback.print_exc()
                         r = _error_result(t, drive, exc)
@@ -4667,6 +4979,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "paths 必须是路径数组"}, 400)
             return self._json(find_lock_holders(paths))
 
+        # ---- 删除游戏前的存档查询（只读）----
+        # 在「游戏最爱放存档」的几个位置找名字与这款游戏相关的目录。
+        # 启发式匹配，结果按「疑似存档」对待；前端负责把「建议先备份」讲清楚。
+        if route == "/__oc__/game-saves":
+            p = str(body.get("path") or "")
+            if not p or not os.path.isabs(p):
+                return self._json({"error": "拒绝：路径必须是绝对路径"}, 400)
+            saves = find_game_save_candidates(p, str(body.get("appid") or ""))
+            return self._json({"saves": saves, "count": len(saves)})
+
         # ---- 删除单个游戏本体（Steam / Epic / GOG）----
         # 安全边界（重要）：这不是通用删除接口。路径必须**后端自己**也识别为
         # 游戏安装目录（steamapps\common 的直接子目录，或 Epic/GOG 清单里的
@@ -4685,6 +5007,15 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 dirs, _glibs = game_install_dirs()
                 plat = dirs.get(low, "")
+            if not plat:
+                # Epic/GOG 残留目录：与 Steam 孤儿同一信任级别 —— 必须正好是
+                # 「平台安装根」的直接子目录，且此刻的平台记录里没有它。
+                par = os.path.dirname(low)
+                rts = platform_install_roots()
+                if par in rts.get("epic", set()):
+                    plat = "epic"
+                elif par in rts.get("gog", set()):
+                    plat = "gog"
             if not plat:
                 return self._json({
                     "error": "拒绝：这个目录不是已识别的游戏本体"
@@ -4874,12 +5205,19 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 self.server.busy = False
 
-        # ---- 在资源管理器中打开 ----
+        # ---- 在资源管理器中打开 / 定位 ----
         if route == "/__oc__/reveal":
             path = expand(str(body.get("path") or ""))
             if os.path.exists(path) and IS_WINDOWS:
-                subprocess.Popen(["explorer.exe", os.path.normpath(path)],
-                                 creationflags=CREATE_NO_WINDOW)
+                np = os.path.normpath(path)
+                if body.get("select"):
+                    # explorer /select：打开父级并高亮本项；项本身不存在时退回打开父级
+                    target = np if os.path.exists(np) else os.path.dirname(np)
+                    subprocess.Popen(["explorer.exe", "/select,", target],
+                                     creationflags=CREATE_NO_WINDOW)
+                else:
+                    subprocess.Popen(["explorer.exe", np],
+                                     creationflags=CREATE_NO_WINDOW)
                 return self._json({"ok": True})
             return self._json({"error": "路径不存在"}, 404)
 

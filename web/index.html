@@ -704,10 +704,12 @@
     <div class="panel" id="epicPanel" style="display:none">
       <h3>Epic 游戏库 <span class="hint" id="epicHint"></span></h3>
       <div id="epicGames"></div>
+      <div id="epicOrphans" style="display:none;margin-top:10px"></div>
     </div>
     <div class="panel" id="gogPanel" style="display:none">
       <h3>GOG 游戏库 <span class="hint" id="gogHint"></span></h3>
       <div id="gogGames"></div>
+      <div id="gogOrphans" style="display:none;margin-top:10px"></div>
     </div>
   </section>
 
@@ -944,14 +946,15 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove("on"), 2600);
 }
 
-/* 在资源管理器里定位某个路径。白名单 + 同源校验都在后端做，
-   前端只管发请求；被拒绝时给出提示而不是静默失败。 */
-async function revealPath(path) {
+/* 在资源管理器里打开/定位某个路径。白名单 + 同源校验都在后端做，
+   前端只管发请求；被拒绝时给出提示而不是静默失败。
+   select=true 用 explorer /select 定位并高亮该项（目录不存在时自动退回打开父级）。 */
+async function revealPath(path, select) {
   if (!path) return;
   try {
     const res = await fetch(`${API}/__oc__/reveal`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path })
+      body: JSON.stringify({ path, select: !!select })
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
@@ -1340,7 +1343,62 @@ function renderDisk(d) {
       <div style="height:6px;border-radius:3px;background:#2a2f3a;overflow:hidden">
         <i style="display:block;height:100%;width:${usedRatio.toFixed(1)}%;background:${color}"></i>
       </div>
-    </div>`;
+    </div>
+    <canvas id="trendCv" style="width:100%;height:56px;margin-top:8px;display:block"></canvas>
+    <div id="trendLbl" style="color:var(--dim2);font-size:11.5px;margin-top:3px"></div>`;
+  drawDiskTrend();
+}
+
+/* ---- 磁盘空间趋势：本盘近 30 天的「可用空间」折线 ----
+   数据来自服务端每天至多一条的快照（disk-trend.json，运行数据不入库）。
+   少于两个点时如实写「积累中」，不画假图。 */
+let DISK_TREND = null;
+async function loadDiskTrend() {
+  try {
+    const d = await (await fetch(`${API}/__oc__/disk-trend`)).json();
+    DISK_TREND = Array.isArray(d) ? d : [];
+  } catch { DISK_TREND = []; }
+  drawDiskTrend();
+}
+function drawDiskTrend() {
+  const cv = $("trendCv"), lbl = $("trendLbl");
+  if (!cv) return;
+  const letter = (STATE.disk && STATE.disk.letter) || "C";
+  const pts = (DISK_TREND || []).filter(x => x.u && x.u[letter]).slice(-30);
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.max(120, cv.clientWidth) * dpr;
+  cv.height = 56 * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  const W = cv.width / dpr, H = cv.height / dpr;
+  ctx.clearRect(0, 0, W, H);
+  if (pts.length < 2) {
+    ctx.fillStyle = "#8b93a7";
+    ctx.font = "11.5px system-ui";
+    ctx.fillText("空间趋势积累中：每天记一次，至少需要两天的数据", 4, H / 2 + 4);
+    if (lbl) lbl.textContent = "";
+    return;
+  }
+  const vals = pts.map(p => p.u[letter].free);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = (hi - lo) || 1, pad = 6;
+  const X = i => 2 + i * ((W - 8) / (pts.length - 1));
+  const Y = v => pad + (H - pad * 2) * (1 - (v - lo) / span);
+  // 填充 + 折线：可用空间走高是好事，用蓝色系（涨红跌绿是行情的规矩，不是磁盘的）
+  ctx.beginPath();
+  pts.forEach((p, i) => i ? ctx.lineTo(X(i), Y(vals[i])) : ctx.moveTo(X(i), Y(vals[i])));
+  ctx.strokeStyle = "#60a5fa";
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+  ctx.lineTo(X(pts.length - 1), H); ctx.lineTo(X(0), H); ctx.closePath();
+  ctx.fillStyle = "rgba(96,165,250,0.12)";
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(X(pts.length - 1), Y(vals[pts.length - 1]), 2.4, 0, Math.PI * 2);
+  ctx.fillStyle = "#60a5fa";
+  ctx.fill();
+  if (lbl) lbl.textContent =
+    `近 ${pts.length} 天可用空间：最高 ${fmt(hi)} · 最低 ${fmt(lo)} · 最新 ${fmt(vals[vals.length - 1])}`;
 }
 
 /* ==================== 卡片 ==================== */
@@ -2112,40 +2170,71 @@ function renderSteamPage() {
 /** Epic / GOG 区块：有游戏才显示对应面板；每行给平台徽章、体积与详情弹窗。 */
 function renderOtherPlatforms() {
   const plats = [
-    ["epic", "epicPanel", "epicGames", "epicHint", "Epic 游戏", "Epic 启动器的 .item 清单"],
-    ["gog", "gogPanel", "gogGames", "gogHint", "GOG 游戏", "GOG 注册表"],
+    ["epic", "epicPanel", "epicGames", "epicHint", "epicOrphans", "Epic 游戏", "Epic 启动器的 .item 清单"],
+    ["gog", "gogPanel", "gogGames", "gogHint", "gogOrphans", "GOG 游戏", "GOG 注册表"],
   ];
-  for (const [key, panelId, listId, hintId, label, source] of plats) {
+  for (const [key, panelId, listId, hintId, orphId, label, source] of plats) {
     const panel = $(panelId);
     if (!panel) continue;
     const games = ((GAMES && GAMES.games) || []).filter(g => g.platform === key);
-    if (!games.length) { panel.style.display = "none"; continue; }
+    const meta = (GAMES && GAMES.platforms && GAMES.platforms[key]) || {};
+    if (!games.length && !(meta.orphan_count > 0)) { panel.style.display = "none"; continue; }
     panel.style.display = "";
-    const total = games.reduce((acc, g) => acc + (g.size || 0), 0);
-    $(hintId).textContent = `${games.length} 个游戏 · ${fmt(total)}`;
-    $(listId).innerHTML = games.map(g => `
-      <div class="vrow" data-gpath="${esc(g.path)}">
-        <div class="vtop">
-          <span class="fname">${esc(g.display_name || g.name)}<span class="vbadge ${g.cleanable ? "clean" : "keep"}">游戏本体 · ${g.cleanable ? "可清理" : "建议保留"}</span></span>
-          <span class="fsize">${esc(g.size_h)}</span>
-        </div>
-        <div class="vtop" style="margin:4px 0 0">
-          <span class="vcat">${label} · 位于 ${esc(g.library || "")}${
-            g.exists ? "" : ' · <span class="stale">目录不存在</span>'}</span>
-          <button class="tiny ghost" data-reveal="${esc(g.path)}" style="margin-left:auto">打开</button>
-        </div>
-      </div>`).join("");
-    $(listId).querySelectorAll(".vrow").forEach(el => el.addEventListener("click", ev => {
-      if (ev.target.closest("[data-reveal]")) return;
-      const g = games.find(x => x.path === el.dataset.gpath);
-      if (!g) return;
-      showDetail({
-        ...g, type: "dir", title: `${label}（读自${source}）`,
-        confidence_label: `高（${label}自己的记录）`,
-        game_body: (g.exists && g.cleanable) ? g.platform : "",
-        impact: `清单/注册表记录体积 ${g.size_h}。`,
-      });
-    }));
+    if (!games.length) { $(hintId).textContent = "0 个游戏"; $(listId).innerHTML = ""; }
+    else {
+      const total = games.reduce((acc, g) => acc + (g.size || 0), 0);
+      $(hintId).textContent = `${games.length} 个游戏 · ${fmt(total)}`;
+      $(listId).innerHTML = games.map(g => `
+        <div class="vrow" data-gpath="${esc(g.path)}">
+          <div class="vtop">
+            <span class="fname">${esc(g.display_name || g.name)}<span class="vbadge ${g.cleanable ? "clean" : "keep"}">游戏本体 · ${g.cleanable ? "可清理" : "建议保留"}</span></span>
+            <span class="fsize">${esc(g.size_h)}</span>
+          </div>
+          <div class="vtop" style="margin:4px 0 0">
+            <span class="vcat">${label} · 位于 ${esc(g.library || "")}${
+              g.exists ? "" : ' · <span class="stale">目录不存在</span>'}</span>
+            <button class="tiny ghost" data-reveal="${esc(g.path)}" style="margin-left:auto">打开</button>
+          </div>
+        </div>`).join("");
+      $(listId).querySelectorAll(".vrow").forEach(el => el.addEventListener("click", ev => {
+        if (ev.target.closest("[data-reveal]")) return;
+        const g = games.find(x => x.path === el.dataset.gpath);
+        if (!g) return;
+        showDetail({
+          ...g, type: "dir", title: `${label}（读自${source}）`,
+          confidence_label: `高（${label}自己的记录）`,
+          game_body: (g.exists && g.cleanable) ? g.platform : "",
+          impact: `清单/注册表记录体积 ${g.size_h}。`,
+        });
+      }));
+    }
+    // 残留目录：安装根的直接子目录、平台记录里没有的。与 Steam 残留同一套
+    // 交互（一键删除走同一确认流程与后端校验），文案按平台替换。
+    const orb = $(orphId);
+    if (orb) {
+      if (meta.orphan_count > 0) {
+        orb.style.display = "";
+        orb.innerHTML = `
+          <div class="warnpane" style="background:#2e220f;border-color:#6b4a12;color:#f5c26b">
+            <b>发现 ${meta.orphan_count} 个目录在 ${esc(label)}的记录里没有对应</b>
+            ${meta.orphan_size_h && meta.orphan_size_h !== "0 B" ? `（合计 ${esc(meta.orphan_size_h)}）` : ""}。
+            通常是卸载不干净留下的残留。<b>删前请先确认里面没有你想留的东西</b>，
+            或先在 ${esc(label === "Epic 游戏" ? "Epic 启动器" : "GOG Galaxy")}里点一次「安装」验证它不是漏记的活游戏。
+          </div>
+          ${(meta.orphans || []).map(o => `<div class="sgame">
+            <div class="sgl"><span class="sgn">${esc(o.name)}</span>
+              <span class="sgs mono">${esc(o.path)}</span></div>
+            <span class="fsize">${esc(o.size_h || "")}</span>
+            <button class="tiny" data-delgame="${esc(o.path)}" data-orphan="1">删除</button>
+            <button class="tiny ghost" data-reveal="${esc(o.path)}">打开目录</button>
+          </div>`).join("")}`;
+        orb.querySelectorAll("[data-delgame]").forEach(b =>
+          b.addEventListener("click", () => {
+            const o = (meta.orphans || []).find(x => x.path === b.dataset.delgame);
+            if (o) confirmDeleteGame({ ...o }, key, true);
+          }));
+      } else orb.style.display = "none";
+    }
   }
 }
 
@@ -2198,6 +2287,7 @@ function confirmDialog() {
 
   const total = rows.reduce((a, r) => a + r.size, 0);
   const risky = rows.filter(r => r.risk === "高" || r.risk === "中");
+  const trashable = rows.some(r => r.risk === "高" && !r.id.startsWith("recycle-bin"));
   const admin = rows.filter(r => r.admin);
   const riskyNote = r => r.id.startsWith("recycle-bin")
     ? "清空后无法恢复" : "删除后历史诊断线索丢失";
@@ -2208,6 +2298,10 @@ function confirmDialog() {
       ${risky.length ? `<div class="warnpane"><b>包含不可逆或会影响排查的项：</b><ul>${
         risky.map(r => `<li>${esc(r.label)}（风险 ${esc(r.risk)}）—— ${esc(riskyNote(r))}</li>`).join("")
       }</ul></div>` : ""}
+      ${trashable ? `<label style="display:flex;gap:8px;align-items:center;margin:10px 0;font-size:13.5px;cursor:pointer">
+        <input type="checkbox" id="mTrash" checked>
+        高风险项删进回收站（可恢复；清空回收站后才真正释放空间，本次统计不含这部分）
+      </label>` : ""}
       ${admin.length && !STATE.is_admin ? `<div class="warnpane">以下项需要管理员权限，当前普通权限会失败：
         ${esc(admin.map(r => r.label).join("、"))}</div>` : ""}
       <table>
@@ -2245,16 +2339,19 @@ async function doClean() {
     if (list.length) only[id] = list;
   }
   const t0 = Date.now();
+  const trashBox = document.getElementById("mTrash");
   try {
     const res = await fetch(`${API}/__oc__/clean`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: [...selected], only_paths: only,
-                             drive, custom_path: customPath })
+                             drive, custom_path: customPath,
+                             trash: !!(trashBox && trashBox.checked) })
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     const e = data.entry;
     STATE.stats = data.stats;
+    loadDiskTrend();           // 清理后空间变了，趋势里的「今天」要更新
     showCleanResult(e, data.stats, t0, "清理完成");
   } catch (e) {
     const log = $("plog");
@@ -2282,11 +2379,14 @@ function showCleanResult(e, stats, t0, title) {
         <span style="color:var(--dim2);font-size:12.5px">
           · ${e.results.length} 项 · 耗时 ${((Date.now() - t0) / 1000).toFixed(1)} 秒</span>
       </div>
+      ${e.results.some(r => r.trashed > 0) ? `<div style="color:var(--dim2);font-size:12.5px;margin:-6px 0 10px">
+        部分高风险项已移入回收站（可恢复）：这部分空间会在清空回收站后释放，未计入上面的数字。</div>` : ""}
       <table>
         <thead><tr><th>清理项</th><th class="n">释放</th><th class="n">已删</th><th class="n">跳过</th></tr></thead>
         <tbody>${e.results.map(r => `<tr>
-          <td>${esc(r.label)}${r.error ? ` <span class="res-err">${esc(r.error)}</span>` : ""}</td>
-          <td class="n ${r.freed > 0 ? "res-ok" : ""}">${fmt(r.freed)}</td>
+          <td>${esc(r.label)}${r.error ? ` <span class="res-err">${esc(r.error)}</span>` : ""}${r.trashed > 0 ? `
+            <div style="color:var(--dim2);font-size:11.5px">已移入回收站 ${r.trashed} 项，清空回收站后释放</div>` : ""}</td>
+          <td class="n ${r.freed > 0 ? "res-ok" : ""}">${r.trashed > 0 ? `<span style="color:var(--dim2)">→ 回收站</span>` : fmt(r.freed)}</td>
           <td class="n">${r.deleted}</td>
           <td class="n ${r.failed > 0 ? "res-warn" : ""}">${r.failed}</td>
         </tr>`).join("")}</tbody>
@@ -2929,11 +3029,30 @@ function showDetail(it) {
         ? `<button id="dPart" class="ghost">细分查看：哪些能删</button>` : ""}
       ${gamePlat ? '<button id="dDelGame" class="go">删除这个游戏</button>' : ""}
       <button id="dReveal" class="ghost">在资源管理器中打开</button>
+      ${it.path && it.type !== "file" ? '<button id="dLocate" class="ghost">定位到这个目录</button>' : ""}
+      <button id="dCopy" class="ghost">复制路径</button>
       <button id="dClose" class="primary">知道了</button>
     </div>`;
   $("mask").classList.add("on");
   $("dClose").addEventListener("click", closeModal);
   $("dReveal").addEventListener("click", () => revealPath(it.path));
+  const bl = $("dLocate");
+  if (bl) bl.addEventListener("click", () => revealPath(it.path, true));
+  $("dCopy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(it.path || "");
+      toast("路径已复制");
+    } catch {
+      // 剪贴板 API 被拒（非安全上下文等）时退回选中文本的经典做法
+      const ta = document.createElement("textarea");
+      ta.value = it.path || "";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); toast("路径已复制"); }
+      catch { toast("复制失败，请手动选择路径文本"); }
+      ta.remove();
+    }
+  });
   const bd = $("dDelGame");
   if (bd) bd.addEventListener("click", () => confirmDeleteGame(it, gamePlat));
   const bp = $("dPart");
@@ -2967,6 +3086,7 @@ function confirmDeleteGame(it, plat, orphan) {
         <dt>占用</dt><dd>${fmt(it.size)}</dd>
         <dt>位置</dt><dd class="mono" style="word-break:break-all">${esc(it.path)}</dd>
       </dl>
+      <div id="saveScan" style="margin-top:10px;color:var(--dim);font-size:12.5px">正在查找本地存档…</div>
       <div class="dadv no"><b>${orphan ? "先排除一种误报" : "更稳妥的做法"}</b><br>${
         orphan
         ? "如果它其实是被 Steam 清单漏记的活游戏，先在 Steam 里点一次「安装」——"
@@ -2982,6 +3102,24 @@ function confirmDeleteGame(it, plat, orphan) {
     </div>`;
   $("mask").classList.add("on");
   $("dgCancel").addEventListener("click", closeModal);
+  // 异步查本地存档：只读、启发式（按安装目录名 / AppID 匹配），所以按「疑似」对待
+  fetch(`${API}/__oc__/game-saves`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: it.path, appid: it.appid || "" })
+  }).then(r => r.json()).then(d => {
+    const box = $("saveScan");
+    if (!box) return;                       // 弹窗可能已被关掉
+    if (d.error || !d.count) {
+      box.innerHTML = `<span style="color:var(--dim2)">未在「文档\\My Games」「AppData」等常见位置
+        发现与它同名的本地存档（不代表平台云存档里也没有）。</span>`;
+      return;
+    }
+    box.innerHTML = `<div class="warnpane" style="margin-top:6px"><b>发现 ${d.count} 处疑似本地存档
+      —— 删除游戏不会动它们（都在安装目录之外），想彻底清就先备份：</b><ul>${
+      d.saves.map(s => `<li><span class="mono" style="word-break:break-all">${esc(s.path)}</span>
+        <span style="color:var(--dim2)">（${esc(s.where)} · 约 ${esc(s.size_h)}）</span></li>`).join("")
+    }</ul></div>`;
+  }).catch(() => { const box = $("saveScan"); if (box) box.textContent = ""; });
   $("dgGo").addEventListener("click", async () => {
     const btn = $("dgGo"), msg = $("delGameMsg");
     if (!btn || !msg) return;
@@ -3504,6 +3642,7 @@ function initPanelNav() {
 (async () => {
   initAccordions();          // 先按上次的折叠状态把右侧栏摆好，再拉数据
   initPanelNav();            // 侧栏目录条：只依赖静态 DOM，不依赖任何接口
+  loadDiskTrend();           // 磁盘趋势快照：与状态加载并行，晚到再补画
   // 先用默认盘拉一次，拿到盘符列表后切到后端认定的当前盘，再正式加载
   await loadState();
   if (STATE.current_drive && STATE.current_drive !== drive) {

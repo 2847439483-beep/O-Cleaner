@@ -617,6 +617,45 @@ def phase3_http() -> None:
         check("Steam 残留目录有删除入口并走同一确认流程",
               "data-delgame" in html and "confirmDeleteGame" in html
               and "先排除一种误报" in html)
+        # 高风险项「删进回收站」：确认弹窗的选项、请求参数与结果说明三处齐备；
+        # 后端 rm_trash 用 SHFileOperationW 带 FOF_ALLOWUNDO，且容量守卫文本存在
+        # —— 超限时系统会把「移入回收站」静默转成永久删除，必须由我们先行拒绝。
+        check("高风险项确认弹窗提供「删进回收站」选项",
+              'id="mTrash"' in html and "清空回收站后才真正释放空间" in html)
+        check("清理请求携带 trash 参数",
+              "trash:" in html and "trashBox" in html)
+        check("结果弹窗如实区分回收站项（不虚报释放量）",
+              "→ 回收站" in html and "r.trashed > 0" in html)
+        check("后端回收站删除带容量守卫（防静默转永久删除）",
+              "def rm_trash" in open(app.__file__, encoding="utf-8").read()
+              and "FOF_ALLOWUNDO" in open(app.__file__, encoding="utf-8").read()
+              and "超过该盘回收站容量上限" in open(app.__file__, encoding="utf-8").read())
+        # 删除游戏前的存档查询：新端点 + 前端异步回填的容器与「疑似」措辞
+        check("删除游戏前会查询本地存档（端点 + 弹窗回填）",
+              "/__oc__/game-saves" in open(app.__file__, encoding="utf-8").read()
+              and 'id="saveScan"' in html and "疑似本地存档" in html)
+        # Epic/GOG 残留目录：与 Steam 孤儿同一信任级别（安装根的直接子目录，
+        # 且平台记录里没有它），前端有独立容器与同一删除流程
+        check("Epic/GOG 残留目录有检测与删除入口",
+              "def platform_install_roots" in open(app.__file__, encoding="utf-8").read()
+              and 'id="epicOrphans"' in html and 'id="gogOrphans"' in html
+              and "confirmDeleteGame({ ...o }, key, true)" in html)
+        # 磁盘趋势：快照落盘（每天每盘一条）+ 端点 + 前端 canvas 折线
+        check("磁盘空间趋势有三件套（快照/端点/折线）",
+              "def record_disk_snapshot" in open(app.__file__, encoding="utf-8").read()
+              and "/__oc__/disk-trend" in open(app.__file__, encoding="utf-8").read()
+              and 'id="trendCv"' in html and "function drawDiskTrend" in html)
+        # 详情弹窗的定位与复制路径按钮；后端 reveal 支持 /select 高亮定位
+        check("详情弹窗有「定位」与「复制路径」按钮",
+              'id="dLocate"' in html and 'id="dCopy"' in html
+              and '"select: !!select"' in html
+              and "/select," in open(app.__file__, encoding="utf-8").read())
+        # 释义增强包：清单收录（linter 也会查），并有两仓同步工具
+        idx = json.loads((HERE / "packs" / "index.json").read_text(encoding="utf-8"))
+        check("释义增强包已收录进清单且有同步工具",
+              "explanations.json" in idx.get("packs", [])
+              and (HERE / "packs" / "explanations.json").exists()
+              and (TOOLS_DIR / "sync_packs.py").exists())
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检中的「跨设备兼容」已改为「兼容性分析」",
@@ -1109,6 +1148,51 @@ def phase4_repo() -> None:
               f"rc={_r.returncode} out={out[:60]!r}")
     except Exception as exc:  # noqa: BLE001
         check("app.py --version 可用且输出带版本号", False, f"执行异常：{exc}")
+
+    # ---- 回收站删除的真实链路 ----
+    # 容量守卫：把上限 patch 成 1 字节，必须拒绝且不动原文件（防「静默转永久删除」）。
+    # 正常路径：小文件移入回收站后源位置消失。回收站操作不触发真实删除配额。
+    try:
+        _td = tempfile.mkdtemp(prefix="oc_trash_t_")
+        _fp = os.path.join(_td, "a.txt")
+        with open(_fp, "w", encoding="ascii") as fh:
+            fh.write("x" * 64)
+        _orig_cap = app._recycle_capacity_bytes
+        app._recycle_capacity_bytes = lambda root: 1
+        try:
+            _ok, _why = app.rm_trash(_fp)
+        finally:
+            app._recycle_capacity_bytes = _orig_cap
+        check("回收站删除的容量守卫会拒绝并保留原文件",
+              not _ok and "超过" in _why and os.path.exists(_fp),
+              f"ok={_ok} why={_why[:40]!r}")
+        _ok2, _why2 = app.rm_trash(_fp)
+        check("小文件可移入回收站（源位置消失）",
+              _ok2 and not os.path.exists(_fp), f"ok={_ok2} why={_why2[:40]!r}")
+        os.rmdir(_td)
+    except Exception as exc:  # noqa: BLE001
+        check("回收站删除的真实链路", False, f"执行异常：{exc}")
+
+    # ---- 游戏存档查询的真实链路 ----
+    # 把候选根 patch 到临时沙箱，验证「安装目录名 → 存档目录」的启发式匹配。
+    try:
+        _root = tempfile.mkdtemp(prefix="oc_saves_t_")
+        _save = os.path.join(_root, "MyGame777_saves")
+        os.mkdir(_save)
+        with open(os.path.join(_save, "slot1.sav"), "wb") as fh:
+            fh.write(b"0" * 2048)
+        _orig_roots = app._GAME_SAVE_ROOTS
+        app._GAME_SAVE_ROOTS = (("测试根", _root),)
+        try:
+            _saves = app.find_game_save_candidates("C:\\Games\\MyGame777", "")
+        finally:
+            app._GAME_SAVE_ROOTS = _orig_roots
+        check("按安装目录名能找到疑似存档目录",
+              len(_saves) == 1 and _saves[0]["path"] == _save
+              and _saves[0]["size"] == 2048,
+              f"saves={[s['path'] for s in _saves]}")
+    except Exception as exc:  # noqa: BLE001
+        check("游戏存档查询的真实链路", False, f"执行异常：{exc}")
 
     # ---- 单文件前端的静态一致性 ----
     # 这几条是「一个真实 bug 逼出来的」：新写的 var(--dim3) 引用了并不存在的变量，
