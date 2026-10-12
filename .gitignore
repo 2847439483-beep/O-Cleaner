@@ -2,6 +2,12 @@
 history.json
 schedule.json
 config/custom-rules.json
+# 资源包的启用状态与远端地址（本机选择，不该跟着仓库走）
+config/packs-state.json
+# 用户自己导入的资源包。内置包在 packs/，是仓库的一部分，不受这条影响。
+config/packs-user/
+# AI 设置：含 API 密钥，绝不进版本库
+config/ai.json
 
 # 本机真实测试用例（含本机真实目录名，绝不外发）
 tools/local-cases.json
