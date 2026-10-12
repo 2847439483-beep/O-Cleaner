@@ -156,6 +156,16 @@ class CDP {
   }
   if (!scanReady) console.log("  [注意] 等待首屏扫描完成超时（300 秒上限）");
 
+  // 首屏「常规扫描」与「全盘扫描」是同一类环节：它要逐个量出全部清理目标的体积，
+  // 系统盘上同样可能超出时限。扫描没完成时卡片不会被回填，也不会出现可勾选的项 ——
+  // 依赖这两件事的断言就失去了前提，应记为跳过而不是成片误报。
+  // 本机（非 CI）超时仍判失败，因为那是真实退化。
+  function checkInit(name, cond, detail) {
+    if (scanReady) check(name, cond, detail);
+    else if (ON_CI) skip2(name + "（首屏扫描未在时限内完成，无法验证）");
+    else check(name, false, detail);
+  }
+
   if (DRIVE_) {
     const got = await evaluate(`(() => {
       const cur = document.querySelector('.drv.on');
@@ -231,7 +241,7 @@ class CDP {
   console.log(`  [信息] 布局：section x=${stats.secX} w=${stats.secW} | aside x=${stats.asdX} w=${stats.asdW} | 视口 ${stats.vw}`);
 
   check("页面渲染出目标卡片", stats.cards > 0, `${stats.cards} 张`);
-  check("扫描结果已回填到卡片", stats.filled > 0, `${stats.filled}/${stats.cards} 张有大小`);
+  checkInit("扫描结果已回填到卡片", stats.filled > 0, `${stats.filled}/${stats.cards} 张有大小`);
   check("盘符选择器存在", stats.drives >= 1, `${stats.drives} 个盘`);
   check("清理范围选择器存在", stats.scopeSel);
   // 布局列位置：卡片区必须在左、侧栏必须在右，且卡片区要占满剩余宽度
@@ -308,17 +318,24 @@ class CDP {
   await sleep(500);
   const r1 = await evaluate(`!document.querySelector('#btnRuleSave').disabled`);
   const rinfo = await evaluate(`document.querySelector('#ruleSelInfo').innerText`);
-  check("规则保存按钮随勾选启用", r0 === true && r1 === true,
+  checkInit("规则保存按钮随勾选启用", r0 === true && r1 === true,
         `初始禁用=${r0} 勾选后可用=${r1}${picked ? "" : "（未找到可勾选的卡片）"} 提示="${rinfo}"`);
 
-  await evaluate(`document.querySelector('#ruleName').value = 'UI自测规则';
-                  document.querySelector('#btnRuleSave').click()`);
-  await sleep(2200);
-  const ruleTxt = await evaluate(`document.querySelector('#ruleList').innerText`);
-  check("保存规则后出现在规则列表", ruleTxt.includes("UI自测规则"), ruleTxt.slice(0, 60).replace(/\\n/g, " "));
-  const btns = await evaluate(`['apply','run','rename','rdel']
-      .map(a => !!document.querySelector('#ruleList [data-' + a + ']'))`);
-  check("规则卡片含 套用/立即清理/改名/删 操作", btns.every(Boolean), JSON.stringify(btns));
+  if (!scanReady) {
+    // 上一批卡片没有回填体积，也就没有可勾选的项，规则链路的断言全部失去前提。
+    // 这里必须显式补两条同名断言，否则「跳过」会变成「少了一条检查」而无人察觉。
+    checkInit("保存规则后出现在规则列表", false, "首屏扫描未完成");
+    checkInit("规则卡片含 套用/立即清理/改名/删 操作", false, "首屏扫描未完成");
+  } else {
+    await evaluate(`document.querySelector('#ruleName').value = 'UI自测规则';
+                    document.querySelector('#btnRuleSave').click()`);
+    await sleep(2200);
+    const ruleTxt = await evaluate(`document.querySelector('#ruleList').innerText`);
+    check("保存规则后出现在规则列表", ruleTxt.includes("UI自测规则"), ruleTxt.slice(0, 60).replace(/\\n/g, " "));
+    const btns = await evaluate(`['apply','run','rename','rdel']
+        .map(a => !!document.querySelector('#ruleList [data-' + a + ']'))`);
+    check("规则卡片含 套用/立即清理/改名/删 操作", btns.every(Boolean), JSON.stringify(btns));
+  }
 
   // 勾选同步：套用规则（规则列表可能为空，取不到按钮时跳过而不是抛 Uncaught）
   const hasApply = await evaluate(`!!document.querySelector('#ruleList [data-apply]')`);

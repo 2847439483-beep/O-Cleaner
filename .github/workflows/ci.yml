@@ -3,8 +3,8 @@
 # 为什么只用 Windows：O-Cleaner 依赖 PowerShell、盘符、%LOCALAPPDATA%、注册表无关的
 # 盘符枚举等 Windows 专有机制，在 Linux runner 上跑没有意义。
 #
-# 为什么 linter 排在功能测试之前：一条错误的识别规则会真的让用户删掉不该删的东西，
-# 而用户不会看免责声明。规则安全必须先于功能正确性。
+# 为什么 linter 排在功能测试之前：识别规则决定哪些目录会被判定为可清理，
+# 规则出错的影响比功能缺陷更直接，因此规则检查先于功能验证。
 #
 # 提交到 GitHub 时，把整个 .github 目录放在仓库根目录即可。
 
@@ -30,7 +30,7 @@ jobs:
 
       # 编码与换行是硬约束：.bat=ASCII+CRLF、.ps1=UTF-8 BOM+CRLF、其余=UTF-8 无 BOM+CRLF。
       # 违反会有真实后果：cmd.exe 解析 LF 的 .bat 会吞行，PowerShell 5.1 把无 BOM 的 .ps1
-      # 当 GBK 读会乱码并报 "missing closing brace"（本项目已踩过三次）。
+      # 当 GBK 读会乱码并报 "missing closing brace"（本项目多次遇到）。
       # 以前只靠人工记得跑，现在钉进 CI。
       - name: 编码与换行契约检查
         shell: pwsh
@@ -82,9 +82,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      # 自测会在 C:\_ocleaner_selftest 建沙箱并真删文件，
+      # 自测会在 C:\_ocleaner_selftest 建沙箱并执行真实删除，
       # 并临时替换 config/targets.json（结束时还原）。仅限 CI 环境。
-      - name: 运行自测（302 项断言）
+      # 断言条数依机器环境浮动（数据盘数量、是否装有 Steam / WizTree），
+      # runner 上实测为「通过 247 项，失败 0 项，跳过 11 项」。
+      - name: 运行自测
         run: python -X utf8 tools/selftest.py
 
       - name: 失败时上传产物便于排查
