@@ -61,6 +61,10 @@ DRIVES_PATH = CONFIG_DIR / "drives.json"
 CONVERT_PATH = CONFIG_DIR / "convert.json"
 FILETYPES_PATH = CONFIG_DIR / "filetypes.json"
 CUSTOM_PATH = CONFIG_DIR / "custom-rules.json"
+# 用户自定义释义 / 结论覆盖：按清理项改写说明文案或翻转「可清理」结论。
+# 用户显式操作的最后一手，优先级高于资源包与内置知识库；
+# 只存本机、不进版本库、不进分发包，见 .gitignore。
+OVERRIDES_PATH = CONFIG_DIR / "custom-overrides.json"
 # 游戏中文名映射：纯显示用，不参与任何清理判断
 GAMENAMES_PATH = CONFIG_DIR / "game-names.json"
 # 资源包：随仓库分发的内置包 + 用户自己导入的包（后者不进版本库）
@@ -1717,6 +1721,59 @@ def load_custom_rules() -> list:
 def save_custom_rules(rules: list) -> None:
     _cache.pop(str(CUSTOM_PATH), None)
     _atomic_write(CUSTOM_PATH, {"rules": rules})
+
+
+def load_overrides() -> dict:
+    """用户自定义释义 / 结论覆盖：{"targets": {键: {字段...}}}。
+
+    只存用户显式改过的字段；没改的字段不出现，沿用资源包 / 内置的结论。
+    键：普通目标用 base_id；自动发现 / 自定义目录项没有稳定的 base_id
+    （它们分别共用 "auto" / "custom"），改用归一化小写路径 —— 见 _override_key。
+    """
+    data = _load_json(OVERRIDES_PATH, {"targets": {}}, use_cache=False)
+    raw = data.get("targets") if isinstance(data, dict) else None
+    out: dict = {}
+    for k, v in (raw or {}).items():
+        if not isinstance(v, dict):
+            continue
+        entry = {}
+        for f in ("what", "rebuild", "impact", "keep_if"):
+            if isinstance(v.get(f), str) and v[f].strip():
+                entry[f] = v[f].strip()
+        if isinstance(v.get("cleanable"), bool):
+            entry["cleanable"] = v["cleanable"]
+        if entry:
+            out[str(k)] = entry
+    return {"targets": out}
+
+
+def save_overrides(data: dict) -> None:
+    _cache.pop(str(OVERRIDES_PATH), None)
+    _atomic_write(OVERRIDES_PATH, data)
+
+
+def _override_key(t: dict) -> str:
+    """覆盖条目的键：普通目标用 base_id（跨盘符通用）；
+    自动发现 / 自定义目录项（base_id 泛化为 auto / custom）用归一化路径 ——
+    它们的「身份」本来就是那个具体目录，而不是一个类型。"""
+    bid = t.get("base_id") or t.get("id") or ""
+    if bid in ("auto", "custom"):
+        return os.path.normpath(t.get("path", "")).lower()
+    return bid
+
+
+def _apply_target_override(t: dict, overrides: dict) -> None:
+    """把用户覆盖写进目标 dict。在资源包合并**之后**调用：用户是最后一手，
+    优先级高于资源包与内置知识库。改过的字段打 custom 标记给界面显示。"""
+    ov = overrides.get(_override_key(t))
+    if not ov:
+        return
+    for f in ("what", "rebuild", "impact", "keep_if"):
+        if f in ov:
+            t[f] = ov[f]
+    if "cleanable" in ov:
+        t["cleanable"] = ov["cleanable"]
+    t["custom"] = True
 
 
 def _atomic_write(path: Path, data) -> None:
@@ -3746,11 +3803,14 @@ def build_targets(drive: str | None, custom_path: str | None = None) -> list[dic
 
     # 资源包补足：把包里对同名清理项的说明合并进来（只补空缺字段）。
     # 放在最后统一做，这样内置目标与自动发现目标都能被同一套包覆盖。
+    # 用户自定义覆盖再往后一步：三条优先级里用户排最前（最后应用、最高优先）。
+    user_ov = load_overrides().get("targets", {})
     for t in out:
         try:
             packs_enrich_target(t, drive)
         except Exception:
             pass
+        _apply_target_override(t, user_ov)
 
     return out
 
@@ -4576,6 +4636,8 @@ def build_state(drive: str | None = None, custom_path: str | None = None,
         "scope": scope,
         "targets": [{
             "id": t["id"], "base_id": t.get("base_id", t["id"]),
+            # 自定义释义的键：前端编辑器保存时回传这个键，后端按它应用覆盖
+            "ovkey": _override_key(t),
             "label": expand(t.get("label", t["id"]), letter),
             "path": expand(t["path"], letter), "category": t.get("category", "其它"),
             "risk": t.get("risk", "无"), "needs_admin": bool(t.get("needs_admin")),
@@ -4584,6 +4646,8 @@ def build_state(drive: str | None = None, custom_path: str | None = None,
             "scope": "drive" if is_drive_specific(t) else "user",
             "temp_target": bool(t.get("temp_target")),
             "discovered": bool(t.get("discovered")),
+            "cleanable": bool(t.get("cleanable")),
+            "custom": bool(t.get("custom")),
             "short": t.get("short", ""), "what": t.get("what", ""),
             "rebuild": t.get("rebuild", ""), "impact": t.get("impact", ""),
             "keep_if": t.get("keep_if", ""),
@@ -4750,6 +4814,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(data if isinstance(data, list) else [])
         if route == "/__oc__/stats":
             return self._json(history_stats())
+        if route == "/__oc__/overrides":
+            return self._json(load_overrides())
         if route == "/__oc__/steam":
             return self._json(discover_steam())
         if route == "/__oc__/games":
@@ -4997,6 +5063,35 @@ class Handler(BaseHTTPRequestHandler):
             _cache.pop(str(CONVERT_PATH), None)
             return self._json({"units": resolve_units(cfg["units"]),
                                "stats": history_stats()})
+
+        # ---- 用户自定义释义 / 结论（三条优先级的最上一条）----
+        if route == "/__oc__/overrides/set":
+            oid = str(body.get("id") or "").strip()
+            if not oid or len(oid) > 200 or "/" in oid or "\\" in oid:
+                return self._json({"error": "无效的清理项标识"}, 400)
+            entry = {}
+            for f in ("what", "rebuild", "impact", "keep_if"):
+                v = body.get(f)
+                if isinstance(v, str) and v.strip():
+                    if len(v) > 2000:
+                        return self._json({"error": "说明文本过长（上限 2000 字）"}, 400)
+                    entry[f] = v.strip()
+            if isinstance(body.get("cleanable"), bool):
+                entry["cleanable"] = body["cleanable"]
+            data = load_overrides()
+            if entry:
+                data["targets"][oid] = entry
+            else:
+                data["targets"].pop(oid, None)   # 全部留空 = 恢复默认
+            save_overrides(data)
+            return self._json({"targets": data["targets"]})
+
+        if route == "/__oc__/overrides/delete":
+            oid = str(body.get("id") or "").strip()
+            data = load_overrides()
+            data["targets"].pop(oid, None)
+            save_overrides(data)
+            return self._json({"targets": data["targets"]})
 
         # ---- 自定义规则（勾选固定项 → 命名保存 → 可套用/自动清理）----
         if route == "/__oc__/custom-rules":

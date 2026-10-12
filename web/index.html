@@ -315,7 +315,7 @@
   .failed{color:var(--warn)}
   .field{display:flex;align-items:center;gap:9px;margin-bottom:10px;font-size:13px;flex-wrap:wrap}
   .field label{color:var(--dim)}
-  input[type=number],input[type=text],select{
+  input[type=number],input[type=text],select,textarea{
       background:var(--bg);color:var(--fg);border:1px solid var(--line);
       border-radius:6px;padding:6px 9px;font:inherit;min-width:0;max-width:100%}
   input[type=text]{flex:1}
@@ -1466,6 +1466,12 @@ function buildCards() {
       e.stopPropagation();
       await revealPath(card.dataset.path);
     });
+    const ovb = card.querySelector(".ovbtn");
+    if (ovb) ovb.addEventListener("click", e => {
+      e.stopPropagation();
+      const t = STATE.targets.find(x => x.id === id);
+      if (t) editOverride(t);
+    });
     const exp = card.querySelector(".expcardbtn");
     if (exp) exp.addEventListener("click", async e => {
       e.stopPropagation();
@@ -1554,6 +1560,8 @@ function cardHTML(t) {
         ${t.needs_admin ? '<span class="badge b-admin">需管理员</span>' : ""}
         ${t.temp_target ? '<span class="badge b-custom">自定义目录</span>' : ""}
         ${t.discovered ? '<span class="badge b-disc" title="由知识库自动识别发现，不是预定义目标">自动发现</span>' : ""}
+        ${t.custom ? '<span class="badge b-custom" title="释义或「可清理」结论被你改过，优先于内置与资源包">已自定义</span>' : ""}
+        ${t.custom && t.cleanable === false ? '<span class="badge b-mid" title="你把它改成了不可清理">已改为建议保留</span>' : ""}
         ${showUserTag ? '<span class="badge b-cat" title="这是用户级路径，与所选盘符无关">用户级</span>' : ""}
       </div>
       <div class="desc">${esc(t.short)}</div>
@@ -1567,6 +1575,7 @@ function cardHTML(t) {
       </div>
       <div class="cbtns">
         <button class="tiny knowbtn" title="这一项到底是什么">?</button>
+        <button class="tiny ghost ovbtn" title="自定义释义与「可清理」结论">编辑</button>
         ${t.kind !== "recyclebin"
           ? '<button class="tiny ghost expcardbtn" title="就地展开查看子目录">展开 ▾</button>' : ""}
         ${t.kind === "recyclebin"
@@ -3019,6 +3028,84 @@ function bindSubTreeEvents(container) {
   });
 }
 
+
+/* 自定义释义 / 结论编辑器：三条优先级（内置 → 资源包 → 用户）的最上一条。
+   保存后按 ovkey 生效（普通项跨盘符通用，自动发现项按路径），文本与
+   「可清理」结论立即反映到卡片说明、徽章与「全选可清理」。
+   全部留空保存 = 恢复该项目的默认释义。 */
+async function editOverride(t) {
+  const key = t.ovkey || t.base_id || t.id;
+  let cur = {};
+  try {
+    const r = await (await fetch(`${API}/__oc__/overrides`)).json();
+    cur = (r.targets || {})[key] || {};
+  } catch { /* 读不到就当没有覆盖 */ }
+  const cl = typeof cur.cleanable === "boolean" ? String(cur.cleanable) : "default";
+  $("modal").innerHTML = `
+    <h2>自定义释义 —— ${esc(t.label)}</h2>
+    <div class="mbody">
+      <div class="dconf" style="margin-bottom:10px">
+        改过的说明会显示在卡片与详情里；「结论」决定它算不算可清理项
+        （影响「全选可清理」与徽章）。改动优先于内置说明与资源包。
+      </div>
+      <div class="field"><label style="width:64px">是什么</label>
+        <textarea id="ovWhat" rows="2" style="flex:1">${esc(cur.what ?? t.what ?? "")}</textarea></div>
+      <div class="field"><label style="width:64px">能否重建</label>
+        <textarea id="ovRebuild" rows="2" style="flex:1">${esc(cur.rebuild ?? t.rebuild ?? "")}</textarea></div>
+      <div class="field"><label style="width:64px">删除影响</label>
+        <textarea id="ovImpact" rows="2" style="flex:1">${esc(cur.impact ?? t.impact ?? "")}</textarea></div>
+      <div class="field"><label style="width:64px">建议保留</label>
+        <textarea id="ovKeep" rows="2" style="flex:1">${esc(cur.keep_if ?? t.keep_if ?? "")}</textarea></div>
+      <div class="field"><label style="width:64px">结论</label>
+        <select id="ovClean" style="flex:1">
+          <option value="default">跟随默认判定</option>
+          <option value="true" ${cl === "true" ? "selected" : ""}>可清理</option>
+          <option value="false" ${cl === "false" ? "selected" : ""}>不可清理（建议保留）</option>
+        </select></div>
+      <div class="dconf" style="margin-top:8px">
+        注意：把高风险项改成「可清理」不会降低它的风险等级，清理时仍按高风险处理
+        （默认删进回收站）。
+      </div>
+    </div>
+    <div class="mfoot">
+      <button id="ovReset" class="ghost">恢复默认</button>
+      <div class="grow"></div>
+      <button id="ovCancel" class="ghost">取消</button>
+      <button id="ovSave" class="primary">保存</button>
+    </div>`;
+  $("mask").classList.add("on");
+  $("ovCancel").addEventListener("click", closeModal);
+  $("ovSave").addEventListener("click", async () => {
+    const payload = {
+      id: key,
+      what: $("ovWhat").value.trim(),
+      rebuild: $("ovRebuild").value.trim(),
+      impact: $("ovImpact").value.trim(),
+      keep_if: $("ovKeep").value.trim(),
+      cleanable: $("ovClean").value === "default"
+        ? null : $("ovClean").value === "true",
+    };
+    try {
+      const r = await (await fetch(`${API}/__oc__/overrides/set`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })).json();
+      if (r.error) { toast(r.error); return; }
+      closeModal(); toast("已保存自定义释义");
+      await loadState();
+    } catch { toast("保存失败，请重试"); }
+  });
+  $("ovReset").addEventListener("click", async () => {
+    try {
+      await fetch(`${API}/__oc__/overrides/delete`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: key })
+      });
+      closeModal(); toast("已恢复默认释义");
+      await loadState();
+    } catch { toast("操作失败，请重试"); }
+  });
+}
 
 function showDetail(it) {
   const clean = it.cleanable;

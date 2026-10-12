@@ -685,6 +685,29 @@ def phase3_http() -> None:
               f"共 {len(state.get('targets', []))} 项")
         check("state 含盘符列表", len(state.get("drives", [])) >= 1)
 
+        # 用户自定义释义 / 结论：内置 → 资源包 → 用户，用户排最上
+        check("前端含自定义释义编辑器与徽章",
+              "editOverride" in html and "已自定义" in html and "ovkey" in html)
+        _r1 = get("/__oc__/overrides/set", method="POST",
+                  payload={"id": "sandbox-tree", "what": "自测自定义释义",
+                           "cleanable": False})
+        check("可设置用户自定义释义与结论",
+              _r1.get("targets", {}).get("sandbox-tree", {}).get("cleanable") is False)
+        _s2 = get("/__oc__/state?drive=C")
+        _t2 = next((t for t in _s2.get("targets", [])
+                    if t.get("base_id") == "sandbox-tree"), {})
+        check("覆盖已应用到目标（文案、结论与自定义标记）",
+              _t2.get("what") == "自测自定义释义"
+              and _t2.get("cleanable") is False
+              and _t2.get("custom") is True
+              and _t2.get("ovkey") == "sandbox-tree")
+        get("/__oc__/overrides/delete", method="POST", payload={"id": "sandbox-tree"})
+        _s3 = get("/__oc__/state?drive=C")
+        _t3 = next((t for t in _s3.get("targets", [])
+                    if t.get("base_id") == "sandbox-tree"), {})
+        check("删除覆盖后恢复默认", _t3.get("custom") is False
+              and _t3.get("what") != "自测自定义释义")
+
         # 扫描进度：必须是真实阶段，而不是把时间映射成百分比
         _pg = get("/__oc__/progress")
         check("进度端点在不扫描时明确标记为未激活",

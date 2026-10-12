@@ -282,6 +282,27 @@ class CDP {
         (th.saved === null || ["light", "dark", "system"].includes(th.saved)),
         `随系统=${th.s} 偏好=${th.saved}`);
 
+  // 自定义释义编辑器：卡片「编辑」按钮打开弹窗，四个文本域 + 结论下拉。
+  // 弹窗内容在 fetch 完当前覆盖之后才填，所以必须等一拍再检查。
+  const ov = await evaluate(`(async () => {
+    const btn = document.querySelector('.card .ovbtn');
+    if (!btn) return { err: 'no ovbtn' };
+    btn.click();
+    await new Promise(r => setTimeout(r, 800));
+    const ok = !!document.querySelector('#ovWhat') && !!document.querySelector('#ovClean');
+    const labels = [...document.querySelectorAll('#modal .field label')]
+      .map(l => l.textContent);
+    const cancel = document.querySelector('#ovCancel');
+    if (cancel) cancel.click();
+    return { ok, labels,
+             maskOff: !document.querySelector('#mask').classList.contains('on') };
+  })()`);
+  check("自定义释义编辑器可打开且字段齐全",
+        ov.ok && ov.maskOff &&
+        ["是什么", "能否重建", "删除影响", "建议保留", "结论"]
+          .every(l => (ov.labels || []).includes(l)),
+        `字段: ${(ov.labels || []).join("/")} 关闭=${ov.maskOff}`);
+
   // 右侧栏面板堆叠：aside 是「定高的滚动容器」，面板必须保持自然高度、由 aside 滚动。
   // 这里量的是真实渲染高度而不是 CSS 文本 —— 曾经踩过的坑：面板带 overflow:hidden，
   // 按 flex 规范自动最小高度按 0 算，叠加默认的 flex-shrink:1，11 个面板被整体压扁去
