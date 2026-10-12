@@ -26,6 +26,7 @@ import ctypes
 import fnmatch
 import json
 import os
+import platform
 import re
 import shutil
 import socket
@@ -46,6 +47,15 @@ from urllib.request import Request as _UrlRequest, urlopen as _urlopen
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = BASE_DIR / "config"
 WEB_DIR = BASE_DIR / "web"
+
+# 版本号只在这里定义一次。
+# 此前它同时散落在三处（这里的 server_version、WizTree 下载的 User-Agent、
+# config/drives.json 的 app.version），2026-10-12 升 v2.3 时漏改了后两处，
+# 结果界面显示的仍是 2.2。收敛成一个常量后，drives.json 与打包脚本由自测断言
+# 强制保持一致（见 tools/selftest.py 的「版本号三处一致」）。
+APP_VERSION = "2.3"
+APP_UA = f"O-Cleaner/{APP_VERSION}"
+
 TARGETS_PATH = CONFIG_DIR / "targets.json"
 DRIVES_PATH = CONFIG_DIR / "drives.json"
 CONVERT_PATH = CONFIG_DIR / "convert.json"
@@ -53,6 +63,12 @@ FILETYPES_PATH = CONFIG_DIR / "filetypes.json"
 CUSTOM_PATH = CONFIG_DIR / "custom-rules.json"
 # 游戏中文名映射：纯显示用，不参与任何清理判断
 GAMENAMES_PATH = CONFIG_DIR / "game-names.json"
+# 资源包：随仓库分发的内置包 + 用户自己导入的包（后者不进版本库）
+PACKS_DIR = BASE_DIR / "packs"
+USER_PACKS_DIR = CONFIG_DIR / "packs-user"
+PACKS_STATE_PATH = CONFIG_DIR / "packs-state.json"
+# AI 设置（含密钥）。只存本机、不进版本库，见 .gitignore。
+AI_CONFIG_PATH = CONFIG_DIR / "ai.json"
 HISTORY_PATH = BASE_DIR / "history.json"
 SCHEDULE_PATH = BASE_DIR / "schedule.json"
 
@@ -132,6 +148,33 @@ PS_UTF8_PREAMBLE = ("$OutputEncoding=[System.Text.Encoding]::UTF8;"
                     "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;")
 
 
+def _kill_ps_tree(p) -> None:
+    """结束 PowerShell 进程及其子孙，并**保证收尾动作有上限**。
+
+    为什么不用 subprocess.run(timeout=...) 自带的超时：
+    在 Windows 上它超时后会先 kill()，再调一次 communicate() 去收输出。
+    如果被结束的进程有残留子进程仍握着 stdout 管道，这次 communicate()
+    会一直等下去（管道没有 EOF），表现为「扫描永远停在某一阶段、进度条不再变化」。
+    这里改成显式结束整棵进程树，再给 5 秒收尾 —— 拿不到输出也照样返回，
+    调用方一定能拿到一个结论，而不是挂住。
+    """
+    if IS_WINDOWS:
+        try:
+            subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"],
+                           capture_output=True, timeout=10,
+                           creationflags=CREATE_NO_WINDOW)
+        except Exception:
+            pass
+    try:
+        p.kill()
+    except Exception:
+        pass
+    try:
+        p.communicate(timeout=5)
+    except Exception:
+        pass
+
+
 def run_ps(script: str, timeout: int = 300):
     """执行一段 PowerShell，返回其输出的 JSON（原样、不做类型强制）。
 
@@ -145,23 +188,28 @@ def run_ps(script: str, timeout: int = 300):
     被折成首元素后，analyze_dir_partition 里除第一个以外的目录体积**全变 0**，
     表现为「浏览器缓存目录识别对了但显示 0 B」。
     教训：解析层不要替调用方猜形状，原样返回、由调用方显式归一化。
+
+    超时路径见 _kill_ps_tree()：它保证本函数一定会返回，不会无限阻塞。
     """
     cmd = ["powershell.exe", "-NoProfile", "-NonInteractive",
            "-ExecutionPolicy", "Bypass", "-Command", PS_UTF8_PREAMBLE + script]
     env = dict(os.environ)
     # 固定子进程输出编码，不依赖父控制台的 chcp，否则报错信息会乱码
     env["PYTHONIOENCODING"] = "utf-8"
-    kwargs: dict = {"env": env}
+    kwargs: dict = {"env": env, "stdout": subprocess.PIPE,
+                    "stderr": subprocess.PIPE}
     if IS_WINDOWS:
         kwargs["creationflags"] = CREATE_NO_WINDOW
+    p = subprocess.Popen(cmd, **kwargs)
     try:
-        p = subprocess.run(cmd, capture_output=True, timeout=timeout,
-                           encoding="utf-8", errors="replace", **kwargs)
+        raw_out, raw_err = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        return {"error": "PowerShell 执行超时"}
-    out = (p.stdout or "").strip()
+        _kill_ps_tree(p)
+        return {"error": f"PowerShell 执行超时（{timeout} 秒）"}
+    out = (raw_out or b"").decode("utf-8", "replace").strip()
     if not out:
-        err = (p.stderr or "").strip().replace("\n", " ")[:400]
+        err = (raw_err or b"").decode("utf-8", "replace").strip()
+        err = err.replace("\n", " ")[:400]
         return {"error": f"PowerShell 无输出（exit={p.returncode}）：{err}"}
     try:
         return json.loads(out)
@@ -377,10 +425,14 @@ $maxDepth = __MAXDEPTH__
 $maxPerDir = __MAXPERDIR__
 $maxNodes = __MAXNODES__
 $maxDescents = __MAXDESCENTS__
+# 进度文件：Python 侧每 0.5 秒读一次，把「预算已用」换算成百分比。
+# 为空串表示不需要上报（例如从命令行直接调用本脚本）。
+$progFile = '__PROGFILE__'
 
 $script:out = New-Object System.Collections.ArrayList
 $script:budget = $maxNodes
 $script:sizeCache = @{}
+$script:tick = 0
 
 # 目录体积按需测量并缓存 —— 同一目录只量一次
 function Size-Of([string]$p) {
@@ -428,6 +480,13 @@ function Walk([string]$p, [int]$depth, [string]$parentKey, [int64]$selfSize) {
     foreach ($k in $kids) {
         if ($script:budget -le 0) { break }
         $script:budget--
+        # 每 25 个节点报一次进度。写文件比 Set-Content 循环便宜得多，
+        # 但也不能每个节点都写 —— 递归本身才是瓶颈，别让它被 I/O 拖慢。
+        $script:tick++
+        if ($progFile -ne '' -and ($script:tick % 25) -eq 0) {
+            try {
+                [System.IO.File]::WriteAllText($progFile, "$($maxNodes - $script:budget)/$maxNodes")
+            } catch { }
         $key = $k.path.ToLower()
         $hasKids = $false
         if ($k.type -eq 'dir' -and $k.size -ge $minDescend -and $depth -lt $maxDepth `
@@ -684,7 +743,7 @@ def acquire_wiztree(timeout: int = 300) -> dict:
     result["log"].append(f"从官方地址下载便携版：{WIZTREE_PORTABLE_URL}")
     try:
         req = _UrlRequest(
-            WIZTREE_PORTABLE_URL, headers={"User-Agent": "O-Cleaner/2.2"})
+            WIZTREE_PORTABLE_URL, headers={"User-Agent": APP_UA})
         with _urlopen(req, timeout=timeout) as resp:
             ctype = str(resp.headers.get("Content-Type") or "")
             raw = resp.read()
@@ -849,7 +908,7 @@ def _dir_has_any_child(path: str) -> bool:
     return False
 
 
-def _wiztree_parse(csv_path: str) -> dict:
+def _wiztree_parse(csv_path: str, on_progress=None) -> dict:
     """解析 WizTree CSV，返回 {"dirs": {路径:体积}, "files": {父目录:[(名,大小)]}, "rows": n}。
 
     为什么要连「直接文件」也存下来：原来那套展开逻辑每层会同时列出**子目录与大文件**
@@ -857,16 +916,29 @@ def _wiztree_parse(csv_path: str) -> dict:
     WizTree 的 CSV 正好把两者都给全了，顺手存下来即可完全复刻原行为。
 
     只保留达到体积门槛的条目，避免把 C 盘 77 万行全部留在内存里。
+
+    on_progress(frac) 是可选回调，按读到的字节数报进度（0~1）。
+    这一步在 C 盘上会读上百 MB，是整条链路里最长的纯 CPU 阶段，
+    不报进度的话界面只能一直显示「解析中」。
     """
     dirs: dict[str, int] = {}
     files: dict[str, list] = {}
     floor = max(0, int(DISK_TREE_MIN_CHILD_MB)) * 1024 * 1024
     n = 0
+    try:
+        total_bytes = max(1, os.path.getsize(csv_path))
+    except OSError:
+        total_bytes = 1
     with open(csv_path, "r", encoding="utf-8-sig", errors="replace") as fh:
         fh.readline()                  # WizTree 版本与捐赠提示
         fh.readline()                  # 列名
         for line in fh:
             n += 1
+            if on_progress and n % 20000 == 0:
+                try:
+                    on_progress(min(1.0, fh.tell() / total_bytes))
+                except Exception:
+                    pass           # 报进度失败不影响解析
             # 路径一定被双引号包住，所以按「第一个引号闭合」切分比按逗号切分安全
             # （路径里可以含逗号，按逗号切会把路径截断）。
             if not line.startswith('"'):
@@ -890,6 +962,11 @@ def _wiztree_parse(csv_path: str) -> dict:
                 parent = os.path.dirname(low)
                 files.setdefault(parent, []).append(
                     (path.rstrip("\\").split("\\")[-1], size, path))
+    if on_progress:
+        try:
+            on_progress(1.0)
+        except Exception:
+            pass
     return {"dirs": dirs, "files": files, "rows": n}
 
 
@@ -988,19 +1065,111 @@ def _wiztree_raw_nodes(root: str, table: dict,
     return out, rootfiles, total
 
 
+# ======================================================================
+#  扫描进度
+# ======================================================================
+# 界面上那条进度条必须对应**真实发生的阶段**。曾经的写法是
+# `1 - exp(-已用秒数 / 90)`：它只是把时间映射成一条平滑曲线，
+# 90 秒就到 63%、几分钟后停在 97% —— 无论扫描实际走到哪一步。
+# 结果是「看着快满格了却一直不出来」或「刚开始就已过半」，用户据此判断不了要不要等。
+#
+# 现在只记录真实阶段：
+#   * 有确定分母的（已解析行数 / 已建节点数 / 已用预算）给精确百分比；
+#   * 没有分母的（WizTree 读 MFT、PowerShell 递归）标 indeterminate，
+#     界面画成流动条纹 + 显示当前阶段文案，不伪造百分比。
+_SCAN_PROG: dict = {"active": False}
+_PROG_LOCK = threading.Lock()
+
+
+def prog_start(drive: str) -> None:
+    with _PROG_LOCK:
+        _SCAN_PROG.clear()
+        _SCAN_PROG.update({"active": True, "drive": drive, "phase": "prepare",
+                           "text": "正在检查磁盘与配置", "pct": 2.0,
+                           "indeterminate": False, "t0": time.time()})
+
+
+def prog_set(phase: str, text: str, pct: float,
+             indeterminate: bool = False) -> None:
+    """更新当前阶段。pct 是**整体**进度（0-100），不是阶段内进度。"""
+    with _PROG_LOCK:
+        if not _SCAN_PROG.get("active"):
+            return
+        _SCAN_PROG.update({"phase": phase, "text": text,
+                           "pct": max(0.0, min(100.0, float(pct))),
+                           "indeterminate": bool(indeterminate),
+                           "at": time.time()})
+
+
+def prog_done(ok: bool, text: str = "") -> None:
+    with _PROG_LOCK:
+        _SCAN_PROG.update({"active": False, "phase": "done" if ok else "error",
+                           "text": text or ("扫描完成" if ok else "扫描失败"),
+                           "pct": 100.0 if ok else _SCAN_PROG.get("pct", 0.0),
+                           "indeterminate": False, "at": time.time()})
+
+
+def prog_snapshot() -> dict:
+    with _PROG_LOCK:
+        d = dict(_SCAN_PROG)
+    if d.get("active"):
+        d["elapsed"] = round(time.time() - float(d.get("t0") or time.time()), 1)
+    return d
+
+
+def _watch_walk_progress(prog_file: str, stop: threading.Event,
+                         lo: float, hi: float) -> None:
+    """轮询 PowerShell 写出的进度文件，把「已处理节点 / 预算」换算成整体百分比。
+
+    PowerShell 递归那条路只有一次阻塞调用（run_ps），拿不到中途输出；
+    于是让脚本自己按固定间隔把计数写进一个临时文件，Python 侧每 0.5 秒读一次。
+    读不到就什么都不做 —— 进度是附加信息，绝不能因为它出错而影响扫描本身。
+    """
+    while not stop.wait(0.5):
+        try:
+            with open(prog_file, "r", encoding="utf-8", errors="replace") as fh:
+                body = fh.read().strip()
+            done_s, _, total_s = body.partition("/")
+            frac = float(done_s) / max(1.0, float(total_s))
+            frac = min(1.0, max(0.0, frac))
+            prog_set("walk",
+                     f"正在递归统计目录体积（节点预算已用 {int(frac * 100)}%）",
+                     lo + (hi - lo) * frac)
+        except Exception:
+            pass
+
+
 def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict:
+    """带进度上报的外壳。真正的实现在 _scan_overview_impl()。
+
+    拆成两层是为了让每条 return 路径（包括报错早退）都能落到 prog_done()，
+    否则一次失败的扫描会让进度条永远停在半路。
+    """
+    letter = (drive or "C").rstrip(":").upper()
+    prog_start(letter)
+    try:
+        r = _scan_overview_impl(drive, max_depth)
+    except Exception as e:
+        prog_done(False, f"扫描异常：{e}")
+        raise
+    if r.get("error"):
+        prog_done(False, r["error"])
+    else:
+        prog_done(True, f"扫描完成：{r.get('node_count', 0)} 个节点")
+    return r
+
+
+def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict:
     """磁盘概览：一次遍历生成整棵占用树，供界面逐层下钻。
 
     两条扫描路径，优先用快的那条：
 
     1. **WizTree**（若本机装了它）：调用 `WizTree64.exe <盘> /export=<csv>`，
-       借它读 NTFS MFT 的能力拿全盘明细。实测 C 盘 258 秒 → 22 秒、
-       D 盘 33 秒 → 3 秒（约 9 倍）。导出的 CSV 含每个文件的完整路径，
+       借它读 NTFS MFT 的能力拿全盘明细。导出的 CSV 含每个文件的完整路径，
        于是「任意目录逐层拆子项」也变成内存查表。
     2. **PowerShell 递归**（兜底，用户没装 WizTree 时）：整棵树在**一个**
        PowerShell 进程内递归完成。早期版本每个目录起一个进程来回测量，
-       E 盘（304 节点）要跑 5 分钟；合并进单进程后降到 1 分钟左右 ——
-       进程启动开销才是主要成本。
+       进程启动开销成了主要成本；合并进单进程后这部分开销明显下降。
 
     两条路径用**同一套展开参数与同一套节点形状**，所以界面表现一致。
     展开策略：沿「体积最粗的几条分支」逐层深入，
@@ -1017,12 +1186,19 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
     table: dict | None = None
 
     if _wiz_ok():
+        prog_set("export", f"正在用 WizTree 读取 {letter}: 盘的 MFT 明细", 10,
+                 indeterminate=True)
         csv_path, werr = _wiztree_export(letter)
         if csv_path:
             try:
                 t0 = time.time()
-                table = _wiztree_parse(csv_path)
+                table = _wiztree_parse(
+                    csv_path,
+                    on_progress=lambda frac: prog_set(
+                        "parse", "正在解析 MFT 明细"
+                                f"（{int(frac * 100)}%）", 14 + 56 * frac))
                 parsed = time.time() - t0
+                prog_set("tree", "正在按体积展开目录树", 72)
                 roots, rootfiles, total = _wiztree_raw_nodes(
                     root, table, depth_cap,
                     DISK_TREE_MIN_CHILD_MB * 1024 * 1024,
@@ -1053,8 +1229,17 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
         werr = "未安装 WizTree"
 
     if engine != "wiztree":
+        # PowerShell 只有一次阻塞调用，中途进度靠脚本自己往临时文件里写计数
+        prog_file = os.path.join(
+            tempfile.gettempdir(), f"oc-prog-{os.getpid()}-{letter}.txt")
+        try:
+            if os.path.exists(prog_file):
+                os.remove(prog_file)
+        except OSError:
+            prog_file = ""
         script = (PS_TREE_WALK
                   .replace("__ROOT__", root.replace("'", "''"))
+                  .replace("__PROGFILE__", prog_file.replace("'", "''"))
                   .replace("__MINCHILD__", str(DISK_TREE_MIN_CHILD_MB * 1024 * 1024))
                   .replace("__RATIO__", repr(DISK_TREE_MIN_DESCEND_RATIO))
                   .replace("__FLOOR__", str(DISK_TREE_MIN_DESCEND_FLOOR))
@@ -1062,14 +1247,29 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
                   .replace("__MAXPERDIR__", str(DISK_TREE_MAX_PER_DIR))
                   .replace("__MAXNODES__", str(DISK_TREE_MAX_NODES))
                   .replace("__MAXDESCENTS__", str(DISK_TREE_MAX_DESCENTS)))
-        r = run_ps(script, timeout=1800)
+        prog_set("walk", "正在递归统计目录体积（未装 WizTree，耗时更长）", 10)
+        stop = threading.Event()
+        watcher = threading.Thread(target=_watch_walk_progress,
+                                   args=(prog_file, stop, 10.0, 72.0), daemon=True)
+        if prog_file:
+            watcher.start()
+        try:
+            r = run_ps(script, timeout=1800)
+        finally:
+            stop.set()
+            if prog_file:
+                try:
+                    os.remove(prog_file)
+                except OSError:
+                    pass
         if "error" in r:
             return {"error": r["error"], "nodes": []}
 
+    prog_set("steam", "正在读取 Steam 库清单", 76, indeterminate=True)
     # Steam 游戏整合进磁盘树：读一次 Steam 清单，得到各库的 steamapps\\common 路径。
     # 这样全盘占用树里能直接标出「这个目录是一个 Steam 游戏」，
     # 用户不必在「磁盘空间」和「Steam 页面」之间来回对照 —— 这正是本次的诉求。
-    # discover_steam() 只读几 KB 清单，实测 0.6 秒，代价可接受。
+    # discover_steam() 只读几 KB 清单，代价很小。
     steam_common: set[str] = set()
     steam_libs: set[str] = set()
     try:
@@ -1083,7 +1283,9 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
                 os.path.join(lib, "steamapps", "common")).lower())
     except Exception:
         pass
-    # Epic/GOG 游戏目录索引（带 60 秒缓存，清单级读取，代价可忽略）
+    # Epic/GOG 游戏目录索引（带 60 秒缓存，清单级读取；冷启动要读多个库目录，
+    # 耗时不可预知，所以这一小段同样标为不确定进度）
+    prog_set("games", "正在读取 Epic / GOG 游戏清单", 78, indeterminate=True)
     try:
         other_game_dirs, other_game_libs = game_install_dirs()
     except Exception:
@@ -1144,7 +1346,14 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
 
     root_key = str(r.get("root") or root).lower()
     nodes: list[dict] = []
-    for n in _as_list(r.get("nodes")):
+    raw_nodes = _as_list(r.get("nodes"))
+    prog_set("identify", "正在逐项识别与标注", 84)
+    for i, n in enumerate(raw_nodes):
+        # 节点数从几百到几千不等，按批次报进度就够，不必每个都更新
+        if i and i % 200 == 0:
+            prog_set("identify",
+                     f"正在逐项识别与标注（{i}/{len(raw_nodes)}）",
+                     84 + 10 * (i / max(1, len(raw_nodes))))
         try:
             nodes.append(mk(n, root_key))
         except Exception:
@@ -1162,6 +1371,7 @@ def scan_disk_overview(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dict
     # 被体积门槛挡在树外的目录（<50 MB）照样应该允许点开看。
     wiz_dirs = (_WIZ_DIRS.get(letter, {}).get("table", {}) or {}).get("dirs") \
         if engine == "wiztree" else None
+    prog_set("finish", "正在整理可下钻信息", 96)
     parent_keys = {n["parent"] for n in nodes}
     for n in nodes:
         key = n["path"].lower()
@@ -1578,7 +1788,7 @@ def _looks_like_browser_profile(path: str) -> bool:
     return False
 
 
-def identify(name: str, path: str, kind: str) -> dict:
+def _identify_builtin(name: str, path: str, kind: str) -> dict:
     """按知识库识别一个文件/目录，返回分类、风险、说明与清理建议。
 
     两路证据：名称/扩展名，与「所在路径」，分开算，互不污染。
@@ -1683,6 +1893,61 @@ def identify(name: str, path: str, kind: str) -> dict:
         "tip": "只有当你确定它没用时再删。",
         "match_score": 0,
     }
+
+
+def identify(name: str, path: str, kind: str) -> dict:
+    """识别一个目录/文件：内置知识库 + 资源包 的合并结果。
+
+    合并规则（两条，够用且好解释）：
+
+    * 资源包命中的是**这个节点本身**（关键字正好覆盖到路径末尾）→ 包的结论优先：
+      title / category 与四段说明都用包的，因为包比内置规则更具体
+      （内置对游戏目录只会说「Steam 游戏库」，包能说出是哪款游戏）。
+    * 资源包命中的只是**上层目录**（关键字止于路径中段）→ 只补一个中文显示名，
+      结论仍以内置为准，免得把库里随便哪个子目录都改写成库的名字。
+
+    无论哪种情况，**内置已识别时 cleanable 与 risk 一律沿用内置值**：
+    它们决定「删不删」，不能让可替换的外部数据说了算。
+    """
+    info = _identify_builtin(name, path, kind)
+    hit = packs_lookup(name, path, kind)
+    if not hit:
+        return info
+    out = dict(info)
+    out["pack"] = hit["_pack"]
+    title = str(hit.get("title") or "").strip()
+    if title:
+        # 中文显示名始终带上：前端用它做标题，比内置的归类名更好认
+        out["display_name"] = title
+        out["zh_name"] = title
+    recognized_before = bool(out.get("recognized"))
+    if not (hit.get("_node_level") or not recognized_before):
+        return out                       # 只匹配到上层目录：到此为止
+    if title:
+        out["title"] = title
+    if hit.get("category"):
+        out["category"] = str(hit["category"])
+    if not recognized_before:
+        out["risk"] = str(hit.get("risk") or "中")
+        out["cleanable"] = bool(hit.get("cleanable"))
+        out["rule_id"] = f"{hit['_pack']}:{hit.get('id') or name}"
+        out["confidence"] = "medium"
+        out["confidence_label"] = f"中（来自资源包 {hit['_pack']}）"
+        out["match_score"] = int(hit.get("_score") or 0)
+        out["recognized"] = True
+    pwhat = str(hit.get("what") or "").strip()
+    peff = str(hit.get("effect") or "").strip()
+    pkeep = str(hit.get("keep") or "").strip()
+    preb = str(hit.get("rebuild") or "").strip()
+    if pwhat:
+        out["what"] = pwhat
+    if peff or pkeep:
+        out["advice"] = peff + ("　" + pkeep if pkeep else "")
+    if preb:
+        out["tip"] = preb
+    out["pack_note"] = (f"识别与说明来自资源包 {hit['_pack']}" if not recognized_before
+                        else f"说明来自资源包 {hit['_pack']}")
+    return out
 
 
 # ======================================================================
@@ -2951,6 +3216,14 @@ def build_targets(drive: str | None, custom_path: str | None = None) -> list[dic
         for t in auto_discovered_targets(letter):
             push(t)
 
+    # 资源包补足：把包里对同名清理项的说明合并进来（只补空缺字段）。
+    # 放在最后统一做，这样内置目标与自动发现目标都能被同一套包覆盖。
+    for t in out:
+        try:
+            packs_enrich_target(t, drive)
+        except Exception:
+            pass
+
     return out
 
 
@@ -3247,6 +3520,632 @@ def _error_result(t: dict, drive: str | None, exc: Exception) -> dict:
 #  HTTP 服务
 # ======================================================================
 
+# ======================================================================
+#  资源包：可替换的「识别与释义」数据
+# ======================================================================
+# 内置知识库（filetypes.json / targets.json）覆盖的是通用情况；资源包用来补足
+# 剩下的长尾：游戏中文名、Windows 系统项、常见软件缓存的逐条解释。
+#
+# 两类来源，同名 id 时用户包优先：
+#   packs/*.json               随仓库分发，可在 GitHub 上直接下载
+#   config/packs-user/*.json   用户导入的包（.gitignore，不随仓库走）
+#
+# 匹配语义（见 pack_entry_hit）：
+#   match.any  列表里**任一**项命中即可；不含 "re:" 前缀时按子串匹配，
+#              同时比对「文件/目录名」与「完整路径」，两边任一命中都算
+#   match.all  列表里**全部**项都必须命中，用来加范围约束
+#              （例如「必须在 steamapps\common 之下」）
+#   前缀 "re:"  后面的部分按正则处理
+#
+# 安全边界：资源包**改不动结论**。cleanable 与 risk 永远由内置配置决定 ——
+# 包是可以被随便替换的外部数据，不该有影响「删不删」的能力。
+# 说明文字（what / effect / keep / rebuild）允许被包覆盖：那只影响可读性，
+# 不影响删除范围，而且「只补空缺」会让补全类资源包（如 windows-system）几乎失效。
+_PACKS_CACHE: dict = {"key": None, "data": None}
+PACK_TYPE_LABELS = {"games": "游戏", "system": "系统", "apps": "软件",
+                    "custom": "自定义"}
+DEFAULT_PACKS_REMOTE = ("https://raw.githubusercontent.com/"
+                        "2847439483-beep/O-Cleaner/main/packs")
+
+
+def load_packs_state() -> dict:
+    d = _load_json(PACKS_STATE_PATH, {})
+    if not isinstance(d, dict):
+        d = {}
+    dis = d.get("disabled")
+    d["disabled"] = [str(x) for x in dis] if isinstance(dis, list) else []
+    if not d.get("remote"):
+        d["remote"] = DEFAULT_PACKS_REMOTE
+    return d
+
+
+def save_packs_state(d: dict) -> None:
+    _atomic_write(PACKS_STATE_PATH, d)
+    _PACKS_CACHE["key"] = None          # 状态变了，缓存作废
+
+
+def pack_validate(data) -> tuple[bool, str]:
+    """校验资源包结构。返回 (是否合法, 说明)。"""
+    if not isinstance(data, dict):
+        return False, "资源包必须是一个 JSON 对象"
+    pid = str(data.get("id") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]{2,64}", pid):
+        return False, "id 只能由字母、数字、点、下划线、连字符组成（2~64 字符）"
+    if not str(data.get("name") or "").strip():
+        return False, "缺少 name"
+    ents = data.get("entries")
+    if not isinstance(ents, list) or not ents:
+        return False, "entries 必须是非空数组"
+    if len(ents) > 5000:
+        return False, f"entries 过多（{len(ents)} 条，上限 5000）"
+    for i, e in enumerate(ents):
+        if not isinstance(e, dict):
+            return False, f"entries[{i}] 不是对象"
+        m = e.get("match")
+        if not isinstance(m, dict) or not (m.get("any") or m.get("all")):
+            return False, f"entries[{i}] 缺少 match.any 或 match.all"
+        if not str(e.get("title") or "").strip():
+            return False, f"entries[{i}] 缺少 title"
+    return True, f"{len(ents)} 条"
+
+
+def _pack_tokens(entry: dict) -> tuple[list[str], list[str]]:
+    m = entry.get("match") or {}
+    norm = lambda xs: [str(x).strip().lower() for x in _as_list(xs) if str(x).strip()]
+    return norm(m.get("any")), norm(m.get("all"))
+
+
+def pack_score(rec: dict, name: str, path: str):
+    """一条包条目对「这个节点」的匹配得分。不命中返回 None。
+
+    排序规则：先比**匹配在路径里的结束位置**（越靠后越贴近当前节点），
+    同一位置再比匹配串长度。这条规则是实测逼出来的：
+    原先按「匹配串长度」排序，于是 `\\steamlibrary\\steamapps`（22 字符，
+    容器规则）盖过了 `steamapps\\shadercache`（21 字符，叶子规则），
+    结果着色器缓存被打上「Steam 游戏库根目录」的名字。
+    改成先看位置后，叶子规则天然排在容器规则前面；同在末尾时
+    `\\nvidia\\dxcache` 又靠更长的匹配串胜过泛化的 `\\dxcache`。
+    """
+    any_t, all_t = rec.get("any") or [], rec.get("all") or []
+
+    def one(tok: str):
+        ends = []
+        path_end = 0
+        for subj, is_path in ((path, True), (name, False)):
+            if not subj:
+                continue
+            if tok.startswith("re:"):
+                try:
+                    m = re.search(tok[3:], subj)
+                except re.error:
+                    return None
+                if m:
+                    ends.append(m.end())
+                    if is_path:
+                        path_end = max(path_end, m.end())
+            else:
+                idx = subj.rfind(tok)
+                if idx >= 0:
+                    e = idx + len(tok)
+                    ends.append(e)
+                    if is_path:
+                        path_end = max(path_end, e)
+        if not ends:
+            return None
+        # 第三项是「在完整路径里的结束位置」，用来判断命中是不是落在节点本身
+        return (max(ends), len(tok), path_end)
+
+    best = None
+    if all_t:
+        parts = [one(t) for t in all_t]
+        if any(x is None for x in parts):
+            return None
+        best = max(parts)
+    if any_t:
+        hits = [h for h in (one(t) for t in any_t) if h]
+        if not hits:
+            return None
+        h = max(hits)
+        if best is None or h > best:
+            best = h
+    return best
+
+
+def pack_entry_hit(rec: dict, name: str, path: str) -> bool:
+    return pack_score(rec, name, path) is not None
+
+
+def load_packs(use_cache: bool = True) -> dict:
+    """加载全部资源包。返回 {"packs": [包元信息...], "entries": [匹配记录...]}。"""
+    state = load_packs_state()
+    key = json.dumps({k: state.get(k) for k in ("disabled",)},
+                     sort_keys=True, ensure_ascii=False)
+    if use_cache and _PACKS_CACHE["key"] == key and _PACKS_CACHE["data"]:
+        return _PACKS_CACHE["data"]
+    disabled = {str(x) for x in (state.get("disabled") or [])}
+    packs: list[dict] = []
+    entries: list[dict] = []
+    for folder, src in ((PACKS_DIR, "builtin"), (USER_PACKS_DIR, "user")):
+        if not folder.is_dir():
+            continue
+        for f in sorted(folder.glob("*.json")):
+            if f.name.lower() == "index.json":       # 清单文件不是包
+                continue
+            data, err = None, ""
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except Exception as e:
+                err = f"读取失败：{e}"
+            if data is not None and not err:
+                ok, why = pack_validate(data)
+                if not ok:
+                    err = why
+            pid = str((data or {}).get("id") or f.stem)
+            meta = {
+                "id": pid,
+                "name": str((data or {}).get("name") or f.stem),
+                "version": str((data or {}).get("version") or ""),
+                "type": str((data or {}).get("type") or "custom"),
+                "type_label": PACK_TYPE_LABELS.get(
+                    str((data or {}).get("type") or "custom"), "自定义"),
+                "description": str((data or {}).get("description") or ""),
+                "updated": str((data or {}).get("updated") or ""),
+                "count": len((data or {}).get("entries") or []),
+                "enabled": pid not in disabled,
+                "source": src, "file": f.name,
+                "ok": not err, "error": err,
+            }
+            packs.append(meta)
+            if err or pid in disabled:
+                continue
+            for e in (data.get("entries") or []):
+                any_t, all_t = _pack_tokens(e)
+                if not (any_t or all_t):
+                    continue
+                entries.append({"entry": e, "pack": pid,
+                                "any": any_t, "all": all_t})
+    out = {"packs": packs, "entries": entries}
+    _PACKS_CACHE["key"], _PACKS_CACHE["data"] = key, out
+    return out
+
+
+def packs_lookup(name: str, path: str, kind: str = "dir") -> dict | None:
+    """找一条最匹配的包条目。命中的匹配串越长越具体，优先采用。
+
+    匹配前统一把分隔符换成反斜杠：包里的关键字都是按 Windows 路径写的，
+    而调用方可能传 "/" 分隔的路径（例如来自自定义目录输入）。
+    """
+    low_name = str(name or "").lower().replace("/", "\\")
+    low_path = str(path or "").lower().replace("/", "\\")
+    if not low_name and not low_path:
+        return None
+    best, best_score = None, None
+    for rec in load_packs()["entries"]:
+        e = rec["entry"]
+        only = str(e.get("only") or "")
+        if only == "dir" and kind == "file":
+            continue
+        if only == "file" and kind == "dir":
+            continue
+        sc = pack_score(rec, low_name, low_path)
+        if sc is None:
+            continue
+        if best_score is None or sc > best_score:
+            # _node_level：关键字正好覆盖到完整路径的末尾 → 描述的就是这个节点，
+            # 而不是它的某个上层目录。判断依据是第三项（路径内的结束位置）。
+            best = {**e, "_pack": rec["pack"], "_score": sc[1],
+                    "_node_level": bool(sc[2]) and sc[2] >= len(low_path)}
+            best_score = sc
+    return best
+
+
+def packs_enrich_target(t: dict, drive: str | None = None) -> None:
+    """把资源包里对某个清理目标的说明合并进目标项（就地修改）。
+
+    只补**空缺**字段；cleanable / risk 一律不动 —— 那两项决定「删不删」，
+    必须由通过门禁的内置配置说了算，资源包不许改写。
+    """
+    raw = str(t.get("path") or "")
+    path = ""
+    try:
+        path = expand(raw, drive) if raw else ""
+    except Exception:
+        path = raw
+    label = str(t.get("label") or "")
+    base = os.path.basename(path.rstrip("\\/")) if path else ""
+    hit = (packs_lookup(label, path, "dir")
+           or (packs_lookup(base, path, "dir") if base else None))
+    if not hit:
+        return
+    t["pack"] = hit["_pack"]
+    for src, dst in (("what", "what"), ("rebuild", "rebuild"),
+                     ("effect", "impact"), ("keep", "keep_if")):
+        if hit.get(src) and not str(t.get(dst) or "").strip():
+            t[dst] = str(hit[src])
+    if hit.get("title") and not str(t.get("short") or "").strip():
+        t["short"] = str(hit["title"])
+
+
+def import_pack(data) -> tuple[bool, str]:
+    """导入一个资源包（内容或本地文件路径）。合法就写进 config/packs-user/。"""
+    if isinstance(data, str):
+        p = os.path.abspath(data)
+        if not os.path.isfile(p):
+            return False, f"找不到文件：{p}"
+        try:
+            data = json.loads(Path(p).read_text(encoding="utf-8"))
+        except Exception as e:
+            return False, f"不是合法的 JSON：{e}"
+    ok, why = pack_validate(data)
+    if not ok:
+        return False, why
+    pid = str(data["id"])
+    try:
+        USER_PACKS_DIR.mkdir(parents=True, exist_ok=True)
+        _atomic_write(USER_PACKS_DIR / f"{pid}.json", data)
+    except OSError as e:
+        return False, f"写入失败：{e}"
+    _PACKS_CACHE["key"] = None
+    return True, f"{data.get('name')}（{why}）"
+
+
+def fetch_json(url: str, timeout: int = 20):
+    """取一个 JSON。只允许 http/https，其余协议直接拒绝。"""
+    u = str(url or "").strip()
+    if not re.match(r"^https?://", u, re.I):
+        return None, "只支持 http/https 地址"
+    try:
+        req = _UrlRequest(u, headers={"User-Agent": APP_UA})
+        with _urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8", "replace")), ""
+    except Exception as e:
+        return None, f"下载失败：{e}"
+
+
+def packs_update_from_remote() -> dict:
+    """从配置的远端清单拉取资源包并导入。
+
+    远端目录里放一个 index.json：
+        {"packs": ["games-steam.json", "windows-system.json", ...]}
+    每个包再按 <远端>/<文件名> 取回。包内的 id 决定覆盖谁：
+    与内置包同 id 时会写进 config/packs-user/，从而覆盖内置版本。
+    """
+    state = load_packs_state()
+    remote = str(state.get("remote") or DEFAULT_PACKS_REMOTE).rstrip("/")
+    man, err = fetch_json(remote + "/index.json")
+    if err:
+        return {"ok": False, "error": err, "remote": remote}
+    names = _as_list((man or {}).get("packs"))
+    if not names:
+        return {"ok": False, "error": "远端清单里没有 packs 列表", "remote": remote}
+    done, failed = [], []
+    for n in names:
+        fname = os.path.basename(str(n))
+        if not fname.lower().endswith(".json"):
+            continue
+        data, e2 = fetch_json(f"{remote}/{fname}")
+        if e2:
+            failed.append(f"{fname}：{e2}")
+            continue
+        ok, why = import_pack(data)
+        (done if ok else failed).append(f"{fname}：{why}" if ok else f"{fname}：{why}")
+    return {"ok": bool(done), "remote": remote, "updated": done,
+            "failed": failed, "packs": load_packs(use_cache=False)["packs"]}
+
+
+# ======================================================================
+#  接入自有 AI
+# ======================================================================
+# 设计约束（都是硬要求）：
+#   1. 密钥只落在本机的 config/ai.json 里（.gitignore），不写日志、不回传给前端明文；
+#   2. 只接受 OpenAI Chat Completions 兼容的接口，不做任何厂商绑定；
+#   3. **AI 没有任何删除能力**。它最多从「内置判定为可清理」的项里挑出建议清单，
+#      前端拿到的还是一组 id，勾选与否仍由用户决定，删除仍走同一条清理链路。
+# 第 3 条是刻意的：让外部模型影响删除动作，风险不可控。
+_AI_DEFAULTS = {
+    "enabled": False, "base_url": "", "api_key": "", "model": "",
+    "temperature": 0.2, "timeout": 60, "extra_prompt": "",
+}
+
+
+def load_ai_config() -> dict:
+    d = _load_json(AI_CONFIG_PATH, {})
+    cfg = dict(_AI_DEFAULTS)
+    if isinstance(d, dict):
+        for k in _AI_DEFAULTS:
+            if d.get(k) is not None:
+                cfg[k] = d[k]
+    return cfg
+
+
+def save_ai_config(patch: dict) -> dict:
+    cfg = load_ai_config()
+    for k in _AI_DEFAULTS:
+        if k in patch:
+            cfg[k] = patch[k]
+    cfg["enabled"] = bool(cfg.get("enabled"))
+    try:
+        cfg["temperature"] = max(0.0, min(2.0, float(cfg.get("temperature") or 0.2)))
+    except (TypeError, ValueError):
+        cfg["temperature"] = 0.2
+    try:
+        cfg["timeout"] = max(5, min(300, int(cfg.get("timeout") or 60)))
+    except (TypeError, ValueError):
+        cfg["timeout"] = 60
+    _atomic_write(AI_CONFIG_PATH, cfg)
+    return cfg
+
+
+def ai_public_config() -> dict:
+    """给前端看的配置：密钥只回传「有没有」和尾 4 位，绝不回传全文。"""
+    cfg = load_ai_config()
+    key = str(cfg.get("api_key") or "")
+    return {
+        "enabled": bool(cfg.get("enabled")),
+        "base_url": cfg.get("base_url") or "",
+        "model": cfg.get("model") or "",
+        "temperature": cfg.get("temperature"),
+        "timeout": cfg.get("timeout"),
+        "has_key": bool(key),
+        "key_tail": key[-4:] if len(key) >= 4 else "",
+        "ready": bool(cfg.get("enabled") and cfg.get("base_url") and cfg.get("model")),
+    }
+
+
+def ai_chat(messages: list[dict], timeout: int | None = None) -> tuple[bool, str]:
+    """调用用户自己的 Chat Completions 接口。返回 (成功, 文本或错误)。"""
+    cfg = load_ai_config()
+    if not cfg.get("enabled"):
+        return False, "AI 未启用：在右侧「AI 助手」面板填好接口并勾选「启用」"
+    base = str(cfg.get("base_url") or "").strip().rstrip("/")
+    if not re.match(r"^https?://", base, re.I):
+        return False, "接口地址必须以 http:// 或 https:// 开头"
+    if not str(cfg.get("model") or "").strip():
+        return False, "未填写模型名"
+    body = json.dumps({
+        "model": cfg["model"], "messages": messages,
+        "temperature": float(cfg.get("temperature") or 0.2), "stream": False,
+    }, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json",
+               "User-Agent": APP_UA}
+    if cfg.get("api_key"):
+        headers["Authorization"] = f"Bearer {cfg['api_key']}"
+    try:
+        req = _UrlRequest(base + "/chat/completions", data=body,
+                          method="POST", headers=headers)
+        with _urlopen(req, timeout=timeout or int(cfg.get("timeout") or 60)) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception as e:
+        return False, f"调用失败：{e}"
+    try:
+        return True, str(data["choices"][0]["message"]["content"])
+    except Exception:
+        return False, "接口返回的结构不是 Chat Completions：" + str(data)[:200]
+
+
+def ai_test() -> dict:
+    ok, txt = ai_chat([{"role": "user",
+                        "content": "只回复两个字：可用"}], timeout=30)
+    return {"ok": ok, "reply": txt if ok else "", "error": "" if ok else txt,
+            "config": ai_public_config()}
+
+
+AI_EXPLAIN_SYS = (
+    "你是磁盘清理工具里的说明撰写者。用户会给你一个磁盘上的目录或文件，"
+    "以及本工具已有的识别结果。请用简体中文给出简洁、准确、不夸大的说明，"
+    "分成四段，每段一行，以「是什么：」「能否重建：」「删除影响：」「建议保留的情况：」开头。"
+    "不要用感叹号，不要用「彻底」「永久」「务必」这类词，不要编造你不知道的事实；"
+    "不确定就写「不确定」。全文不超过 200 字。"
+)
+
+
+def ai_explain(payload: dict) -> dict:
+    name = str(payload.get("name") or "").strip()
+    path = str(payload.get("path") or "").strip()
+    if not name and not path:
+        return {"ok": False, "error": "缺少 name 或 path"}
+    kind = str(payload.get("kind") or "dir")
+    info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+    local = "\n".join([
+        f"名称：{name}", f"完整路径：{path}",
+        f"类型：{'目录' if kind == 'dir' else '文件'}",
+        f"占用：{payload.get('size_h') or '未知'}",
+        f"本工具的内置识别：{info.get('title') or '未识别'}"
+        f"（分类 {info.get('category') or '未知'}）",
+        f"内置说明：{info.get('what') or '无'}",
+    ])
+    msgs = [{"role": "system", "content": AI_EXPLAIN_SYS},
+            {"role": "user", "content": local}]
+    ok, txt = ai_chat(msgs)
+    return {"ok": ok, "text": txt if ok else "", "error": "" if ok else txt}
+
+
+AI_PLAN_SYS = (
+    "你是磁盘清理工具的方案助手。用户会给你一个清理目标和一份候选清单，"
+    "清单里的每一项都已经由本工具的规则判定为「可清理」。"
+    "你只能从清单里挑选，不得添加清单以外的任何路径或文件。"
+    "请只输出一个 JSON 对象，不要输出任何其它文字，格式为："
+    '{"summary":"一到两句话的说明","picks":[{"id":"清单里的 id","reason":"为什么选它"}]}'
+    "。如果清单为空，picks 就返回空数组，summary 说明原因。"
+)
+
+
+def ai_plan(payload: dict) -> dict:
+    request = str(payload.get("request") or "").strip()
+    if not request:
+        return {"ok": False, "error": "请先描述你的清理目标"}
+    raw = payload.get("candidates")
+    cands = [c for c in _as_list(raw) if isinstance(c, dict) and c.get("id")]
+    # 只把「内置判定可清理」的项交给模型，从源头上杜绝模型建议删不该删的东西
+    cands = [c for c in cands if c.get("cleanable") is True][:120]
+    lines = [f"- id={c['id']} | {c.get('label') or ''} | {c.get('size_h') or ''}"
+             f" | {c.get('category') or ''} | 路径 {c.get('path') or ''}"
+             for c in cands]
+    msg = (f"清理目标：{request}\n\n候选清单（{len(cands)} 项）：\n"
+           + ("\n".join(lines) if lines else "（空）"))
+    ok, txt = ai_chat([{"role": "system", "content": AI_PLAN_SYS},
+                       {"role": "user", "content": msg}])
+    if not ok:
+        return {"ok": False, "error": txt}
+    parsed = _extract_json(txt)
+    if not isinstance(parsed, dict):
+        return {"ok": False, "error": "模型没有返回可解析的 JSON",
+                "raw": txt[:500]}
+    known = {c["id"]: c for c in cands}
+    picks, dropped = [], []
+    for p in _as_list(parsed.get("picks")):
+        pid = str((p or {}).get("id") or "")
+        if pid in known:
+            picks.append({"id": pid, "reason": str((p or {}).get("reason") or ""),
+                          "label": known[pid].get("label") or pid,
+                          "size_h": known[pid].get("size_h") or ""})
+        elif pid:
+            dropped.append(pid)      # 模型编了清单外的 id：丢掉并如实回报
+    return {"ok": True, "summary": str(parsed.get("summary") or ""),
+            "picks": picks, "dropped": dropped, "candidate_count": len(cands),
+            "raw": txt[:2000] if not picks else ""}
+
+
+def _extract_json(text: str):
+    """从模型回复里抠出第一个 JSON 对象。模型常把 JSON 包在 ```json 里。"""
+    s = str(text or "").strip()
+    if "```" in s:
+        parts = s.split("```")
+        for seg in parts:
+            seg = seg.strip()
+            if seg.lower().startswith("json"):
+                seg = seg[4:].strip()
+            if seg.startswith("{") or seg.startswith("["):
+                s = seg
+                break
+    for op, cl in (("{", "}"), ("[", "]")):
+        i, j = s.find(op), s.rfind(cl)
+        if i >= 0 and j > i:
+            try:
+                return json.loads(s[i:j + 1])
+            except Exception:
+                continue
+    try:
+        return json.loads(s)
+    except Exception:
+        return None
+
+
+def _win_long_paths_enabled() -> bool:
+    """是否启用了 NTFS 长路径（>260 字符）。
+
+    只读一个注册表键，不写、不提权。读不到就按「未启用」算 ——
+    这只影响提示文案，不影响任何清理判断。
+    """
+    if not IS_WINDOWS:
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SYSTEM\CurrentControlSet\Control\FileSystem") as k:
+            return bool(winreg.QueryValueEx(k, "LongPathsEnabled")[0])
+    except Exception:
+        return False
+
+
+def _literal_paths() -> list[str]:
+    """配置里**没有**使用变量、直接写死盘符的路径。
+
+    这是「能不能整包拷到别的机器上跑」的判据：只要有一条写死，
+    换盘符或换用户名就会失效。返回空列表说明配置是可移植的。
+    """
+    out: list[str] = []
+
+    def walk(o) -> None:
+        if isinstance(o, dict):
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+        elif isinstance(o, str):
+            if re.match(r"^[A-Za-z]:[\\/]", o) and not re.search(r"%[A-Za-z_]+%", o):
+                out.append(o)
+
+    for loader in (load_targets, load_filetypes):
+        try:
+            walk(loader())
+        except Exception:
+            pass
+    return sorted(set(out))
+
+
+def compat_report() -> dict:
+    """兼容性分析：逐条给出「在这台机器上哪些能力可用」，并附上判断依据。
+
+    与首页「运行环境自检」的分工：自检回答「现在能不能用」，
+    这里回答「换一台机器 / 换一个 Windows 版本会怎样」，
+    所以每条都带实测值（读到的真实配置），而不是一句结论。
+    """
+    ver = sys.getwindowsversion() if IS_WINDOWS else None
+    bits = 64 if sys.maxsize > 2 ** 32 else 32
+    arch = os.environ.get("PROCESSOR_ARCHITECTURE") or platform.machine() or "未知"
+    ps = shutil.which("powershell") or shutil.which("pwsh") or ""
+    wz = wiztree_status()
+    literals = _literal_paths()
+    frozen = bool(getattr(sys, "frozen", False))
+    cfg_writable = False
+    try:
+        cfg_writable = os.access(CONFIG_DIR, os.W_OK)
+    except Exception:
+        cfg_writable = False
+
+    items = [
+        {"key": "os", "ok": IS_WINDOWS,
+         "title": "操作系统",
+         "detail": (f"{platform.system()} {platform.release()} "
+                    f"（内部版本 {ver.build if ver else '未知'}）"
+                    if IS_WINDOWS else f"{platform.system()} —— 本工具只在 Windows 上工作")},
+        {"key": "arch", "ok": bits == 64,
+         "title": "系统架构",
+         "detail": f"{arch} · Python {platform.python_version()}（{bits} 位）"
+                   + ("" if bits == 64 else "　32 位环境下大目录的统计会明显变慢")},
+        {"key": "powershell", "ok": bool(ps),
+         "title": "PowerShell",
+         "detail": (f"已找到 {ps}"
+                    if ps else "未找到。全盘扫描在没有 WizTree 时依赖它，会退化为不可用")},
+        {"key": "wiztree", "ok": bool(wz.get("found")),
+         "title": "WizTree 加速",
+         "detail": ("已就绪" + (f" · v{wz['version']}" if wz.get("version") else "")
+                    + ("（本目录自带）" if wz.get("portable") else "（系统已安装）"))
+                   if wz.get("found") else "未安装。不影响可用性，只是全盘扫描更慢"},
+        {"key": "admin", "ok": is_admin(),
+         "title": "管理员权限",
+         "detail": ("已具备，回收站与 Windows\\Temp 可完整统计" if is_admin()
+                    else "未具备，这两项会提示需要管理员权限")},
+        {"key": "longpaths", "ok": _win_long_paths_enabled(),
+         "title": "长路径支持",
+         "detail": ("已启用（>260 字符的路径可正常处理）" if _win_long_paths_enabled()
+                    else "未启用（注册表 LongPathsEnabled 非 1；"
+                         "不影响本工具，本工具全程使用 \\\\?\\ 前缀的宽字符串")},
+        {"key": "portable", "ok": not literals,
+         "title": "配置可移植性",
+         "detail": (f"全部路径都使用 %DRIVE% / %LOCALAPPDATA% 变量，"
+                    f"整包拷贝到别的机器可直接用"
+                    if not literals else
+                    f"有 {len(literals)} 条路径写死了盘符，换机器会失效："
+                    + "、".join(literals[:3]))},
+        {"key": "write", "ok": cfg_writable,
+         "title": "配置目录可写",
+         "detail": f"{CONFIG_DIR}" + ("（可写）" if cfg_writable
+                                      else "（不可写，规则 / 资源包 / AI 设置无法保存）")},
+        {"key": "packaging", "ok": True,
+         "title": "运行形态",
+         "detail": ("已打包为独立可执行文件" if frozen
+                    else f"以源码运行（{sys.version_info.major}."
+                         f"{sys.version_info.minor}."
+                         f"{sys.version_info.micro}）")},
+    ]
+    ok_n = sum(1 for i in items if i["ok"])
+    return {"items": items, "ok_count": ok_n, "total": len(items),
+            "portable": not literals}
+
+
 def build_state(drive: str | None = None, custom_path: str | None = None,
                 scope: str = "all") -> dict:
     cfg = load_targets()
@@ -3286,6 +4185,13 @@ def build_state(drive: str | None = None, custom_path: str | None = None,
         "config_dir": str(CONFIG_DIR),
         # 首屏引导要用：加速是否可用、能不能自动装、许可证怎么算
         "wiztree": wiztree_status(),
+        # 兼容性分析：逐条给出实测值，供「运行环境自检」面板展开显示
+        "compat": compat_report(),
+        # 资源包元信息（不含逐条 entries，条目只在服务端参与识别）
+        "packs": load_packs()["packs"],
+        "packs_remote": load_packs_state().get("remote") or "",
+        # AI 设置：密钥只回传「有没有」与尾号，绝不回传全文
+        "ai": ai_public_config(),
     }
 
 
@@ -3312,7 +4218,7 @@ def build_scan(drive: str | None = None, custom_path: str | None = None,
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OCleaner/2.2"
+    server_version = f"OCleaner/{APP_VERSION}"
 
     def log_message(self, fmt, *args):
         pass
@@ -3413,6 +4319,13 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/__oc__/state":
             return self._json(build_state(q.get("drive"), q.get("custom"),
                                           q.get("scope", "all")))
+        if route == "/__oc__/progress":
+            # 前端在全盘扫描期间每 0.5 秒轮询一次，用来画真实进度条
+            return self._json(prog_snapshot())
+        if route == "/__oc__/packs":
+            return self._json({"packs": load_packs(use_cache=False)["packs"],
+                               "remote": load_packs_state().get("remote") or "",
+                               "user_dir": str(USER_PACKS_DIR)})
         if route == "/__oc__/scan":
             return self._json(build_scan(q.get("drive"), q.get("custom"),
                                          q.get("scope", "all")))
@@ -3667,6 +4580,73 @@ class Handler(BaseHTTPRequestHandler):
                                  creationflags=CREATE_NO_WINDOW)
                 return self._json({"ok": True})
             return self._json({"error": "路径不存在"}, 404)
+
+        # ---- 资源包 ----
+        if route == "/__oc__/packs/import":
+            # 三种入参：content（包本体）、path（本机文件）、url（远端地址）
+            data = body.get("content")
+            if data is None and body.get("path"):
+                data = str(body["path"])
+            if data is None and body.get("url"):
+                data, err = fetch_json(str(body["url"]))
+                if err:
+                    return self._json({"ok": False, "error": err}, 400)
+            if data is None:
+                return self._json({"ok": False,
+                                   "error": "需要 content / path / url 之一"}, 400)
+            ok, why = import_pack(data)
+            res = {"ok": ok, "packs": load_packs(use_cache=False)["packs"]}
+            res["message" if ok else "error"] = why
+            return self._json(res, 200 if ok else 400)
+        if route == "/__oc__/packs/toggle":
+            pid, enable = str(body.get("id") or ""), body.get("enabled")
+            if not pid:
+                return self._json({"ok": False, "error": "缺少 id"}, 400)
+            st = load_packs_state()
+            dis = set(st["disabled"])
+            dis.discard(pid) if enable else dis.add(pid)
+            st["disabled"] = sorted(dis)
+            save_packs_state(st)
+            return self._json({"ok": True,
+                               "packs": load_packs(use_cache=False)["packs"]})
+        if route == "/__oc__/packs/delete":
+            pid = str(body.get("id") or "")
+            f = USER_PACKS_DIR / f"{os.path.basename(pid)}.json"
+            if not pid or not f.is_file():
+                # 内置包不可删，只能停用 —— 删了会被下次更新又拉回来
+                return self._json({"ok": False,
+                                   "error": "只能删除自己导入的包；内置包请用停用"},
+                                  400)
+            try:
+                f.unlink()
+            except OSError as e:
+                return self._json({"ok": False, "error": str(e)}, 500)
+            st = load_packs_state()
+            st["disabled"] = [x for x in st["disabled"] if x != pid]
+            save_packs_state(st)
+            return self._json({"ok": True,
+                               "packs": load_packs(use_cache=False)["packs"]})
+        if route == "/__oc__/packs/update":
+            if body.get("remote"):
+                st = load_packs_state()
+                st["remote"] = str(body["remote"]).strip()
+                save_packs_state(st)
+            return self._json(packs_update_from_remote())
+
+        # ---- 接入自有 AI（密钥只在服务端使用，不回传）----
+        if route == "/__oc__/ai/config":
+            patch = {k: v for k, v in (body or {}).items() if k in _AI_DEFAULTS}
+            # 前端回传空密钥表示「不改」，避免每次保存都把已存的密钥抹掉
+            if not str(patch.get("api_key") or "").strip():
+                patch.pop("api_key", None)
+            save_ai_config(patch)
+            return self._json({"ok": True, "ai": ai_public_config()})
+        if route == "/__oc__/ai/test":
+            return self._json(ai_test())
+        if route == "/__oc__/ai/explain":
+            return self._json(ai_explain(body or {}))
+        if route == "/__oc__/ai/plan":
+            return self._json(ai_plan(body or {}))
 
         return self._json({"error": "not found"}, 404)
 
