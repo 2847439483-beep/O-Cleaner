@@ -1999,14 +1999,15 @@ def identify(name: str, path: str, kind: str) -> dict:
 
     合并规则（两条，够用且好解释）：
 
-    * 资源包命中的是**这个节点本身**（关键字正好覆盖到路径末尾）→ 包的结论优先：
-      title / category 与四段说明都用包的，因为包比内置规则更具体
+    * 资源包命中的是**这个节点本身**（关键字正好覆盖到路径末尾）→ 包的说明优先：
+      title 与四段说明都用包的，因为包比内置规则更具体
       （内置对游戏目录只会说「Steam 游戏库」，包能说出是哪款游戏）。
     * 资源包命中的只是**上层目录**（关键字止于路径中段）→ 只补一个中文显示名，
       结论仍以内置为准，免得把库里随便哪个子目录都改写成库的名字。
 
-    无论哪种情况，**内置已识别时 cleanable 与 risk 一律沿用内置值**：
-    它们决定「删不删」，不能让可替换的外部数据说了算。
+    无论哪种情况，**内置已识别时 cleanable / risk / category 一律沿用内置值**：
+    前两项决定「删不删」，category 决定归类（扩展名优先于路径线索的保证就在这），
+    都不能让可替换的外部数据说了算；包只在内置**不认识**时才提供完整结论。
     """
     info = _identify_builtin(name, path, kind)
     hit = packs_lookup(name, path, kind)
@@ -2024,9 +2025,9 @@ def identify(name: str, path: str, kind: str) -> dict:
         return out                       # 只匹配到上层目录：到此为止
     if title:
         out["title"] = title
-    if hit.get("category"):
-        out["category"] = str(hit["category"])
     if not recognized_before:
+        if hit.get("category"):
+            out["category"] = str(hit["category"])
         out["risk"] = str(hit.get("risk") or "中")
         out["cleanable"] = bool(hit.get("cleanable"))
         out["rule_id"] = f"{hit['_pack']}:{hit.get('id') or name}"

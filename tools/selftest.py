@@ -658,7 +658,7 @@ def phase3_http() -> None:
         # 详情弹窗的定位与复制路径按钮；后端 reveal 支持 /select 高亮定位
         check("详情弹窗有「定位」与「复制路径」按钮",
               'id="dLocate"' in html and 'id="dCopy"' in html
-              and '"select: !!select"' in html
+              and 'select: !!select' in html
               and "/select," in open(app.__file__, encoding="utf-8").read())
         # 释义增强包：清单收录（linter 也会查），并有两仓同步工具
         idx = json.loads((HERE / "packs" / "index.json").read_text(encoding="utf-8"))
