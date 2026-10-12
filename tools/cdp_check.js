@@ -258,6 +258,47 @@ class CDP {
         `标题: ${stats.heads.slice(0, 6).join(" / ")}`);
   check("旧的独立换算面板已移除", !stats.heads.includes("换算成什么"));
 
+  // 右侧栏面板堆叠：aside 是「定高的滚动容器」，面板必须保持自然高度、由 aside 滚动。
+  // 这里量的是真实渲染高度而不是 CSS 文本 —— 曾经踩过的坑：面板带 overflow:hidden，
+  // 按 flex 规范自动最小高度按 0 算，叠加默认的 flex-shrink:1，11 个面板被整体压扁去
+  // 适应容器高度：标题行只剩 24px（本身需要 45px），展开的正文整块被裁掉，看起来像
+  // 面板互相遮挡。只查 CSS 文本查不出这个，必须量盒子。
+  const accInfo = await evaluate(`(() => {
+    const a = document.querySelector('aside');
+    if (!a) return { err: 'no aside' };
+    const cs = getComputedStyle(a);
+    const isFlexCol = cs.display === 'flex' && cs.flexDirection === 'column';
+    const thin = [], clipped = [], shrink = [];
+    const ps = [...a.querySelectorAll(':scope > .panel.acc')];
+    for (const p of ps) {
+      const h3 = p.querySelector(':scope > h3');
+      const ph = Math.round(p.getBoundingClientRect().height);
+      const h3h = h3 ? Math.round(h3.getBoundingClientRect().height) : 0;
+      // 面板比它自己的标题行还矮 —— 标题被裁，用户连点什么都看不清
+      if (h3h && ph < h3h) thin.push(p.dataset.acc + ':' + ph + '<' + h3h);
+      // 正文被裁：裁它的是面板自己（.panel.acc 带 overflow:hidden），不是 .ab ——
+      // 失效时 .ab 自身的高度是**对的**，超出父面板的部分被 overflow:hidden 切掉，
+      // 所以必须拿面板的 scrollHeight 比它自己的 clientHeight。
+      if (p.scrollHeight > p.clientHeight + 1) {
+        clipped.push(p.dataset.acc + ':' + p.clientHeight + '<' + p.scrollHeight);
+      }
+      if (isFlexCol && getComputedStyle(p).flexShrink !== '0') shrink.push(p.dataset.acc);
+    }
+    return { n: ps.length, thin, clipped, shrink, isFlexCol,
+             asideClient: a.clientHeight, asideScroll: a.scrollHeight };
+  })()`);
+  check("右侧栏面板没被压扁（每个面板都不矮于自己的标题行）",
+        !accInfo.err && accInfo.n > 0 && accInfo.thin.length === 0,
+        accInfo.err || `${accInfo.n} 个面板，压扁 ${accInfo.thin.length} 个`
+                        + (accInfo.thin.length ? `：${accInfo.thin.join(" / ")}` : ""));
+  check("右侧栏展开的面板正文没有被裁掉",
+        !accInfo.err && accInfo.clipped.length === 0,
+        accInfo.err || (accInfo.clipped.join(" / ") || "无"));
+  check("右侧栏面板在定高容器里禁止收缩（交给 aside 滚动）",
+        !accInfo.err && (accInfo.isFlexCol ? accInfo.shrink.length === 0 : true),
+        accInfo.err || `aside 视口 ${accInfo.asideClient}px / 内容 ${accInfo.asideScroll}px，`
+                        + `仍可收缩 ${(accInfo.shrink || []).join(" / ") || "无"}`);
+
   // 卡片布局：操作区宽度合理、靠右、不是窄高竖条
   const layout = await evaluate(`(() => {
     const out = { narrow: [], high: [], left: [], overflow: [], minW: 1e9 };

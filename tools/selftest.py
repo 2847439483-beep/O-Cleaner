@@ -590,6 +590,13 @@ def phase3_http() -> None:
               # 唯一一行必须钉死在容器高度上，否则网格隐式行会被内容撑高、无法内滚动
               and "grid-template-rows:autoautoautominmax(0,1fr)" in _css
               and "main>section{grid-area:view;min-width:0;min-height:0;overflow-y:auto" in _css)
+        # aside 成了「定高滚动容器」后，子面板带 overflow:hidden → 自动最小高度按 0 算，
+        # 叠加 flex 默认的 flex-shrink:1，11 个面板会被整体压扁去适应容器高度，而不是
+        # 溢出后交给 aside 滚动：标题只剩 24px（需要 45px）、展开的正文整块看不见。
+        # 这条静态断言只保证「禁止收缩」没被删掉；真实渲染高度由 cdp_check 量盒子把关。
+        # （_css 已去掉全部空格，所以 flex:0 0 auto 在这里是 flex:00auto。）
+        check("右侧栏面板禁止收缩，溢出改由 aside 滚动",
+              "aside>.panel{flex:00auto}" in _css)
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检中的「跨设备兼容」已改为「兼容性分析」",

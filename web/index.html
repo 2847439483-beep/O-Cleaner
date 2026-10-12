@@ -86,6 +86,12 @@
   aside{grid-area:side;min-width:0;min-height:0;overflow-y:auto;
         display:flex;flex-direction:column;gap:12px;padding-right:4px;
         padding-bottom:4px}
+  /* 坑：aside 是「定高的滚动容器」，而 .panel.acc 带 overflow:hidden —— 按 flex 规范，
+     不可见溢出会把它们的自动最小高度算成 0，于是默认的 flex-shrink:1 生效：
+     11 个面板被整体压扁去适应容器高度，而不是溢出后交给 aside 滚动。
+     实测表现是标题被裁掉一半（45px 的标题行只剩 24px）、展开的内容整块看不见，
+     看起来像面板互相遮挡。必须显式禁止收缩，让面板保持自然高度、由 aside 滚。 */
+  aside > .panel{flex:0 0 auto}
   /* 滚动条常驻可见，避免「内容被裁掉却看不出能滚」 */
   main > section,aside{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
   main > section::-webkit-scrollbar,aside::-webkit-scrollbar{width:10px}
@@ -3282,7 +3288,8 @@ function initAccordions() {
     h.title = "点击展开 / 收起";
     const flip = () => {
       p.classList.toggle("open");
-      h.setAttribute("aria-expanded", p.classList.contains("open") ? "true" : "false");
+      const opened = p.classList.contains("open");
+      h.setAttribute("aria-expanded", opened ? "true" : "false");
       try {
         localStorage.setItem(ACC_KEY, JSON.stringify({
           v: 1,
@@ -3290,6 +3297,11 @@ function initAccordions() {
                   .map(x => x.dataset.acc),
         }));
       } catch (e) { /* 存储不可用就算了，不影响功能 */ }
+      // 展开后把标题对齐到侧栏顶部：侧栏能装下的面板高度有限（实测 11 个面板自然
+      // 高度约 1220px，可视区只有 685px），靠下的面板一展开，正文就落在视野之外，
+      // 用户点了标题却看不到内容，会以为「点了没反应」。对齐顶部后正文从头往下读。
+      // 只用 classList 恢复初始状态，不走这里，所以首屏加载不会乱滚动。
+      if (opened) p.scrollIntoView({ block: "start", behavior: "smooth" });
     };
     h.addEventListener("click", e => {
       if (e.target.closest("button")) return;    // 标题里的按钮优先
