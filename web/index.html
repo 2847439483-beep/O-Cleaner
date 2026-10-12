@@ -183,8 +183,6 @@
               line-height:1.3;white-space:nowrap}
   .cnum .meta{color:var(--dim2);font-size:11.5px;margin-top:4px;
               font-variant-numeric:tabular-nums;white-space:nowrap}
-  .cnum .cst{font-size:11.5px;margin-top:4px;white-space:nowrap}
-  .cnum .cst.ok{color:#4ade80} .cnum .cst.warn{color:var(--warn)}
   .cbtns{display:flex;flex-direction:column;gap:6px}
 
   .l1{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
@@ -248,14 +246,6 @@
   .switch{width:17px;height:17px;accent-color:var(--ok);cursor:pointer;flex:none}
 
   /* ================= 历史可视化 ================= */
-  .sumgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
-  .sumcell{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 11px}
-  .sumcell .k{color:var(--dim2);font-size:11px;margin-bottom:3px}
-  .sumcell .v{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;
-              overflow-wrap:anywhere}
-  .sumcell .v.ok{color:var(--ok)}
-  .sumcell.wide{grid-column:1/-1}
-
   .chart{display:flex;align-items:flex-end;gap:3px;height:72px;margin:6px 0 2px;padding-top:4px}
   .chart .bar{flex:1 1 0;min-width:3px;background:linear-gradient(180deg,#3b82f6,#1d4ed8);
               border-radius:3px 3px 0 0;transition:.15s;cursor:default}
@@ -341,12 +331,6 @@
   .vrow-kids{display:none;margin-left:22px;padding-left:14px;border-left:2px solid var(--line2);
              margin-top:6px;margin-bottom:8px;flex-direction:column;gap:6px}
   .vrow-kids.open{display:flex}
-  .vrow .vexpand{cursor:pointer;user-select:none;font-size:12px;color:var(--accent);
-                 display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
-                 border-radius:6px;border:1px solid #1e4478;background:#12203a;transition:.15s}
-  .vrow .vexpand:hover{background:#1c3560;border-color:var(--accent)}
-  .vrow .vexpand .arrow{display:inline-block;transition:transform .18s;font-size:10px}
-  .vrow .vexpand.open .arrow{transform:rotate(90deg)}
   .vrow-kids .loading{color:var(--dim2);font-size:12px;padding:6px 0;display:flex;align-items:center;gap:6px}
 
   /* ================= 全盘扫描视图 ================= */
@@ -456,11 +440,10 @@
   /* 每行的「详情」按钮：目录现在都能下钻，详情必须是显式入口 */
   .vrow .rowinfo{flex:none;opacity:.72;padding:2px 9px;font-size:11px}
   .vrow:hover .rowinfo{opacity:1}
-  .autohint{font-size:11.5px;color:var(--dim2);align-self:center}
 
   /* 首次使用：运行环境自检 */
   .glist{display:flex;flex-direction:column;gap:8px}
-  .grow{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.55}
+  .gitem{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.55}
   .gdot{flex:none;width:16px;height:16px;border-radius:50%;font-size:11px;
         display:flex;align-items:center;justify-content:center;font-weight:700;
         margin-top:1px}
@@ -1056,12 +1039,12 @@ function renderGuide() {
        <div class="gd">没有它也能用，只是全盘扫描要逐目录递归，耗时明显更长。</div>`;
   $("guide").innerHTML = `
     <div class="glist">
-      ${rows.map(r => `<div class="grow">
+      ${rows.map(r => `<div class="gitem">
         <span class="gdot ${r.ok ? "ok" : "warn"}">${r.ok ? "✓" : "!"}</span>
         <span class="gname">${esc(r.t)}</span>
         <span class="gdesc">${esc(r.d)}</span>
       </div>`).join("")}
-      <div class="grow">
+      <div class="gitem">
         <span class="gdot ${w.found ? "ok" : "warn"}">${w.found ? "✓" : "!"}</span>
         <span class="gname">WizTree 加速</span>
         <span class="gdesc">${wzTxt}</span>
@@ -1071,7 +1054,7 @@ function renderGuide() {
       <details class="gcompat">
         <summary>兼容性分析（${cOk} / ${cAll} 项通过，点击看逐条依据）</summary>
         <div class="glist" style="margin-top:9px">
-          ${cItems.map(i => `<div class="grow">
+          ${cItems.map(i => `<div class="gitem">
             <span class="gdot ${i.ok ? "ok" : "warn"}">${i.ok ? "✓" : "!"}</span>
             <span class="gname">${esc(i.title)}</span>
             <span class="gdesc">${esc(i.detail)}</span>
@@ -2761,11 +2744,6 @@ function bindSubTreeEvents(container) {
   });
 }
 
-
-function renderFullScan() {
-  renderOverview();
-  renderChart();
-}
 
 function showDetail(it) {
   const clean = it.cleanable;

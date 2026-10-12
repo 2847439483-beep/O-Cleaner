@@ -24,10 +24,9 @@ __pycache__/
 *.pyc
 *.pyo
 
-# 检查器产出的截图
+# 检查器产出的截图（文件名与 tools/cdp_check.js 里 writeFileSync 的三处一一对应）
 tools/_ui_check.png
 tools/_fs_check.png
-tools/_partition_check.png
 tools/_partition_deep.png
 
 # 临时/备份文件（自测与 linter 自测会临时产生）
