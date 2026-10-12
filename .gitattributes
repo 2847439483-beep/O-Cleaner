@@ -27,6 +27,10 @@
 *.yaml  text eol=crlf
 *.js    text eol=crlf
 
+# 模板文件（如 tools/local-cases.json.example）：后缀不是 .json，
+# 上面的规则匹配不到它；内容与正式文件同源，行尾一并钉死。
+*.example text eol=crlf
+
 # 这些是运行数据，不要合并、也不要规范化
 history.json   -text
 schedule.json  -text
