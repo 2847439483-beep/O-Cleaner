@@ -679,7 +679,7 @@ def phase3_http() -> None:
               'id="paneDisk"' in html and 'id="driveHint"' in html
               and html.count('id="driveHint"') == 1)
         check("全盘页的面板改称扫描概览，避免与左栏重名",
-              "<h3>扫描概览" in html and 'id="fsHint"' in html)
+              'data-i18n="pane.fs">扫描概览</span>' in html and 'id="fsHint"' in html)
         check("左右两栏各自独立滚动",
               "body{display:flex;flex-direction:column;height:100vh;overflow:hidden}" in _css
               # 唯一一行必须钉死在容器高度上，否则网格隐式行会被内容撑高、无法内滚动
@@ -799,7 +799,7 @@ def phase3_http() -> None:
         check("状态负载带数据存档目录（界面自检面板展示用）",
               '"data_dir"' in (HERE / "app.py").read_text(encoding="utf-8"))
         check("默认扫描层数 2（HTML 选项与记忆逻辑一致）",
-              '<option value="2" selected>2 层（默认）</option>' in html
+              '<option value="2" selected data-i18n="depth.2">' in html
               and 'saved === "quick" ? 1 : saved === "deep" ? 2' in html)
         check("起始盘默认数据盘并记住选择",
               "find(d => !d.is_system)" in html and '"oc-drive"' in html)
