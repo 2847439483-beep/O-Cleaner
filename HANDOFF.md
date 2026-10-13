@@ -1117,13 +1117,66 @@ steam_common_dirs 与 game_install_dirs，不依赖本机游戏库）；阶段�
 
 ---
 
+### 32. 风险报告修复批次：识别正确性 + 删除安全 + 四项界面功能（2026-10-13 晚）
+
+外部安全审计（WorkBuddy 资料库《O-Cleaner 风险报告》）给出 3 个 P0、2 个 P1、
+1 个 P2，根因一句话：**删除决策只看目录名、不看目录内容**。本批次全部处置：
+
+**P0（识别正确性，`app.py` + `config/filetypes.json`）**
+1. **内容指纹** `_content_says_program_body(path)`：名称规则判 cleanable 的
+   目录再过一遍内容检查，命中任一特征即改判 `cleanable=False、risk=高、
+   content_protected=True` 并重写文案。特征：python 嵌入式运行时标记、
+   `unins*.exe/.dat` 卸载程序、`node_modules`+`package.json`、
+   `resources\app.asar`、≥1GB 模型权重（.safetensors/.ckpt/.gguf/.pth）、
+   顶层 exe+dll ≥15。下探子目录 ≤12 个、每层 ≤200 条目，控制扫描成本。
+   真机验证：D:\Quark\Webui（15GB SD-WebUI）由可清理改判保留。
+2. **祖先链守卫**（`check_deletable`）：目标 leaf 是容器名（temp/cache 等）时
+   逐级查祖先，非豁免祖先 `_looks_like_installed_program()` 命中 → 拒绝
+   「cache 是已安装程序（X）自带的目录」。系统路径白名单豁免，避免误伤。
+3. **规则收窄**：download-dir cleanable true→false、risk 中→高；drivers
+   匹配关键词从泛化的 `driver/驱动` 收窄为具体软件名（驱动精灵/驱动人生等）。
+
+**P1（删除安全，`app.py`）**
+4. **删除预检** `_precheck_locked_files()`：tree 类目录删除前预算 300 个
+   CreateFileW 探测（.exe/.dll 优先），只认 locked=True 确定结论；命中则
+   **整体中止、零副作用**，不再删到一半才发现文件被占用。
+5. **三态删除** `rm_tree_strict()`：先 os.rename 改名为 `.oc-deleting-<ns>`
+   （原子操作，改名失败=未删任何东西）→ rmtree → 残留如实上报。clean_target
+   结果新增 `partial`/`partial_notes` 字段；recyclebin/trash 通道不变。
+
+**P2 + 界面功能（`web/index.html`）**
+6. **行名忠实原名**：主标题一律显示原始文件夹名，中文名改为前缀提示。
+7. **全行可勾选**：建议保留/未识别行也可勾选；确认弹窗新增非推荐项警告
+   面板（列前 8 项路径）+ 按钮文字「仍要删除（含 N 项非推荐项）」；请求带
+   `allow_non_cleanable`，服务端两个清理通道同口径放行，系统目录保护与
+   预检原样生效（放行 ≠ 放弃防线）。
+8. **行右键自定义**：右键弹窗可改徽章文字与说明，存
+   `config/custom-overrides.json`（键为归一化小写路径）；`overrides/set`
+   放宽为路径键（盘符正则 + 限长 500）；只改显示，不改判定。
+9. **小视口响应式**：`@media(max-width:760px)` 布局收缩 + 趋势图 resize
+   重绘（150ms debounce）；CDP 新增 800×600 量盒断言（无横向溢出、排行与
+   侧栏仍可见、行未被压扁）。
+
+**回归**：`tools/selftest.py` 新增阶段八（识别正确性金标准，17 条断言，
+合成目录在 Temp 现场搭内容特征、不依赖真机）。**坑**：合成目录在 `...\Temp\`
+下会被祖先链合理命中 cache-temp —— 断言口径是「rule_id != drivers」而不是
+cleanable is False。本机完整 selftest 受宿主删除配额限制不可行，权威验证走
+CI 的「自测」作业；阶段八可单跑。
+
+**文档（P2-1）**：README/SECURITY 的「删除直接执行（不经回收站）」为旧口径
+—— v2.2 起高风险项默认删进回收站（mTrash 默认勾选），中/低风险缓存仍直接
+删除（进回收站白占空间）。已统一为分级表述；游戏专用删除接口确为直接删除，
+SECURITY 该处表述未动。
+
+---
+
 ## 七、文件资产与代码清单
 
 所有核心源码与配置位于 `<仓库目录>\`（本项目根目录）：
 
 | 文件相对路径 | 大小概要 | 职责描述 |
 |:---|:---|:---|
-| `app.py` | ~252 KB | 后端全功能核心：HTTP 服务、安全删除校验、WizTree MFT 加速调用与管理、Steam 解析、分区分析、资源包加载与合并、自有 AI 接口、定时任务、被占用文件探测与占用进程候选、游戏本体删除（含后端二次识别）、按路径清理（服务端重新识别校验）、勾选包含关系去重、`--data-dir` 数据目录重定向、快速扫描注入游戏本体；PowerShell 脚本模板经 `ps_scripts.py` 导入（`PS_*` re-export，下游引用方式不变） |
+| `app.py` | ~256 KB | 后端全功能核心：HTTP 服务、安全删除校验（含内容指纹与祖先链守卫）、锁定预检与三态删除、WizTree MFT 加速调用与管理、Steam 解析、分区分析、资源包加载与合并、自有 AI 接口、定时任务、被占用文件探测与占用进程候选、游戏本体删除（含后端二次识别）、按路径清理（服务端重新识别校验）、勾选包含关系去重、`--data-dir` 数据目录重定向、快速扫描注入游戏本体；PowerShell 脚本模板经 `ps_scripts.py` 导入（`PS_*` re-export，下游引用方式不变） |
 | `ps_scripts.py` | ~14 KB | PowerShell 系统脚本模板集中地：9 个 `PS_*` 常量（全盘递归、目录测量、回收站、Steam、被占用探测等）+ UTF-8 管道前置；受 linter 第 [7/8] 节括号配平与自测阶段七解析器校验约束 |
 | `web/index.html` | ~191 KB | 前端单文件：命名网格两栏布局、可折叠侧栏、占用排行树形折叠懒加载列表（可清理项行内勾选）、环境自检面板、Steam 面板、资源包面板、AI 助手面板、细分弹窗、占用进程一键查找、游戏删除确认 |
 | `start-ocleaner.bat`| ~1 KB | 双击启动入口：纯 ASCII + CRLF，检测 Python 并拉起默认浏览器 |
