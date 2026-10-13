@@ -1156,6 +1156,12 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
         other_game_dirs, other_game_libs = game_install_dirs()
     except Exception:
         other_game_dirs, other_game_libs = {}, set()
+    # 用户自定义的行级显示覆盖（右键改徽章文字/下方说明）：
+    # 键为归一化小写路径，整棵树只读一次，逐节点套用。
+    try:
+        _row_overrides = load_overrides().get("targets", {})
+    except Exception:
+        _row_overrides = {}
 
     def mk(n: dict, parent_default: str) -> dict:
         name = str(n.get("name") or "")
@@ -1229,6 +1235,16 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
             item["category"] = "游戏"
             if not item.get("what"):
                 item["what"] = "Epic/GOG 游戏库目录，下面是各款游戏的安装目录。"
+        # 用户行级覆盖（右键自定义）：徽章文字与下方说明，用户是最后一手
+        ov = _row_overrides.get(low)
+        if ov:
+            if ov.get("label"):
+                item["badge_label"] = ov["label"]
+                item["custom"] = True
+            if ov.get("note"):
+                item["title"] = ov["note"]
+                item["note_override"] = True
+                item["custom"] = True
         return item
 
     root_key = str(r.get("root") or root).lower()
@@ -1679,6 +1695,9 @@ def load_overrides() -> dict:
         for f in ("what", "rebuild", "impact", "keep_if"):
             if isinstance(v.get(f), str) and v[f].strip():
                 entry[f] = v[f].strip()
+        for f in ("label", "note"):
+            if isinstance(v.get(f), str) and v[f].strip():
+                entry[f] = v[f].strip()
         if isinstance(v.get("cleanable"), bool):
             entry["cleanable"] = v["cleanable"]
         if entry:
@@ -1846,6 +1865,83 @@ def _in_game_install(path: str) -> bool:
     return any(m in low for m in GAME_INSTALL_MARKERS)
 
 
+# ---- 内容特征判定（P0 修复：删除决策不能只看目录名，还要看目录里装的是什么）----
+# 名称规则（cache/temp/quark/download…）只是**猜测**，目录内容才是**证据**。
+# 实测教训（外部审计报告 2026-10-13）：D:\Quark\Webui（SD-WebUI 整合包，
+# 内含完整 Python 运行时与模型）被祖先路径里的 "quark" 判成
+# 「云盘数据目录 · 可清理 · high」—— 15 GB 的程序本体差一点就能被整目录永久删除。
+# 对策：凡是名称规则判出「可清理」的目录，都过一遍内容特征；命中程序本体
+# 特征就强制改判不可清理（宁可少删，也不误删）。
+_PROGRAM_WEIGHT_EXTS = {".safetensors", ".ckpt", ".gguf", ".pth"}
+_WEIGHT_MIN_BYTES = 1024 ** 3          # 1 GB 的权重文件 = AI 模型，不是缓存
+_PROGRAM_EXE_DLL_MIN = 15              # 顶层 exe+dll 超过它视为程序本体
+_CONTENT_SCAN_ENTRY_CAP = 200          # 单层最多看的条目数（防超大目录拖慢标注）
+_CONTENT_SCAN_SUBDIR_CAP = 12          # 最多下探的子目录数（Electron/整合包特征常在下一层）
+
+
+def _content_says_program_body(path: str) -> str:
+    """检查目录内容是否具有「程序本体」特征。命中返回原因描述，否则返回 ""。
+
+    只扫本层 + 下一层且限量，对扫描标注（每个命中规则的节点调一次）开销可忽略。
+    误判方向是安全的：真缓存目录几乎不可能长出这些特征；
+    万一误判也只是把缓存标成「保留」，绝不反向（把程序标成可删）。
+    """
+    if not os.path.isdir(path):
+        return ""
+    # 明确的临时/缓存容器不参与内容判定：它们本来就是「内容可随意重建」
+    # 的语义，安装包解压出的 exe 多不代表这是程序本体（如系统 Temp）。
+    if os.path.basename(os.path.normpath(path)).lower() in ALLOWED_CONTAINER_NAMES:
+        return ""
+    try:
+        entries = [e for e in os.scandir(path)][: _CONTENT_SCAN_ENTRY_CAP]
+    except OSError:
+        return ""
+    names = {e.name.lower() for e in entries}
+    # ① 整合包 Python 环境 / 启动器运行时（SD-WebUI 秋叶整合包等的直接特征）
+    for marker in ("python_embeded", "python_embedded", "python_runtime", ".launcher"):
+        if marker in names:
+            return f"目录内含 {marker}\\（整合包 / 启动器运行时特征）"
+    # ② 安装器痕迹：顶层有卸载程序 = 这是被安装到这里的软件
+    if any(n.startswith("unins") and n.endswith((".exe", ".dat")) for n in names):
+        return "目录内含卸载程序（unins*.exe / unins*.dat），这是安装的程序本体"
+    # ③ Node / Electron 程序特征
+    if "node_modules" in names and "package.json" in names:
+        return "目录内 node_modules 与 package.json 并存（Node 程序特征）"
+    sub_names: set[str] = set()
+    sub_checked = 0
+    exe_dll = 0
+    for e in entries:
+        try:
+            if e.is_dir(follow_symlinks=False):
+                if sub_checked < _CONTENT_SCAN_SUBDIR_CAP:
+                    sub_checked += 1
+                    try:
+                        sub_names |= {
+                            s.name.lower()
+                            for s in os.scandir(e.path)
+                        } | {e.name.lower()}
+                    except OSError:
+                        continue
+            else:
+                ext = os.path.splitext(e.name)[1].lower()
+                if ext in (".exe", ".dll"):
+                    exe_dll += 1
+                elif ext in _PROGRAM_WEIGHT_EXTS:
+                    try:
+                        if e.stat(follow_symlinks=False).st_size >= _WEIGHT_MIN_BYTES:
+                            return (f"目录内含 ≥1GB 的模型权重文件（{e.name}），"
+                                    "这是 AI 程序的数据本体")
+                    except OSError:
+                        pass
+        except OSError:
+            continue
+    if any(n == "app.asar" for n in sub_names):
+        return "目录内 resources\\app.asar（Electron 程序特征）"
+    if exe_dll >= _PROGRAM_EXE_DLL_MIN:
+        return f"目录顶层含 {exe_dll} 个 .exe/.dll（程序本体特征，缓存目录不会这样）"
+    return ""
+
+
 def _looks_like_browser_profile(path: str) -> bool:
     """判断目录是否真的是浏览器资料目录。
 
@@ -1945,12 +2041,37 @@ def _identify_builtin(name: str, path: str, kind: str) -> dict:
         best, best_score = name_best, name_score
 
     if best and best_score > 0:
+        cleanable = bool(best.get("cleanable"))
+        if is_dir and cleanable:
+            # 内容证据优先于名称猜测（P0-1 修复）：名称像缓存/数据目录，
+            # 但内容是程序本体 → 强制改判不可清理。
+            reason = _content_says_program_body(path)
+            if reason:
+                return {
+                    "recognized": True, "rule_id": best.get("id"),
+                    "title": best.get("title") or name,
+                    "category": best.get("category", "其它"),
+                    "risk": "高", "cleanable": False,
+                    "confidence": "high",
+                    "confidence_label": "高（按目录内容判定）",
+                    "what": f"名称特征像「{best.get('title') or name}」，"
+                            f"但内容不是：{reason}。"
+                            "已按目录内容改判为不可清理 —— 名称规则只是猜测，"
+                            "删错程序本体的代价远大于少删一个缓存。",
+                    "advice": "建议保留。如果确认整个目录确实没用了，"
+                              "先在文件资源管理器里打开核实，"
+                              "或改用程序自带的卸载/清理功能。",
+                    "tip": "想让它恢复自动判定：删掉目录里的程序文件后，"
+                           "下次扫描会按名称重新判定。",
+                    "content_protected": True,
+                    "match_score": best_score,
+                }
         return {
             "recognized": True, "rule_id": best.get("id"),
             "title": best.get("title") or name,
             "category": best.get("category", "其它"),
             "risk": best.get("risk", "中"),
-            "cleanable": bool(best.get("cleanable")),
+            "cleanable": cleanable,
             "confidence": best.get("confidence", "low"),
             "confidence_label": (kb.get("confidence_labels", {}) or {})
                                 .get(best.get("confidence", "low"), ""),
@@ -2934,6 +3055,28 @@ def check_deletable(path: str, kind: str = "tree") -> tuple[bool, str]:
     if leaf in PROTECTED_DIR_NAMES and leaf not in ALLOWED_CONTAINER_NAMES:
         return False, f"拒绝：{parts[-1]} 属于受保护的目录"
 
+    # P0-3（外部审计 2026-10-13）：末级目录名是 cache/temp/logs 这类通用容器
+    # **不代表**它是系统缓存 —— 许多程序把 cache/temp 放在安装目录里
+    # （Electron 应用尤其常见）。删除决策不能只看末级名字：
+    # 逐级检查祖先链，任何一级长得像「已安装程序」（顶层有卸载程序或
+    # 多个版本号目录）就拒绝 —— 这种容器会随程序卸载一起消失，单独删它
+    # 只会把软件删残。系统容器（\Windows\Temp、AppData\Local\Temp）的
+    # 祖先都在下面的豁免名单里，不受影响。
+    if leaf in ALLOWED_CONTAINER_NAMES:
+        _safe_ancestors = {
+            "windows", "program files", "program files (x86)", "users",
+            "appdata", "local", "locallow", "roaming", "local settings",
+            "programdata", "temp", "tmp", "inetcache", "$recycle.bin",
+        }
+        for i in range(len(parts) - 1):
+            if parts[i].lower() in _safe_ancestors:
+                continue
+            anc_path = os.path.join(drive_root, *parts[:i + 1])
+            if os.path.isdir(anc_path) and _looks_like_installed_program(anc_path):
+                return False, (
+                    f"拒绝：{parts[-1]} 是已安装程序（{parts[i]}）自带的目录，"
+                    "会随程序卸载一起清理，不能单独删除")
+
     home = os.path.expanduser("~").lower()
     if low in (home, os.path.join(home, "appdata").lower()):
         return False, "拒绝：不允许清理用户主目录"
@@ -2963,6 +3106,71 @@ def rm(path: str) -> bool:
             return True
         except Exception:
             return False
+
+
+# ---- P1-1 修复（外部审计 2026-10-13）：删除前的占用预检与「部分删除」治理 ----
+# 旧实现 rmtree(ignore_errors=True) 会跳过删不掉的文件继续删其余的：
+# 对「软件正在运行」的场景，被锁的 .exe/.dll 跳过、其余全删 —— 结果是一个
+# 表面报「清理失败」、实际已经残缺的安装目录。现在改成三段式：
+#   ① 预检：目录内关键文件被占用 → 整体中止，零副作用；
+#   ② 改名暂存：os.rename 是原子操作，失败 = 未删除任何内容；
+#   ③ 删暂存目录：删不干净时残留目录如实上报，绝不假装删干净了。
+_LOCK_PRECHECK_BUDGET = 300          # 最多探测的文件数（CreateFileW 每次亚毫秒级）
+_LOCK_PRECHECK_REPORT_MAX = 5        # 结果里最多列出的被占用文件数
+
+
+def _precheck_locked_files(path: str) -> list[str]:
+    """删除前预检：目录内是否有**确定被占用**的文件。返回被占用文件列表。
+
+    只统计 locked=True 的确定结论；权限不足（无法判定）不算占用 ——
+    那是「探测不到」而不是「被占用」，不能反过来当成中止删除的理由。
+    优先探测 .exe/.dll（运行中的软件锁住的正是它们）。
+    """
+    locked: list[str] = []
+    probed = 0
+    for root, _dirs, files in os.walk(path):
+        files.sort(key=lambda n: 0 if n.lower().endswith((".exe", ".dll")) else 1)
+        for f in files:
+            if probed >= _LOCK_PRECHECK_BUDGET or len(locked) >= _LOCK_PRECHECK_REPORT_MAX:
+                return locked
+            probed += 1
+            fp = os.path.join(root, f)
+            pr = probe_locked(fp)
+            if pr.get("locked") is True:
+                locked.append(fp)
+    return locked
+
+
+def rm_tree_strict(path: str) -> tuple[bool, bool, str]:
+    """三态删除目录：返回 (是否全删, 是否部分删除, 说明)。
+
+    全删 = 目录已不存在；部分删除 = 已从原位置移除、内部有删不掉的文件
+    残留在 .oc-deleting-* 暂存目录；两者都失败 = 原目录原封不动。
+    """
+    staging = path.rstrip("\\/") + f".oc-deleting-{time.time_ns() % 10**8:08d}"
+    try:
+        os.rename(path, staging)
+    except OSError as exc:
+        return False, False, (f"目录被占用或无法移动，未删除任何内容"
+                              f"（{exc.strerror or exc}）")
+    errs: list[str] = []
+
+    def _onerr(func, p, _excinfo):
+        try:
+            os.chmod(p, 0o700)
+            func(p)
+        except Exception:
+            errs.append(p)
+
+    try:
+        shutil.rmtree(staging, onerror=_onerr)
+    except Exception:
+        pass
+    if not errs and not os.path.exists(staging):
+        return True, False, ""
+    tail = staging if len(staging) <= 80 else "…" + staging[-77:]
+    return False, True, (f"已从原位置移除，但内部有删不掉的文件，"
+                         f"残留在 {tail}（确认相关程序已退出后可手动删除）")
 
 
 # ---- 删进回收站（可恢复）----
@@ -3221,6 +3429,7 @@ def clean_target(t: dict, only_paths: list | None = None,
         "before": 0, "after": 0, "freed": 0,
         "deleted": 0, "failed": 0, "skipped": [], "error": None,
         "seconds": 0.0, "trashed": 0, "trash_errors": [],
+        "partial": 0, "partial_notes": [],
     }
 
     ok, why = check_deletable(path, kind)
@@ -3288,6 +3497,21 @@ def clean_target(t: dict, only_paths: list | None = None,
 
     result["before"] = sum(_size_of(p) for p in items)
 
+    # P1-1 预检：tree 类整目录删除前，先确认目录内没有确定被占用的文件。
+    # 命中即整体中止 —— 宁可一次都不删，也不留下删了一半的残缺安装目录。
+    # （只_paths 的精细删除与回收站通道不走这条：它们本来就按单项失败处理。）
+    if kind == "tree" and not only_paths and not use_trash:
+        locked = _precheck_locked_files(path)
+        if locked:
+            shown = "；".join(os.path.basename(p) for p in locked[:_LOCK_PRECHECK_REPORT_MAX])
+            result["error"] = (
+                f"目标内有 {len(locked)} 个文件正被其他程序占用，"
+                f"已整体中止、未删除任何内容（请先关闭相关程序）：{shown}"
+                f"{'…' if len(locked) > _LOCK_PRECHECK_REPORT_MAX else ''}")
+            result["locked_files"] = locked
+            result["seconds"] = round(time.time() - t0, 2)
+            return result
+
     atomic = kind in ("tree", "files")
     for item in items:
         if use_trash:
@@ -3303,7 +3527,25 @@ def clean_target(t: dict, only_paths: list | None = None,
                     result["skipped"].append(os.path.basename(item))
         elif atomic:
             sz = _size_of(item)
-            if rm(item):
+            if os.path.isdir(item) and not os.path.islink(item):
+                # P1-1：目录走三态删除 —— 被占用时先改名失败（零副作用），
+                # 删不干净时如实报「部分删除」，不再静默假装删干净。
+                full, partial, note = rm_tree_strict(item)
+                if full:
+                    result["deleted"] += 1
+                    result["freed"] += sz
+                elif partial:
+                    result["partial"] += 1
+                    result["partial_notes"].append(
+                        f"{os.path.basename(item)}：{note}")
+                    if len(result["skipped"]) < 20:
+                        result["skipped"].append(os.path.basename(item))
+                else:
+                    result["failed"] += 1
+                    if len(result["skipped"]) < 20:
+                        result["skipped"].append(
+                            f"{os.path.basename(item)}（{note}）")
+            elif rm(item):
                 result["deleted"] += 1
                 result["freed"] += sz
             else:
@@ -4870,15 +5112,26 @@ class Handler(BaseHTTPRequestHandler):
             only = body.get("only_paths") or {}
             trash = bool(body.get("trash"))
             targets = build_targets(drive, custom_path)
-            # 有效 cleanable=False 的目标（用户改成「建议保留」）拒绝清理，
+            # 用户明确勾选了「建议保留 / 未识别」行时由前端置位（见下方 paths 段）；
+            # 两个通道共用这一个开关。
+            allow_nc = bool(body.get("allow_non_cleanable"))
+            # 有效 cleanable=False 的目标（用户改成「建议保留」）默认拒绝清理，
             # 与旧版卡片勾选框禁用的行为对齐 —— 这条护栏原来只在前端。
+            # 2026-10-13 起：allow_non_cleanable=True 时放行（用户在确认弹窗里
+            # 明确勾选的建议保留/未识别项），系统目录保护照常生效。
             selected = [t for t in targets
-                        if t["id"] in ids and t.get("cleanable") is not False]
+                        if t["id"] in ids
+                        and (t.get("cleanable") is not False or allow_nc)]
 
-            # ---- 按路径清理（占用排行行内勾选的可清理行）----
+            # ---- 按路径清理（占用排行行内勾选的行）----
             # 安全边界与 /__oc__/clean-game 同一模式：**绝不信任前端说它可清理**，
-            # 每条路径都由服务端重新 identify()，必须是「可清理」的目录，
-            # 再过 check_deletable 的系统目录保护，缺一不可。
+            # 每条路径都由服务端重新 identify()，再过 check_deletable 的系统目录
+            # 保护，缺一不可。
+            # 2026-10-13 用户需求：建议保留 / 未识别的行也要可勾选（用户自己
+            # 看过内容、明确要删的目录不该被工具拦死）。服务端因此接受
+            # allow_non_cleanable=True 的请求放行非可清理路径 —— 但只放行
+            # 「用户显式勾选」的这些路径，且系统目录保护与占用预检**原样生效**；
+            # 前端在确认弹窗里必须如实提示「包含建议保留/未识别项」。
             skipped_paths: list[dict] = []
             for p in paths_in if isinstance(paths_in, list) else []:
                 if not isinstance(p, str) or not os.path.isabs(p):
@@ -4890,7 +5143,7 @@ class Handler(BaseHTTPRequestHandler):
                     skipped_paths.append({"path": p2, "reason": "目录不存在"})
                     continue
                 info = identify(os.path.basename(p2.rstrip("\\")) or p2, p2, "dir")
-                if not info.get("cleanable"):
+                if not info.get("cleanable") and not allow_nc:
                     skipped_paths.append(
                         {"path": p2, "reason": "服务端识别为不可清理，拒绝"})
                     continue
@@ -4900,6 +5153,7 @@ class Handler(BaseHTTPRequestHandler):
                     "path": p2, "kind": "tree",
                     "category": info.get("category", "其它"),
                     "risk": info.get("risk", "中"),
+                    "cleanable": bool(info.get("cleanable")),
                 })
 
             if not selected:
@@ -5084,7 +5338,13 @@ class Handler(BaseHTTPRequestHandler):
         # ---- 用户自定义释义 / 结论（三条优先级的最上一条）----
         if route == "/__oc__/overrides/set":
             oid = str(body.get("id") or "").strip()
-            if not oid or len(oid) > 200 or "/" in oid or "\\" in oid:
+            # 键有两种形态：目标 base_id（不含斜杠），或归一化小写路径
+            # （占用排行行右键自定义用的就是路径键，2026-10-13 起）。
+            # 路径键只是查找键，不参与任何删除路径解析，放宽反斜杠限制；
+            # 仍要求形如绝对盘符路径并限长，防止乱键写满配置文件。
+            _is_path_key = bool(re.match(r"^[a-zA-Z]:\\", oid)) and len(oid) <= 500
+            if (not oid or len(oid) > 200
+                    or ("/" in oid or ("\\" in oid and not _is_path_key))):
                 return self._json({"error": "无效的清理项标识"}, 400)
             entry = {}
             for f in ("what", "rebuild", "impact", "keep_if"):
@@ -5092,6 +5352,12 @@ class Handler(BaseHTTPRequestHandler):
                 if isinstance(v, str) and v.strip():
                     if len(v) > 2000:
                         return self._json({"error": "说明文本过长（上限 2000 字）"}, 400)
+                    entry[f] = v.strip()
+            for f in ("label", "note"):
+                v = body.get(f)
+                if isinstance(v, str) and v.strip():
+                    if len(v) > 200:
+                        return self._json({"error": "标签/说明过长（上限 200 字）"}, 400)
                     entry[f] = v.strip()
             if isinstance(body.get("cleanable"), bool):
                 entry["cleanable"] = body["cleanable"]
