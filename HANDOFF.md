@@ -929,7 +929,7 @@ target_id 一致性回归断言。
 | `start-ocleaner.bat`| ~1 KB | 双击启动入口：纯 ASCII + CRLF，检测 Python 并拉起默认浏览器 |
 | `config/targets.json` | ~20.6 KB | 26 个预定义系统级目标与 5 个预设（安全/深度/开发者/回收站/清空） |
 | `config/filetypes.json`| ~27.6 KB | 占用识别知识库：28 条目录规则 + 14 条文件规则（合计 42 条），定义识别特征与处置建议 |
-| `config/game-names.json`| ~3.2 KB | 游戏中文译名映射库：30 条条目（纯显示，与 `packs/games-titles.json` 分工见 §九） |
+| `config/game-names.json`| ~7.8 KB | 游戏中文译名映射库：58 条条目（纯显示，与 `packs/games-titles.json` 分工见 §九） |
 | `config/convert.json` | ~3.0 KB | 10 种存储体积换算单位（支持表达式引用） |
 | `config/drives.json` | ~1.2 KB | 盘符及应用元数据配置 |
 | `packs/` | ~80 KB | 4 个内置资源包共 148 条（系统项 28 / 平台目录 21 / 游戏作品 65 / 常见软件 34，正文合计 74.6 KB）+ 清单 + 格式说明；受 linter 第 [2/8] 节约束 |
@@ -964,7 +964,7 @@ target_id 一致性回归断言。
 - 建议：`tools/doctor.py`（27 项环境自检）即为此准备，应先在目标新机上运行它，再运行 `tools/selftest.py`。
 
 ### 2. Steam 中文名依赖手工维护的映射表
-- 现状：`config/game-names.json` 目前为 30 条映射，未覆盖的游戏直接显示英文原名。
+- 现状：`config/game-names.json` 目前为 58 条映射（2026-10-13 扩充 28 条官方译名：Dota 2 / CS2 / 艾尔登法环 / 怪物猎人系列 / 只狼 / 赛博朋克 2077 / 侠盗猎车手 5 等），未覆盖的游戏直接显示英文原名。
 - 曾尝试但放弃的方案：解析本机 `Steam\appcache\appinfo.vdf` 提取官方中文名。该文件是 Valve 私有二进制 VDF 格式，解析时条目数报 5，未提取出任何名称；要正确实现需完整的二进制 VDF 解析器，且结果取决于该机 Steam 缓存中是否存有中文名，对「换设备可用」这一目标不可靠，故放弃。
 - 建议：若要做，应写一个独立的 VDF 解析模块并补充测试；或改为社区维护的映射表。
 - 补充（v2.3）：`packs/games-titles.json` 已提供 65 条游戏中文名与释义，与 `game-names.json` 的分工见 §九 第 3 条。两者都不覆盖的新游戏仍需手工补两条之一。

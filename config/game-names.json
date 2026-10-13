@@ -4,35 +4,380 @@
   "_sources": "中文名取自 Steam 商店页（schinese）、维基百科中文版、百度百科条目。",
   "_howto": "想增删改：按 appid 加条目即可，appid 见 Steam 面板每条游戏的详情。match 是可选的英文名模糊匹配（用来认非 Steam 游戏或 appid 对不上的情况）。带 zh 为空字符串表示「没有广泛使用的中文名」，此时界面直接显示原名。",
   "games": {
-    "292030": { "zh": "巫师 3：狂猎", "match": ["witcher 3"] },
-    "1174180": { "zh": "荒野大镖客：救赎 2", "match": ["red dead redemption 2"] },
-    "1771300": { "zh": "天国：拯救 2", "match": ["kingdom come deliverance ii", "kingdomcomedeliverance2"] },
-    "1222140": { "zh": "底特律：化身为人", "match": ["detroit become human"] },
-    "289070": { "zh": "文明 6", "match": ["civilization vi", "civilization 6"] },
-    "323190": { "zh": "冰汽时代", "match": ["frostpunk"] },
-    "282070": { "zh": "这是我的战争", "match": ["this war of mine"] },
-    "753640": { "zh": "星际拓荒", "match": ["outer wilds"] },
-    "243470": { "zh": "看门狗", "match": ["watch_dogs", "watch dogs"] },
-    "206440": { "zh": "去月球", "match": ["to the moon"] },
-    "219740": { "zh": "饥荒", "match": ["don't starve", "dont starve"] },
-    "431960": { "zh": "壁纸引擎", "match": ["wallpaper engine"] },
-    "701160": { "zh": "王国：双冠", "match": ["kingdom two crowns"] },
-    "532110": { "zh": "锈湖：根源", "match": ["rusty lake: roots", "rusty lake roots"] },
-    "435120": { "zh": "锈湖旅馆", "match": ["rusty lake hotel"] },
-    "744190": { "zh": "锈湖天堂岛", "match": ["rusty lake paradise"] },
-    "1145960": { "zh": "白门", "match": ["the white door"] },
-    "1515210": { "zh": "内在昔日", "match": ["the past within"] },
-    "1281800": { "zh": "轮回的房间", "match": ["samsara room"] },
-    "2291850": { "zh": "地铁繁花", "match": ["underground blossom"] },
-    "909080": { "zh": "方块逃脱：悖论", "match": ["cube escape: paradox", "cube escape paradox"] },
-    "1292940": { "zh": "方块逃脱合集", "match": ["cube escape collection"] },
-    "1951230": { "zh": "负鼠闹翻天", "match": ["pizza possum"] },
-    "3636770": { "zh": "湖之仆从", "match": ["servant of the lake"] },
-    "1634080": { "zh": "离火长明", "match": ["nocturnal"] },
-    "3472550": { "zh": "", "match": ["the mr. rabbit magic show"], "_note": "无广泛使用的中文名" },
-    "2918500": { "zh": "", "match": ["cozy island"], "_note": "无广泛使用的中文名" },
-    "3996940": { "zh": "湖之仆从 Demo", "match": ["servant of the lake demo"] },
-    "228980": { "zh": "", "match": ["steamworks common redistributables"], "_note": "Steam 运行库，非游戏" },
-    "3528450": { "zh": "纸房子", "match": ["sweet home"], "_note": "清单原名已含中文" }
+    "550": {
+      "zh": "求生之路 2",
+      "match": [
+        "left 4 dead 2",
+        "l4d2"
+      ]
+    },
+    "570": {
+      "zh": "刀塔 2",
+      "match": [
+        "dota 2",
+        "dota2"
+      ]
+    },
+    "620": {
+      "zh": "传送门 2",
+      "match": [
+        "portal 2"
+      ]
+    },
+    "730": {
+      "zh": "反恐精英 2",
+      "match": [
+        "counter-strike 2",
+        "counter-strike global offensive",
+        "cs2"
+      ]
+    },
+    "8930": {
+      "zh": "文明 5",
+      "match": [
+        "sid meier's civilization v",
+        "civilization v",
+        "civilization 5"
+      ]
+    },
+    "105600": {
+      "zh": "泰拉瑞亚",
+      "match": [
+        "terraria"
+      ]
+    },
+    "206440": {
+      "zh": "去月球",
+      "match": [
+        "to the moon"
+      ]
+    },
+    "219740": {
+      "zh": "饥荒",
+      "match": [
+        "don't starve",
+        "dont starve"
+      ]
+    },
+    "227300": {
+      "zh": "欧洲卡车模拟 2",
+      "match": [
+        "euro truck simulator 2",
+        "ets2"
+      ]
+    },
+    "228980": {
+      "zh": "",
+      "match": [
+        "steamworks common redistributables"
+      ],
+      "_note": "Steam 运行库，非游戏"
+    },
+    "236850": {
+      "zh": "欧陆风云 4",
+      "match": [
+        "europa universalis iv",
+        "europa universalis 4"
+      ]
+    },
+    "243470": {
+      "zh": "看门狗",
+      "match": [
+        "watch_dogs",
+        "watch dogs"
+      ]
+    },
+    "271590": {
+      "zh": "侠盗猎车手 5",
+      "match": [
+        "grand theft auto v",
+        "gta v",
+        "gta5"
+      ]
+    },
+    "281990": {
+      "zh": "群星",
+      "match": [
+        "stellaris"
+      ]
+    },
+    "282070": {
+      "zh": "这是我的战争",
+      "match": [
+        "this war of mine"
+      ]
+    },
+    "289070": {
+      "zh": "文明 6",
+      "match": [
+        "civilization vi",
+        "civilization 6"
+      ]
+    },
+    "292030": {
+      "zh": "巫师 3：狂猎",
+      "match": [
+        "witcher 3"
+      ]
+    },
+    "322330": {
+      "zh": "饥荒联机版",
+      "match": [
+        "don't starve together",
+        "dont starve together"
+      ]
+    },
+    "323190": {
+      "zh": "冰汽时代",
+      "match": [
+        "frostpunk"
+      ]
+    },
+    "367520": {
+      "zh": "空洞骑士",
+      "match": [
+        "hollow knight"
+      ]
+    },
+    "377160": {
+      "zh": "辐射 4",
+      "match": [
+        "fallout 4"
+      ]
+    },
+    "391540": {
+      "zh": "钢铁雄心 4",
+      "match": [
+        "hearts of iron iv",
+        "hearts of iron 4",
+        "hoi4"
+      ]
+    },
+    "413150": {
+      "zh": "星露谷物语",
+      "match": [
+        "stardew valley"
+      ]
+    },
+    "431960": {
+      "zh": "壁纸引擎",
+      "match": [
+        "wallpaper engine"
+      ]
+    },
+    "435120": {
+      "zh": "锈湖旅馆",
+      "match": [
+        "rusty lake hotel"
+      ]
+    },
+    "532110": {
+      "zh": "锈湖：根源",
+      "match": [
+        "rusty lake: roots",
+        "rusty lake roots"
+      ]
+    },
+    "582010": {
+      "zh": "怪物猎人：世界",
+      "match": [
+        "monster hunter: world",
+        "monster hunter world"
+      ]
+    },
+    "701160": {
+      "zh": "王国：双冠",
+      "match": [
+        "kingdom two crowns"
+      ]
+    },
+    "744190": {
+      "zh": "锈湖天堂岛",
+      "match": [
+        "rusty lake paradise"
+      ]
+    },
+    "753640": {
+      "zh": "星际拓荒",
+      "match": [
+        "outer wilds"
+      ]
+    },
+    "814380": {
+      "zh": "只狼：影逝二度",
+      "match": [
+        "sekiro",
+        "sekiro: shadows die twice"
+      ]
+    },
+    "909080": {
+      "zh": "方块逃脱：悖论",
+      "match": [
+        "cube escape: paradox",
+        "cube escape paradox"
+      ]
+    },
+    "990080": {
+      "zh": "霍格沃茨之遗",
+      "match": [
+        "hogwarts legacy"
+      ]
+    },
+    "1030300": {
+      "zh": "空洞骑士：丝之歌",
+      "match": [
+        "hollow knight: silksong",
+        "silksong"
+      ]
+    },
+    "1085660": {
+      "zh": "命运 2",
+      "match": [
+        "destiny 2"
+      ]
+    },
+    "1091500": {
+      "zh": "赛博朋克 2077",
+      "match": [
+        "cyberpunk 2077",
+        "cyberpunk2077"
+      ]
+    },
+    "1097150": {
+      "zh": "糖豆人",
+      "match": [
+        "fall guys"
+      ]
+    },
+    "1145960": {
+      "zh": "白门",
+      "match": [
+        "the white door"
+      ]
+    },
+    "1172620": {
+      "zh": "盗贼之海",
+      "match": [
+        "sea of thieves"
+      ]
+    },
+    "1174180": {
+      "zh": "荒野大镖客：救赎 2",
+      "match": [
+        "red dead redemption 2"
+      ]
+    },
+    "1222140": {
+      "zh": "底特律：化身为人",
+      "match": [
+        "detroit become human"
+      ]
+    },
+    "1245620": {
+      "zh": "艾尔登法环",
+      "match": [
+        "elden ring"
+      ]
+    },
+    "1281800": {
+      "zh": "轮回的房间",
+      "match": [
+        "samsara room"
+      ]
+    },
+    "1292940": {
+      "zh": "方块逃脱合集",
+      "match": [
+        "cube escape collection"
+      ]
+    },
+    "1446780": {
+      "zh": "怪物猎人：崛起",
+      "match": [
+        "monster hunter rise"
+      ]
+    },
+    "1515210": {
+      "zh": "内在昔日",
+      "match": [
+        "the past within"
+      ]
+    },
+    "1634080": {
+      "zh": "离火长明",
+      "match": [
+        "nocturnal"
+      ]
+    },
+    "1771300": {
+      "zh": "天国：拯救 2",
+      "match": [
+        "kingdom come deliverance ii",
+        "kingdomcomedeliverance2"
+      ]
+    },
+    "1794680": {
+      "zh": "吸血鬼幸存者",
+      "match": [
+        "vampire survivors"
+      ]
+    },
+    "1951230": {
+      "zh": "负鼠闹翻天",
+      "match": [
+        "pizza possum"
+      ]
+    },
+    "1966720": {
+      "zh": "致命公司",
+      "match": [
+        "lethal company"
+      ]
+    },
+    "2246340": {
+      "zh": "怪物猎人：荒野",
+      "match": [
+        "monster hunter wilds"
+      ]
+    },
+    "2291850": {
+      "zh": "地铁繁花",
+      "match": [
+        "underground blossom"
+      ]
+    },
+    "2918500": {
+      "zh": "",
+      "match": [
+        "cozy island"
+      ],
+      "_note": "无广泛使用的中文名"
+    },
+    "3472550": {
+      "zh": "",
+      "match": [
+        "the mr. rabbit magic show"
+      ],
+      "_note": "无广泛使用的中文名"
+    },
+    "3528450": {
+      "zh": "纸房子",
+      "match": [
+        "sweet home"
+      ],
+      "_note": "清单原名已含中文"
+    },
+    "3636770": {
+      "zh": "湖之仆从",
+      "match": [
+        "servant of the lake"
+      ]
+    },
+    "3996940": {
+      "zh": "湖之仆从 Demo",
+      "match": [
+        "servant of the lake demo"
+      ]
+    }
   }
 }
