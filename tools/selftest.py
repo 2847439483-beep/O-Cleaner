@@ -1791,6 +1791,10 @@ def phase7_scoping_and_accel() -> None:
             check("查表式拆子项在 2 秒内返回", dt < 2, f"{dt * 1000:.0f} ms")
             check("子项都带体积与可读格式",
                   all(c.get("size_h") for c in sub["children"]))
+            check("拆子项响应带该层真实总数（total ≥ 列出数）",
+                  isinstance(sub.get("total"), int)
+                  and sub["total"] >= len(sub["children"]),
+                  f"total={sub.get('total')} / listed={len(sub['children'])}")
         else:
             skip("逐层拆子项", "本盘没找到可展开的目录")
 
@@ -1836,6 +1840,15 @@ def phase7_scoping_and_accel() -> None:
     check("无加速回退：子项体积已量出且带可读格式",
           all(c.get("size_h") for c in sub["children"])
           and any(c["size"] > 0 for c in sub["children"]))
+    # total 字段：前端「该层共有 N 个子项，只列出前 M 个」提示的真相来源
+    check("无加速回退：total 等于实际列出数（小层不截断）",
+          sub.get("total") == len(sub.get("children") or []),
+          f"total={sub.get('total')} / listed={len(sub.get('children') or [])}")
+    sub1 = app.list_subdirs("Z", str(SANDBOX / "tree"), limit=1)
+    check("无加速回退：limit 截断时 total 仍报真实总数",
+          len(sub1.get("children") or []) == 1
+          and sub1.get("total", 0) >= len(sub.get("children") or []),
+          f"listed=1 / total={sub1.get('total')}")
     shutil.rmtree(SANDBOX, ignore_errors=True)
 
     # ---- 5) 子进程调用的超时有界性 ----

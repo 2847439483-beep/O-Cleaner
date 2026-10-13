@@ -907,15 +907,20 @@ def _wiztree_export(drive: str, timeout: int = 300) -> tuple[str | None, str]:
     return csv_path, ""
 
 
+def _wiztree_direct_prefix(path: str) -> tuple[str, str, int]:
+    """「直接子目录」判定的公共参数：规范化键、子目录前缀、目标层数。"""
+    key = os.path.normpath(path).lower()
+    pre = key if key.endswith("\\") else key + "\\"
+    return key, pre, pre.count("\\")
+
+
 def _wiztree_children(dirs: dict[str, int], path: str, limit: int = 60) -> list[dict]:
     """从目录体积表里取出某个目录的**直接**子目录（按体积降序）。
 
     判「直接子目录」用路径里的反斜杠个数，比 endswith/startswith 组合可靠：
     只比较层数就不会把 D:\\a\\bc 误当成 D:\\a\\b 的子项。
     """
-    key = os.path.normpath(path).lower()
-    pre = key if key.endswith("\\") else key + "\\"
-    depth = pre.count("\\")
+    key, pre, depth = _wiztree_direct_prefix(path)
     out = []
     for p, sz in dirs.items():
         if p == key or not p.startswith(pre):
@@ -1527,10 +1532,16 @@ def list_subdirs(drive: str, path: str, limit: int = 80) -> dict:
         return {"error": "目录不存在", "children": []}
 
     children: list[dict] = []
+    total = 0
     cached = _WIZ_DIRS.get(letter)
     if cached and cached.get("table"):
         table = cached["table"]
         children = _wiztree_children(table["dirs"], p, limit)
+        # 该层真实子项总数（目录 + 直接文件）：前端要如实告知「只列出了前 N 个」
+        key, pre, depth = _wiztree_direct_prefix(p)
+        total = sum(1 for q in table["dirs"]
+                    if q != key and q.startswith(pre) and q.count("\\") == depth)
+        total += len(table["files"].get(key) or ())
         for c in children:
             cp = os.path.normpath(c["path"])
             try:
@@ -1571,6 +1582,7 @@ def list_subdirs(drive: str, path: str, limit: int = 80) -> dict:
         except OSError as e:
             return {"error": f"无法读取目录：{e}", "children": []}
         children.sort(key=lambda x: -x["size"])
+        total = len(children)
         children = children[:limit]
 
     for c in children:
@@ -1608,6 +1620,7 @@ def list_subdirs(drive: str, path: str, limit: int = 80) -> dict:
     return {
         "drive": letter, "path": p, "children": children,
         "engine": engine,
+        "total": total,
         "parent_size": (cached["table"]["dirs"].get(os.path.normpath(p).lower(), 0)
                         if cached and cached.get("table") else 0),
         "listed_total": sum(c["size"] for c in children),

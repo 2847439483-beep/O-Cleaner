@@ -2845,35 +2845,84 @@ async function toggleInlineKids(wrap, item, btn) {
       return;
     }
     container.dataset.loaded = "1";
-    container.innerHTML = renderSubTreeHTML(r.children);
-    bindSubTreeEvents(container);
+    // 单层可能有上千个子项：不能一口气全塞进 DOM。追加式分页——
+    // 先渲染 50 条，点「显示更多」每次追加 50 条（已展开的孙层不会被销毁）；
+    // 服务端截断（total > 返回数）时如实说明「只列出了前 N 个」。
+    container._kids = r.children;
+    container._total = r.total || r.children.length;
+    container._shown = 0;
+    container.innerHTML = "";
+    appendKidsPage(container);
   } catch (err) {
     container.innerHTML = `<div class="errline">加载失败：${esc(err.message)}</div>`;
   }
 }
 
-function renderSubTreeHTML(children) {
-  return children.map((c, i) => {
-    const cls = c.game_platform ? "c-keep" : (!c.recognized ? "c-unknown" : (c.cleanable ? "c-clean" : "c-keep"));
-    const badge = c.game_platform
-      ? `<span class="vbadge keep">${c.game_platform === "epic" ? "Epic" : "GOG"} 游戏本体</span>`
-      : c.game_library ? '<span class="vbadge keep">游戏库</span>'
-      : !c.recognized ? "" : (c.cleanable ? '<span class="vbadge clean">可清理</span>' : '<span class="vbadge keep">建议保留</span>');
-    const canExpand = c.can_drill || c.type === "dir";
-    return `
-      <div class="vrow-wrap" data-path="${esc(c.path)}">
-        <div class="vrow ${cls}" style="padding:4px 8px;font-size:12px;background:var(--panel2)">
-          <div class="vtop" style="margin-bottom:0">
-            ${canExpand ? `<button class="tiny ghost expinline" title="就地展开查看子目录">展开 ▾</button>` : ""}
-            <span class="fname" style="font-size:12.5px">${esc(c.display_name || c.name)}${badge}</span>
-            <button class="tiny ghost" data-open="${esc(c.path)}" style="margin-left:auto">打开</button>
-            <span class="fsize">${esc(c.size_h)}</span>
-          </div>
+const KID_PAGE = 50;   // 子项树每次渲染的条数
+
+/** 把子项树的下一页追加进容器（只新建新行，不动已展开的孙层）。 */
+function appendKidsPage(container) {
+  const kids = container._kids || [];
+  const from = container._shown || 0;
+  const to = Math.min(from + KID_PAGE, kids.length);
+  const frag = document.createElement("div");
+  frag.innerHTML = kids.slice(from, to).map(subTreeRowHTML).join("");
+  const moreRow = container.querySelector(".kidmore");
+  if (moreRow) container.insertBefore(frag, moreRow);
+  else container.appendChild(frag);
+  container._shown = to;
+  bindSubTreeEvents(frag);
+  updateKidsMoreRow(container);
+}
+
+/** 维护「显示更多」按钮与服务端截断提示（有剩余就显示，点完即刷新数字）。 */
+function updateKidsMoreRow(container) {
+  const kids = container._kids || [];
+  const total = container._total || kids.length;
+  const rest = kids.length - (container._shown || 0);
+  let moreRow = container.querySelector(".kidmore");
+  if (rest > 0) {
+    if (!moreRow) {
+      moreRow = document.createElement("div");
+      moreRow.className = "kidmore";
+      moreRow.style.cssText = "padding:4px 8px";
+      container.appendChild(moreRow);
+    }
+    moreRow.innerHTML = `<button class="tiny ghost" data-kidmore="1">显示更多（还有 ${rest} 项）</button>`;
+    moreRow.querySelector("button").addEventListener("click", ev => {
+      ev.stopPropagation();
+      appendKidsPage(container);
+    });
+  } else if (moreRow) moreRow.remove();
+  if (total > kids.length && !container.querySelector(".kidtotal")) {
+    const d = document.createElement("div");
+    d.className = "kidtotal empty";
+    d.style.cssText = "margin:2px 0 6px;font-size:11.5px";
+    d.textContent = `该层共有 ${total} 个子项，按体积只列出前 ${kids.length} 个。`;
+    container.appendChild(d);
+  }
+}
+
+function subTreeRowHTML(c) {
+  const cls = c.game_platform ? "c-keep" : (!c.recognized ? "c-unknown" : (c.cleanable ? "c-clean" : "c-keep"));
+  const badge = c.game_platform
+    ? `<span class="vbadge keep">${c.game_platform === "epic" ? "Epic" : "GOG"} 游戏本体</span>`
+    : c.game_library ? '<span class="vbadge keep">游戏库</span>'
+    : !c.recognized ? "" : (c.cleanable ? '<span class="vbadge clean">可清理</span>' : '<span class="vbadge keep">建议保留</span>');
+  const canExpand = c.can_drill || c.type === "dir";
+  return `
+    <div class="vrow-wrap" data-path="${esc(c.path)}">
+      <div class="vrow ${cls}" style="padding:4px 8px;font-size:12px;background:var(--panel2)">
+        <div class="vtop" style="margin-bottom:0">
+          ${canExpand ? `<button class="tiny ghost expinline" title="就地展开查看子目录">展开 ▾</button>` : ""}
+          <span class="fname" style="font-size:12.5px">${esc(c.display_name || c.name)}${badge}</span>
+          <button class="tiny ghost" data-open="${esc(c.path)}" style="margin-left:auto">打开</button>
+          <span class="fsize">${esc(c.size_h)}</span>
         </div>
-        <div class="vrow-kids"></div>
       </div>
-    `;
-  }).join("");
+      <div class="vrow-kids"></div>
+    </div>
+  `;
 }
 
 function bindSubTreeEvents(container) {
