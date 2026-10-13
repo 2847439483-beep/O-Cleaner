@@ -2130,6 +2130,119 @@ def phase7_scoping_and_accel() -> None:
         skip("磁盘递归脚本的语法解析", "只在 Windows 上有对应解析器")
 
 
+def phase8_identify_correctness() -> None:
+    """识别正确性金标准用例（外部审计报告 2026-10-13，P0/P1 回归）。
+
+    审计指出的盲区：既有断言全部是「输入合法性」测试（路径护栏 + HTTP 层），
+    没有一条在问「这个目录到底是什么」—— D:\\Quark\\Webui（15 GB 的 SD-WebUI
+    整合包）因此差点能被当作云盘缓存整目录永久删除。本阶段用**合成目录**
+    补上这个盲区：在 Temp 里现场搭出内容特征，不依赖真机上恰好装了什么。
+    """
+    print("\n---- 阶段八：识别正确性（金标准用例 + 删除预检）----")
+    tmp = tempfile.mkdtemp(prefix="oc_ident_")
+    # 行级覆盖测试不得碰用户真实 config/custom-overrides.json：整个阶段
+    # 把 OVERRIDES_PATH 指到临时文件，结束还原。
+    real_ov = app.OVERRIDES_PATH
+    app.OVERRIDES_PATH = Path(tmp) / "overrides-test.json"
+    try:
+        # ① 整合包：名字不在知识库里、祖先路径带 "quark"，内容有 python_embeded
+        webui = os.path.join(tmp, "Quark", "Webui")
+        os.makedirs(os.path.join(webui, "python_embeded"))
+        with open(os.path.join(webui, "launch.bat"), "w") as f:
+            f.write("echo ok")
+        info = app.identify("Webui", webui, "dir")
+        check("整合包目录（祖先带 quark）不被判为可清理",
+              info.get("cleanable") is False, str(info.get("title")))
+        check("整合包目录带内容判定标记", bool(info.get("content_protected")))
+        check("整合包目录风险升为高", info.get("risk") == "高")
+
+        # ② 对照：普通缓存目录仍可清理（内容判定不许误伤）
+        cache = os.path.join(tmp, "cache")
+        os.makedirs(cache)
+        with open(os.path.join(cache, "chunk0001.bin"), "wb") as f:
+            f.write(b"0" * 2048)
+        info2 = app.identify("cache", cache, "dir")
+        check("普通 cache 目录仍可清理", info2.get("cleanable") is True)
+        check("普通 cache 目录不带内容判定标记", not info2.get("content_protected"))
+
+        # ③ P0-2：下载目录默认建议保留（cleanable 由 true 改 false）
+        dl = os.path.join(tmp, "Downloads")
+        os.makedirs(dl)
+        info3 = app.identify("Downloads", dl, "dir")
+        check("下载目录不再默认可清理（P0-2）",
+              info3.get("cleanable") is False, f"rule={info3.get('rule_id')}")
+        check("下载目录风险为高", info3.get("risk") == "高")
+
+        # ④ P0-1 收窄：裸 driver/drivers 目录名不再命中驱动规则
+        #（注意断言口径：合成目录放在 Temp 下，祖先链的 Temp 合理命中
+        #  cache-temp，这不是回归；要验证的只是「drivers 规则不再被裸词命中」）
+        drv = os.path.join(tmp, "drivers")
+        os.makedirs(drv)
+        info4 = app.identify("drivers", drv, "dir")
+        check("裸 drivers 目录名不再命中驱动规则",
+              info4.get("rule_id") != "drivers", f"rule={info4.get('rule_id')}")
+
+        # ⑤ P0-3：软件安装目录自带的 cache 被护栏拒绝
+        prog = os.path.join(tmp, "SomeApp")
+        os.makedirs(os.path.join(prog, "cache"))
+        with open(os.path.join(prog, "unins000.exe"), "wb") as f:
+            f.write(b"MZ")
+        ok, why = app.check_deletable(os.path.join(prog, "cache"), "tree")
+        check("软件自带的 cache 目录被拒绝", ok is False, why[:60])
+        check("拒绝理由说明是程序自带", "自带" in why)
+
+        # ⑥ 对照：系统 Temp 容器仍放行（\Windows\Temp 语义不能被误伤）
+        sys_tmp = os.environ.get("TEMP") or r"C:\Windows\Temp"
+        ok2 = app.check_deletable(sys_tmp, "tree")[0]
+        check("系统 Temp 容器仍放行", ok2 is True)
+
+        # ⑦ P1-1：目录内有被占用文件 → 预检命中、改名失败 → 零副作用
+        occupied = os.path.join(tmp, "occupied-app")
+        os.makedirs(occupied)
+        dll_path = os.path.join(occupied, "app.dll")
+        hold = open(dll_path, "wb")
+        try:
+            hold.write(b"MZ" * 16)
+            hold.flush()
+            locked = app._precheck_locked_files(occupied)
+            check("预检发现被持有的文件（本进程句柄）",
+                  any(p.endswith("app.dll") for p in locked), str(locked)[:80])
+            full, partial, _note = app.rm_tree_strict(occupied)
+            check("被占用目录整体未删（零副作用，不再部分删除）",
+                  full is False and partial is False,
+                  f"full={full} partial={partial}")
+            check("被占用目录内容完好",
+                  os.path.isdir(occupied) and os.path.isfile(dll_path))
+        finally:
+            hold.close()
+
+        # ⑧ 无占用目录：三态删除 = 全删
+        plain = os.path.join(tmp, "plain-cache")
+        os.makedirs(plain)
+        with open(os.path.join(plain, "x.bin"), "wb") as f:
+            f.write(b"0" * 1024)
+        full2, partial2, _note2 = app.rm_tree_strict(plain)
+        check("无占用目录三态删除=全删",
+              full2 is True and partial2 is False and not os.path.exists(plain))
+
+        # ⑨ 行级覆盖（右键自定义）字段回环：保存 → 读取 → 恢复
+        key = os.path.normpath(cache).lower()
+        data = app.load_overrides()
+        data["targets"][key] = {"label": "我的缓存", "note": "自定义说明"}
+        app.save_overrides(data)
+        got = app.load_overrides()["targets"].get(key, {})
+        check("行级覆盖 label/note 可保存读取",
+              got.get("label") == "我的缓存" and got.get("note") == "自定义说明")
+        data = app.load_overrides()
+        data["targets"].pop(key, None)
+        app.save_overrides(data)
+        check("行级覆盖删除后不再出现",
+              key not in app.load_overrides()["targets"])
+    finally:
+        app.OVERRIDES_PATH = real_ov
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> int:
     if os.name == "nt":
         try:
@@ -2175,6 +2288,7 @@ def main() -> int:
         _phase("阶段六B（多平台游戏）", phase6b_multiplatform)
         _phase("阶段六C（资源包覆盖语义）", phase6c_packs)
         _phase("阶段七（盘符与加速）", phase7_scoping_and_accel)
+        _phase("阶段八（识别正确性金标准）", phase8_identify_correctness)
     finally:
         shutil.move(str(BACKUP), str(REAL_TARGETS))
         for f in ("history.json", "schedule.json"):

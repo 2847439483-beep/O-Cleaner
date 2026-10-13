@@ -1278,6 +1278,51 @@ class CDP {
     skip("数据盘默认清理范围", "探测失败：" + e.message);
   }
 
+  // ---------- 小视口响应式 ----------
+  // 浏览器窗口缩到 ~800×600 后界面必须仍完整可用：不允许出现横向滚动条，
+  // 占用排行与侧栏面板都还看得到。用 Emulation 改视口，量完恢复。
+  console.log("\n  --- 小视口响应式（800×600）---");
+  try {
+    await cdp.send("Emulation.setDeviceMetricsOverride",
+      { width: 800, height: 600, deviceScaleFactor: 0, mobile: false }, S);
+    await sleep(600); // 等 resize 重绘（趋势图重绘有 150ms debounce）
+    const vp = await evaluate(`(() => {
+      const sec = document.querySelector('#fullView');
+      const asd = document.querySelector('aside');
+      const r = el => el ? el.getBoundingClientRect() : null;
+      const sr = r(sec), ar = r(asd);
+      return {
+        overflow: document.documentElement.scrollWidth - window.innerWidth,
+        secVisible: !!sr && sr.width > 100 && sr.height > 50,
+        asdVisible: !!ar && ar.width > 50,
+        vw: window.innerWidth,
+        overflowPx: document.documentElement.scrollWidth,
+      };
+    })()`);
+    check("小视口无横向溢出（scrollWidth ≤ 视口+2px）",
+          vp.overflow <= 2, `超出 ${vp.overflow}px（scrollWidth=${vp.overflowPx}）`);
+    checkInit("小视口下占用排行仍完整可见", vp.secVisible,
+          `可见=${vp.secVisible}`);
+    check("小视口下侧栏面板仍可见", vp.asdVisible, `可见=${vp.asdVisible}`);
+    if (rankingReady) {
+      const rrow = await evaluate(`(() => {
+        const rows = [...document.querySelectorAll('#fsChart .vrow')];
+        for (const row of rows) {
+          const b = row.getBoundingClientRect();
+          if (b.width > 0 && b.height > 0) return { w: Math.round(b.width), ok: true };
+        }
+        return { ok: false };
+      })()`);
+      checkInit("小视口下排行行有实际宽度（未被压扁）",
+            rrow.ok && rrow.w > 200, rrow.ok ? `行宽 ${rrow.w}px` : "无可见行");
+    }
+  } catch (e) {
+    skip("小视口响应式", "模拟失败：" + e.message);
+  } finally {
+    await cdp.send("Emulation.clearDeviceMetricsOverride", {}, S);
+    await sleep(300);
+  }
+
   // 截图
   try {
     const shot = await cdp.send("Page.captureScreenshot",
