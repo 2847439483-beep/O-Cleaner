@@ -516,6 +516,18 @@ def phase2() -> None:
 def phase3_http() -> None:
     print("\n=== 阶段三：HTTP API 端到端（沙箱配置 + 真实服务）===")
     make_sandbox()
+    # pick_port 的双绑定回归：别的进程**活着监听**的端口绝不能被返回。
+    # 旧实现探测时带 SO_REUSEADDR，Windows 上连活端口都能 bind 成功，
+    # 新旧实例静默双绑定，请求随机落到旧实例（实测 8770 挂过 3 个实例）。
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    bport = blocker.getsockname()[1]
+    picked = app.pick_port(bport)
+    check("pick_port 不返回别的进程正监听的端口",
+          picked != bport and bport < picked <= bport + 30,
+          f"占用 {bport} → 选中 {picked}")
+    blocker.close()
     proc = subprocess.Popen(
         [sys.executable, "-X", "utf8", str(HERE / "app.py"),
          "--port", str(TEST_PORT), "--no-browser"],

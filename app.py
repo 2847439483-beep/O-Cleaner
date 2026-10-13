@@ -5550,15 +5550,24 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def pick_port(preferred: int) -> int:
+    """找一个真正空闲的端口。探测时绝不能带 SO_REUSEADDR —— Windows 上带了它，
+    别的进程正活着监听的端口也能 bind 成功，新实例与旧实例就会静默双绑定：
+    请求随机落到旧实例上，表现为「扫描失败、行为诡异」却查不出原因
+    （实测 8770 上同时挂着 3 个实例，扫描线程被人人喊打的旧代码接走）。
+    裸 bind 才是「这个端口此刻真的没人用」的判定；代价是刚关闭的端口会
+    进入 TIME_WAIT 而被跳过 —— 顺延到下一个端口正是想要的行为。
+    """
     for port in range(preferred, preferred + 30):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 s.bind(("127.0.0.1", port))
-                return port
             except OSError:
                 continue
-    raise SystemExit("找不到可用端口")
+        if port != preferred:
+            print(f"端口 {preferred} 已被占用（可能已有 O-Cleaner 在运行），"
+                  f"改用 {port}")
+        return port
+    raise SystemExit(f"{preferred} 起连续 30 个端口都不可用")
 
 
 def main() -> None:
