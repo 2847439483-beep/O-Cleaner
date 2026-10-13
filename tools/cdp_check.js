@@ -255,7 +255,6 @@ class CDP {
       rowsel: document.querySelectorAll('#fsChart .rowsel').length,
       ruleBtn: !!document.querySelector('#btnRuleSave'),
       convItems: document.querySelectorAll('.convitem').length,
-      heads: [...document.querySelectorAll('aside h3')].map(h => h.innerText.trim().split('\\n')[0]),
       scopeSel: !!document.querySelector('#scopeSel'),
       drives: document.querySelectorAll('.drv').length,
       secX: sec ? Math.round(sec.getBoundingClientRect().x) : -1,
@@ -281,11 +280,15 @@ class CDP {
         `${stats.secW}px / 视口 ${stats.vw}px`);
 
   // 面板合并
-  const merged = stats.heads.some(h => h.includes("累积清理与换算"));
-  const stale = stats.heads.filter(h => h.includes("换算成什么") || h === "累积清理");
+  // 面板合并：按面板的 data-acc 标识判定，不与界面语言耦合
+  //（i18n 起英文界面下 h3 文本已是英文，文本匹配断言在 CI 上会误报）
+  const accs = await evaluate(`[...document.querySelectorAll('aside .panel.acc')]
+      .map(p => p.dataset.acc)`);
+  const merged = accs.includes("cum");
+  const stale = accs.filter(a => a === "units");
   check("换算与累积已合并为一个面板", merged && stale.length === 0,
-        `标题: ${stats.heads.slice(0, 6).join(" / ")}`);
-  check("旧的独立换算面板已移除", !stats.heads.includes("换算成什么"));
+        `面板: ${accs.join(" / ")}`);
+  check("旧的独立换算面板已移除", !accs.includes("units"));
 
   // 主题三态：亮 / 暗 / 跟随系统，切换要真实写 <html data-theme> 并回存偏好
   const th = await evaluate(`(() => {
