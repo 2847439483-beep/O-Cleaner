@@ -1,9 +1,28 @@
 # O-Cleaner 完整交接文档与需求规格书
 
-> **文档版本**：v2.3（资源包 + 自有 AI 接入版）
+> **文档版本**：v2.3（资源包 + 自有 AI 接入版；本文最后更新 2026-10-13）
 > **项目定位**：Windows 原生、本地零第三方依赖的磁盘清理与空间占用查看工具。
 > **代码仓库**：`github.com/2847439483-beep/O-Cleaner`（私有），`main` 分支，CI 已接入。
-> **分发包**：由 `tools/make_package.py` 生成（内存打包，无暂存目录；版本号 import 自 `app.APP_VERSION`），输出到 `dist\O-Cleaner-<版本>.zip`。
+> **分发包**：由 `tools/make_package.py` 生成（内存打包，无暂存目录；版本号 import 自 `app.APP_VERSION`），输出到 `dist\O-Cleaner-<版本>.zip`；免安装版由 `tools/make_exe.py` 生成。
+
+## 零、接手快速通道（先读这个）
+
+- **跑起来**：双击 `start-ocleaner.bat`（需系统已装 Python 3.8+），或解压免安装包直接运行；浏览器自动打开本地页面。
+- **跑门禁**（改动后依次执行，详见第六节）：
+  ```bash
+  python -X utf8 tools/lint_rules.py --strict
+  python -X utf8 tools/_lint_selftest.py
+  python -X utf8 tools/selftest.py          # 条数依环境浮动，失败 0 即绿
+  node tools/cdp_check.js http://127.0.0.1:<PORT>   # 需先启动 app.py
+  ```
+- **当前状态快照**（2026-10-13，HEAD = `07cb89b`）：
+  - 最新全量 CI（run 38375367710）**全绿**：规则 linter ✓ / 自测 **343 通过 / 0 失败 / 11 跳过** / 界面渲染检查 **28 / 0 / 49**（CI 机器扫不完 → 门控跳过是正常形态）。
+  - 分发产物：`dist/O-Cleaner-v2.3.zip`（便携版 32 文件）+ `O-Cleaner-v2.3-win64-embed.zip`（免安装版，内嵌官方运行时）；两者均与 HEAD 源码 sha256 核验一致。
+  - 剩余规划内任务：**#37 i18n / 英文规则**（见第八节第 9 条），其余已交付。
+- **三条最容易踩的纪律**：
+  1. 提交说明首行只写「这次改动做了什么」，不写评价性文字、不写 `[ci]`（详见第六节第 13 条）；
+  2. 断言总数依环境浮动且持续增长，文档/CI/提交说明**一律不写死数字**，判定标准是「失败 0」；
+  3. 改 `check_deletable` / `identify` / `run_ps` / `auto_discovered_targets` / `_looks_like_installed_program` 任何一个之前，先读第五节踩坑历史——它们都是被真实缺陷逼出来的。
 
 ---
 
@@ -96,6 +115,14 @@
    - 不使用「进入目录子页 - 面包屑 - 返回上一级」的结构。
    - 所有大项与卡片均为就地展开折叠交互。展开时前端向 `/__oc__/subdirs` 发起局部查询：
      有 WizTree 内存表时为查表操作；无 WizTree 时只读当前单目录。
+5. **数据与运行产物可重定向（U 盘携带）**：
+   - 清理历史、定时配置、磁盘趋势等运行数据默认写程序目录；
+     `--data-dir <路径>`（或 `OC_DATA_DIR` 环境变量）可整体重定向到 U 盘 / 其他硬盘，
+     拷贝数据目录即完成迁移（详见 `docs/USAGE.md`）。
+6. **默认扫描策略（换盘即看、先快后深）**：
+   - 起始盘取「上次用过的盘（localStorage）→ 首个非系统盘 → 第一个盘」；全盘扫描默认
+     快速档（2 层浅扫，游戏本体由服务端注入补齐，不受深度限制），存过「深度」偏好才深扫；
+     每盘扫描结果带 10 分钟缓存，清理成功后该盘缓存立即失效。
 
 ---
 
@@ -155,25 +182,60 @@
 
 ### HTTP 服务路由规格（Base: `http://127.0.0.1:<PORT>`）
 
-| Method | 路径 | 核心参数 | 返回结构概要 | 功能说明 |
-|:---|:---|:---|:---|:---|
-| `GET` | `/` 或 `/index.html` | 无 | HTML (UTF-8) | 前端一体化单页单文件应用 |
-| `GET` | `/__oc__/state` | `drive`, `scope`, `custom` | `{app, presets, targets, disk, drives, wiztree, ...}` | 获取全局综合状态、清理目标元数据、盘符与环境 |
-| `GET` | `/__oc__/scan` | `drive`, `scope`, `custom` | `{results: [{id, size, files, missing, denied}], disk, scan_time}` | 刷新常规清理目标的占用体积与状态 |
-| `GET` | `/__oc__/overview` | `drive`, `depth` | `{engine, subdir_ready, nodes, root, scanned_total_h, ...}` | 全盘占用树，支持 WizTree 加速及回退 |
-| `GET` | `/__oc__/subdirs` | `drive`, `path`, `limit` | `{engine, path, parent_size, children: [{name, size, type, can_drill, ...}]}` | 供树形折叠展开与深层下钻的按需即时查表接口 |
-| `GET` | `/__oc__/wiztree` | 无 | `{found, portable, version, enabled, download_url, ...}` | 获取 WizTree 状态及第三方合规元数据 |
-| `POST`| `/__oc__/wiztree/install`| 无（校验请求来源） | `{ok, path, version, error, log}` | 从官方地址下载便携版至 `portable\WizTree\` |
-| `GET` | `/__oc__/steam` | 无 | `{found, game_count, total_size_h, games: [...], libraries: [...]}` | 读取 Steam 本地清单，整合呈现游戏库与中文名 |
-| `GET` | `/__oc__/partition`| `path` | `{kind, title, cleanable, keep, cleanable_size_h, keep_size_h}` | 将混合目录解构为「可清理缓存」与「建议保留」两部分 |
-| `POST`| `/__oc__/clean` | `{ids: [], only_paths: {}, drive}` | `{entry: {freed, freed_h, results: [...]}, stats: {...}}` | 执行删除（先过护栏校验，随后记录历史） |
-| `POST`| `/__oc__/locks` | `{paths: []}` | `{results: [{path, exists, kind, locked, why}], candidates: [{pid, name, exe, why, strong, hits}], truncated, ps_error}` | 探测这些路径是否被占用，并给出**可能占用它们的进程候选**（启发式，不代关进程） |
-| `POST`| `/__oc__/clean-game` | `{path}` | `{ok, freed, freed_h, name, path, disk: {...}, error}` | 删除**单个游戏本体**（Steam / Epic / GOG）。**不是通用删除**：路径必须被后端自己识别为游戏安装目录（`steamapps\common` 直接子目录或 Epic/GOG 清单精确路径），再过 `check_deletable`；非游戏路径一律 400 |
-| `POST`| `/__oc__/reveal` | `{path}` | `{ok: true}` | 在 Windows 文件资源管理器中选中并打开指定路径 |
-| `GET` | `/__oc__/history` | 无 | `[{time, trigger, freed_h, results}, ...]` | 获取累计清理历史流水 |
-| `DELETE`| `/__oc__/history` | 无（校验请求来源） | `{ok: true}` | 清空清理历史并归零累计换算值 |
-| `POST`| `/__oc__/rules` | `{name, ids, drive}` | 最新自选规则列表 | 保存当前勾选项为命名固定规则 |
-| `POST`| `/__oc__/schedule`| `{enabled, interval_hours, preset, drive}` | 定时清理配置对象 | 配置后台定时清理守护进程 |
+全部路由前缀 `__oc__`；写操作（POST/DELETE）带同源校验。与旧文档的差异：命名规则已改名 `custom-rules`（旧 `/rules` 不存在）。
+
+**GET（读）**
+
+| 路径 | 核心参数 | 返回概要 | 说明 |
+|:---|:---|:---|:---|
+| `/` 或 `/index.html` | 无 | HTML (UTF-8) | 前端一体化单页单文件应用 |
+| `/__oc__/state` | `drive`, `scope`, `custom` | `{app, presets, targets, disk, drives, wiztree, data_dir, ...}` | 全局综合状态：目标元数据、盘符、环境、数据目录位置 |
+| `/__oc__/scan` | `drive`, `scope`, `custom` | `{results, disk, scan_time}` | 常规清理目标的占用体积与状态 |
+| `/__oc__/overview` | `drive` | `{engine, max_depth, nodes, root, ...}` | 全盘占用树（WizTree 加速/回退；快速档自动注入游戏本体，§31） |
+| `/__oc__/fullscan` | `drive` | 同上 | 旧接口名，现为 overview 的别名 |
+| `/__oc__/subdirs` | `drive`, `path`, `limit` | `{engine, children, total, truncated}` | 树形折叠的按需查表下钻（含追加式分页元数据） |
+| `/__oc__/dirlevel` | — | 410 | 已废弃：整棵树在 overview 一次返回，保留路由防旧前端静默失败 |
+| `/__oc__/progress` | 无 | 进度快照 | 全盘扫描期间前端每 0.5s 轮询画真实进度条 |
+| `/__oc__/drives` | 无 | `{drives, is_admin}` | 盘符枚举与管理员状态 |
+| `/__oc__/identify` | `name`, `path`, `kind` | 单项识别结果 | 直接调用 `identify()`（调试/前端补识别用） |
+| `/__oc__/stats` | 无 | 累计统计 | 历史记录聚合（总量/次数/趋势） |
+| `/__oc__/disk-trend` | 无 | 趋势数组 | 磁盘占用趋势数据 |
+| `/__oc__/steam` | 无 | `{found, games, libraries, ...}` | Steam 本地清单 + 中文名 |
+| `/__oc__/games` | 无 | 三平台合并游戏 | Steam / Epic / GOG 统一入口 |
+| `/__oc__/partition` | `path` | `{cleanable, keep, ...}` | 混合目录解构（缓存 vs 用户数据） |
+| `/__oc__/history` | 无 | 历史流水 | 累计清理记录 |
+| `/__oc__/wiztree` | 无 | `{found, portable, version, download_url, ...}` | WizTree 状态与合规元数据 |
+| `/__oc__/packs` | 无 | `{packs, remote}` | 资源包列表与远程更新源 |
+| `/__oc__/overrides` | 无 | 自定义释义集合 | `custom-overrides.json` 内容 |
+| `/__oc__/custom-rules` | 无 | 命名规则列表 | 自定义清理规则 |
+| `/__oc__/bundle/export` | 无 | bundle JSON | 三类自定义数据整体导出（AI 生成验收器） |
+
+**POST（写/查询动作）**
+
+| 路径 | 请求体概要 | 说明 |
+|:---|:---|:---|
+| `/__oc__/clean` | `{ids, only_paths, drive}` | 执行清理；路径通道服务端重识别校验；含勾选包含关系去重（`merged` 带原因，§31） |
+| `/__oc__/clean-game` | `{path}` | 删除单个游戏本体（后端二次识别为游戏安装目录，非游戏一律 400） |
+| `/__oc__/game-saves` | `{path, appid}` | 删游戏前只读查询疑似存档位置（启发式，前端负责讲清「建议先备份」） |
+| `/__oc__/locks` | `{paths}` | 探测占用 + 占用进程候选（启发式，绝不代关进程） |
+| `/__oc__/reveal` | `{path}` | 资源管理器中选中打开 |
+| `/__oc__/run-rule` | `{id}` | 执行一条命名规则（立即清理固定勾选项） |
+| `/__oc__/custom-rules` | `{name, ids, drive}` | 保存命名规则 |
+| `/__oc__/schedule` | `{enabled, interval_hours, preset, drive}` | 定时清理守护配置 |
+| `/__oc__/units` / `/__oc__/units/delete` | 单位对象 / `{id}` | 自定义换算单位的增改与删除 |
+| `/__oc__/overrides/set` / `/__oc__/overrides/delete` | 释义覆盖对象 / `{key}` | 自定义释义与结论覆盖（优先级：用户 > 资源包 > 内置） |
+| `/__oc__/packs/import` / `toggle` / `delete` / `update` | 包文件 / `{id}` / `{id}` / 无 | 资源包导入 / 启停 / 删除 / 从 GitHub 检查更新 |
+| `/__oc__/wiztree/install` | 无（校验来源） | 从官方地址下载便携版至 `portable\WizTree\` |
+| `/__oc__/ai/config` / `test` | 配置对象 | 自有 AI 接入的保存与连通性测试（Key 只存 `config/ai.json`，不回传） |
+| `/__oc__/ai/explain` / `plan` | `{id}` / 候选集 | AI 解释单项 / 生成方案（**AI 不能删除**：只产出建议与勾选） |
+| `/__oc__/bundle/import` | bundle JSON | 三类自定义整体导入（逐项校验，跳过项带原因，绝不半途失败） |
+
+**DELETE**
+
+| 路径 | 说明 |
+|:---|:---|
+| `/__oc__/history` | 清空清理历史并归零累计换算值 |
+| `/__oc__/custom-rules` | 删除指定命名规则 |
 
 ---
 
@@ -222,17 +284,17 @@
 接手开发或优化后，依次运行以下质量门禁，全部通过后再打包交付：
 
 ### 1. 自动化单元与回归测试 (`tools/selftest.py`)
-- **断言规模**：本机完整环境为 **346 项通过 / 0 失败 / 3 跳过**（覆盖 8 个阶段）。**条数依机器环境浮动** —— 数据盘数量、是否装有 Steam / WizTree 都会影响实际执行的断言数，例如 CI runner 上执行为
-  `通过 278 项，失败 0 项，跳过 11 项`。判断标准是失败数为 0，不要把条数写死在文档或 CI 步骤名里。
-  （278 是 2026-10-12 的实测值；此后第六节第十五、十七、十八、十九四条共加了 4 + 6 + 2 + 2 条断言，下次 CI 运行为 292。）
-  （342 = 上一次本机实测的 339 + 脚本模板断言 3 条；之后第六节第十四、十五条又各加了断言，
-  本机完整环境按算术为 **356**（346 + 第十七节 6 条 + 第十八节 2 条 + 第十九节 2 条）。**这几条新断言都单独验证过**，但完整套件在本机已无法跑完
-  —— 宿主删除配额被持久耗尽，见第六节第十四条。）
+- **断言规模**：**条数依机器环境浮动**（数据盘数量、是否装有 Steam / WizTree / 本机用例都会影响），
+  判定标准是**失败 0 项**，不要把条数写死在文档或 CI 步骤名里。
+  最近实测：**CI runner 343 通过 / 0 失败 / 11 跳过**（2026-10-13，run 38375367710，全量作业权威值）。
+  本机完整环境**已无法跑完整套件**——WorkBuddy 宿主的删除配额被持久耗尽（见第六节第 5 条的「运维注意（删除配额）」），
+  跑到中段会被安全钩子拦截；权威验证一律走 CI 的「自测」作业。
+  本机可正常跑的门禁：`lint_rules.py --strict`、`_lint_selftest.py`、`doctor.py`、CDP。
 - **运行命令**：
   ```bash
   python -X utf8 tools/selftest.py
   ```
-- **核心验证**：配置文件完整性、路径护栏对抗绕过、Temp 沙箱真实删除测试、HTTP API 端到端、知识库覆盖率、资源包匹配与安全边界、扫描进度端点、`run_ps` 超时有界性、Steam 游戏清单与中文名解析、WizTree 加速与导出文件零残留、`is_user_local` 隔离等。
+- **核心验证**：配置文件完整性、路径护栏对抗绕过、Temp 沙箱真实删除测试、HTTP API 端到端、知识库覆盖率、资源包匹配与安全边界、勾选包含关系去重（含游戏本体整删用例，monkeypatch 注入不依赖本机游戏库）、扫描进度端点、`run_ps` 超时有界性、Steam 游戏清单与中文名解析、WizTree 加速与导出文件零残留、`is_user_local` 隔离、`--data-dir` 重定向落位、单文件前端括号配平与 CSS 变量定义检查。
 
 ### 2. 真实浏览器无头渲染测试 (`tools/cdp_check.js`)
 - **断言规模**：脚本内共 90+ 处断言点（`check` / `checkScan` / `checkInit` /
@@ -240,12 +302,12 @@
   （按第一参数为名称字面量的调用计），不是某次运行的登记条数。
   **单次运行实际登记的条数少于调用点总数**，因为：部分断言位于条件分支内（例如 Steam
   面板需本机装有游戏才会走到），且全盘扫描相关的断言在扫描未在时限内完成时
-  统一记为跳过。因此运行时常见结果是
-  `通过 85 项，失败 0 项，跳过 1 项`（扫描完成，2026-10-13 本机实测值）、
-  `通过 26 项，失败 0 项，跳过 32 项`（CI 上扫描未在时限内跑完，`ON_CI` 为真时
-  该条也记跳过）或 `通过 26 项，失败 1 项，跳过 31 项`（扫描**报错**，或本机
-  超时）—— 三个都是历史实测值，登记条数随断言增长已变化。
+  统一记为跳过。因此运行时结果依环境浮动，最近实测：
+  `通过 71 项，失败 0 项，跳过 8 项`（2026-10-13 本机实测，扫描完成）、
+  `通过 28 项，失败 0 项，跳过 49 项`（2026-10-13 CI 实测，扫描未在 300 秒时限内跑完，
+  `ON_CI` 为真时该条记跳过）—— 两个都是历史实测值，登记条数随断言增长已变化。
   判断标准是**失败 0 项**。那条「全盘扫描完成并渲染出排行」的判定优先级是：跑完 → 通过；报错 → 失败；仅超时且在 CI → 跳过；仅超时且在本机 → 失败（本机超时视为真问题）。
+  **比对 CI 结论要看「通过数」而不只看绿红**：曾出现「作业绿了、但数条断言从通过变成跳过」的覆盖率缩水。
 - **运行命令**（需在 `app.py` 启动状态下执行）：
   ```bash
   node tools/cdp_check.js http://127.0.0.1:<PORT>
@@ -458,7 +520,11 @@ CI 上出现一次此前未见的 `ui` 失败（`通过 21 项，失败 4 项，
 不该顺手带上「会改变 CI 行为」的开关；② 那个字符串会让**任何**含它的提交意外拉起 12 分钟流水线，
 是个容易误踩的副作用（本轮就误踩过一次）。`[ci]` 的判断逻辑保留在工作流里，只是不再作为推荐用法。
 
-**实测对照**（run `38246284907`）：`lint` 34 秒、`自测` 4 分 35 秒、`界面渲染检查` 11 分 28 秒；三个作业并行，整条流水线由最慢者决定，约 12 分钟。
+**实测对照**（run `38246284907`）：`lint` 34 秒、`自测` 4 分 35 秒、`界面渲染检查` 11 分 28 秒；三个作业并行，整条流水线由最慢者决定，约 12 分钟。（2026-10-13 最新实测：lint 30 秒 / 自测 4 分 23 秒 / 界面 10 分 32 秒。）
+
+**查 CI 结论的运维细节**：核对本机与 CI 的差异要看作业日志里的「通过/失败/跳过」行。`gh` CLI 下载单个 job 日志会因「terminal escape sequences」拒绝输出（rc=1），用 curl 直连 job logs 端点即可：
+`curl -sL -H "Authorization: Bearer $(gh auth token)" https://api.github.com/repos/<owner>/<repo>/actions/jobs/<job_id>/logs`。
+本机 `gh.exe` 在 `C:\Program Files\GitHub CLI\gh.exe`，不在 PATH 中。推送通道走 SSH（部署密钥 + `ssh.github.com:443`）；HTTPS 在晚高峰会被按 IP 阻断，push 失败先试 SSH。
 
 **为什么慢在界面作业**：它要给全盘扫描留时间（内部上限 300 秒），而 CI 机器的系统盘塞满十万级小文件，一次递归统计要十分钟以上。修复第六节第十二条那个花括号缺陷之前，它是 2 分 36 秒就「失败」结束的 —— **耗时变长在这里恰恰说明扫描真的在跑**，不能用时长判断 CI 健康度。
 
@@ -1046,6 +1112,8 @@ target_id 一致性回归断言。
 steam_common_dirs 与 game_install_dirs，不依赖本机游戏库）；阶段四静态断言；
 本机 CDP 71/0/8（E 盘快速扫描含 30 个本体、全部可清理；跳过 2 条系排行行
 内容变化的环境性门控，失败 0 即绿）。
+全量 CI（run 38375367710，2026-10-13）**全绿**：自测 343/0/11、界面渲染检查 28/0/49
+（游戏本体断言因 CI 无 Steam 正常跳过）；dist 双产物已重建并与 HEAD sha256 核验一致。
 
 ---
 
@@ -1055,7 +1123,7 @@ steam_common_dirs 与 game_install_dirs，不依赖本机游戏库）；阶段�
 
 | 文件相对路径 | 大小概要 | 职责描述 |
 |:---|:---|:---|
-| `app.py` | ~242 KB | 后端全功能核心：HTTP 服务、安全删除校验、WizTree MFT 加速调用与管理、Steam 解析、分区分析、资源包加载与合并、自有 AI 接口、定时任务、被占用文件探测与占用进程候选、游戏本体删除（含后端二次识别）、按路径清理（服务端重新识别校验）；PowerShell 脚本模板经 `ps_scripts.py` 导入（`PS_*` re-export，下游引用方式不变） |
+| `app.py` | ~252 KB | 后端全功能核心：HTTP 服务、安全删除校验、WizTree MFT 加速调用与管理、Steam 解析、分区分析、资源包加载与合并、自有 AI 接口、定时任务、被占用文件探测与占用进程候选、游戏本体删除（含后端二次识别）、按路径清理（服务端重新识别校验）、勾选包含关系去重、`--data-dir` 数据目录重定向、快速扫描注入游戏本体；PowerShell 脚本模板经 `ps_scripts.py` 导入（`PS_*` re-export，下游引用方式不变） |
 | `ps_scripts.py` | ~14 KB | PowerShell 系统脚本模板集中地：9 个 `PS_*` 常量（全盘递归、目录测量、回收站、Steam、被占用探测等）+ UTF-8 管道前置；受 linter 第 [7/8] 节括号配平与自测阶段七解析器校验约束 |
 | `web/index.html` | ~191 KB | 前端单文件：命名网格两栏布局、可折叠侧栏、占用排行树形折叠懒加载列表（可清理项行内勾选）、环境自检面板、Steam 面板、资源包面板、AI 助手面板、细分弹窗、占用进程一键查找、游戏删除确认 |
 | `start-ocleaner.bat`| ~1 KB | 双击启动入口：纯 ASCII + CRLF，检测 Python 并拉起默认浏览器 |
@@ -1064,9 +1132,9 @@ steam_common_dirs 与 game_install_dirs，不依赖本机游戏库）；阶段�
 | `config/game-names.json`| ~7.8 KB | 游戏中文译名映射库：58 条条目（纯显示，与 `packs/games-titles.json` 分工见 §九） |
 | `config/convert.json` | ~3.0 KB | 10 种存储体积换算单位（支持表达式引用） |
 | `config/drives.json` | ~1.2 KB | 盘符及应用元数据配置 |
-| `packs/` | ~80 KB | 4 个内置资源包共 148 条（系统项 28 / 平台目录 21 / 游戏作品 65 / 常见软件 34，正文合计 74.6 KB）+ 清单 + 格式说明；受 linter 第 [2/8] 节约束 |
-| `tools/selftest.py` | ~110 KB | 断言自动化测试套件（300+ 项，条数依环境浮动；含单文件前端的括号配平与 CSS 变量定义检查、按路径清理端到端用例） |
-| `tools/cdp_check.js` | ~62 KB | 90+ 处断言点的 CDP 浏览器渲染与交互校验脚本，单次运行登记条数依环境浮动（含 `checkScan`/`checkInit` 环境门控、占用排行量盒断言） |
+| `packs/` | ~85 KB | 5 个内置资源包共 172 条（系统项 28 / 平台目录 21 / 游戏作品 65 / 常见软件 34 / 释义增强 24）+ 清单 + 格式说明；受 linter 第 [2/8] 节约束；公开分发仓 `2847439483-beep/O-Cleaner-packs` 与本仓库**两边同步**（`tools/sync_packs.py`） |
+| `tools/selftest.py` | ~123 KB | 断言自动化测试套件（300+ 项，条数依环境浮动；含单文件前端的括号配平与 CSS 变量定义检查、按路径清理端到端用例、勾选去重用例、`--data-dir` 子进程断言） |
+| `tools/cdp_check.js` | ~67 KB | 90+ 处断言点的 CDP 浏览器渲染与交互校验脚本，单次运行登记条数依环境浮动（含 `checkScan`/`checkInit` 环境门控、占用排行量盒断言） |
 | `tools/lint_rules.py` | ~33 KB | 知识库规则 + 资源包 + 内嵌脚本模板的静态审查器（8 项检查） |
 | `tools/_lint_selftest.py`| ~14 KB | 针对 linter 自身的缺陷注入自测（知识库 15 类 + 资源包 20 类 + 脚本模板 5 类 + 4 个基线，共 44 项） |
 | `tools/doctor.py` | ~6.6 KB | 新设备 27 项环境自检排查脚本 |
@@ -1076,12 +1144,13 @@ steam_common_dirs 与 game_install_dirs，不依赖本机游戏库）；阶段�
 | `.github/workflows/ci.yml`| ~6.8 KB | GitHub Actions 持续集成配置（Windows 平台，快慢两级：每次推送跑 lint，自测与界面检查按定时/手动/`[ci]` 触发） |
 | `.gitattributes` | ~1.4 KB | 换行与编码契约的声明（`eol=crlf` 写死，CI 依此校验） |
 | `tools/local-cases.json.example`| ~0.6 KB | `local-cases.json` 的模板（真实用例在 gitignore 中隔离） |
-| `README.md` | ~11 KB | 项目简介与快速上手 |
-| `docs/USAGE.md` | ~35 KB | 完整使用指南 |
+| `README.md` | ~5.3 KB | 面向使用者的项目简介与快速上手（免安装版 / 能力表 / 数据与迁移 / 安全边界 / FAQ / 文件一览） |
+| `docs/USAGE.md` | ~40 KB | 完整使用指南 |
 | `docs/CUSTOMIZE.md` | ~6 KB | 自定义数据格式规范：三类自定义的字段表、bundle 整体结构、导入行为语义、AI 生成工作流（§23） |
 | `SECURITY.md` | ~9.9 KB | 安全模型、资源包与自有 AI 的信任边界、占用查询的只读边界、对抗性测试结果与漏洞报告流程 |
 | `CONTRIBUTING.md` | ~9.0 KB | 贡献指南与提交前自查清单（含资源包提交流程、CI 快慢两级说明） |
-| `HANDOFF.md` | ~88 KB | 本文档：需求追溯、架构规格、踩坑记录与接手注意事项 |
+| `HANDOFF.md` | ~125 KB | 本文档：需求追溯、架构规格、踩坑记录与接手注意事项 |
+| 运行时数据（均 gitignore） | — | `history.json` / `schedule.json` / `disk-trend.json`（仓库根，随 `--data-dir` 重定向）；`config/ai.json`（AI Key）、`config/packs-state.json`、`config/packs-user/`（远程更新的资源包）、`config/custom-overrides.json`（自定义释义）；`tools/local-cases.json`（本机测试用例）；`dist/`、`build/`、`portable/`、`_legacy/` |
 | `_legacy/` | ~180 KB | 前身版本归档（已 gitignore，不属于本仓库） |
 | `dist/` | ~11.2 MB | 当前版本的两个分发产物：`O-Cleaner-v2.3.zip`（便携版，需系统已装 Python，由 `tools/make_package.py` 生成）与 `O-Cleaner-v2.3-win64-embed.zip`（免安装版，内嵌官方运行时，由 `tools/make_exe.py` 生成）；`dist/` 与 `build/`（运行时下载缓存）均已 gitignore |
 
