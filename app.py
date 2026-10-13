@@ -1618,7 +1618,8 @@ def game_display_name(appid, name: str, installdir: str = "") -> tuple[str, str]
     这张映射表只影响显示 —— 不参与识别、不参与清理判断、不碰文件。
 
     匹配顺序：appid 精确命中 → 英文名/安装目录模糊命中 → 原名。
-    显示成「中文名（原名）」既好认又不丢失 Steam 上的原名，便于用户核对。
+    有中文名时**只显示中文名**（2026-10-13 用户要求：不用忠实原名）；
+    原目录名在详情弹窗的路径里仍然可见，核对不受影响。
     """
     cfg = load_game_names().get("games") or {}
     entry = None
@@ -1641,11 +1642,10 @@ def game_display_name(appid, name: str, installdir: str = "") -> tuple[str, str]
     zh = str((entry or {}).get("zh") or "").strip()
     if not zh or zh == name:
         return name, ""
-    # 原名里已经有中文就别再加前缀了 —— 否则会出现
-    # 「纸房子（纸房子 Sweet Home）」这种废话式的双重显示。
+    # 原名里已经有中文就直接用原名 —— 映射表是给英文目录名准备的
     if re.search(r"[\u4e00-\u9fff]", name or ""):
         return name, zh
-    return f"{zh}（{name}）", zh
+    return zh, zh
 
 
 def load_custom_rules() -> list:
@@ -2487,7 +2487,7 @@ def discover_steam() -> dict:
         games.append({
             "appid": state.get("appid") or "",
             "name": raw_name,              # Steam 上的原名，保持不动
-            "display_name": disp_name,     # 界面显示用（有中文名时是「中文（原名）」）
+            "display_name": disp_name,     # 界面显示用（有中文名时只显示中文名）
             "zh_name": zh_name,
             "installdir": installdir,
             "path": game_path,
