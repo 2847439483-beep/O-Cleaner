@@ -1287,7 +1287,7 @@ class CDP {
       { width: 800, height: 600, deviceScaleFactor: 0, mobile: false }, S);
     await sleep(600); // 等 resize 重绘（趋势图重绘有 150ms debounce）
     const vp = await evaluate(`(() => {
-      const sec = document.querySelector('#fullView');
+      const sec = document.querySelector('#fullView') || document.querySelector('main > section');
       const asd = document.querySelector('aside');
       const r = el => el ? el.getBoundingClientRect() : null;
       const sr = r(sec), ar = r(asd);
@@ -1295,6 +1295,8 @@ class CDP {
         overflow: document.documentElement.scrollWidth - window.innerWidth,
         secVisible: !!sr && sr.width > 100 && sr.height > 50,
         asdVisible: !!ar && ar.width > 50,
+        // 等比缩放布局（2026-10-13）：窄窗口保持左右两栏，不允许退回上下堆叠
+        twoCol: !!sr && !!ar && sr.right <= ar.left + 2 && ar.left > 0,
         vw: window.innerWidth,
         overflowPx: document.documentElement.scrollWidth,
       };
@@ -1304,6 +1306,8 @@ class CDP {
     checkInit("小视口下占用排行仍完整可见", vp.secVisible,
           `可见=${vp.secVisible}`);
     check("小视口下侧栏面板仍可见", vp.asdVisible, `可见=${vp.asdVisible}`);
+    check("小视口保持左右两栏（等比缩放，不退化为上下堆叠）",
+          vp.twoCol, `两栏=${vp.twoCol}`);
     if (rankingReady) {
       const rrow = await evaluate(`(() => {
         const rows = [...document.querySelectorAll('#fsChart .vrow')];
