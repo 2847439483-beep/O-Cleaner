@@ -639,6 +639,19 @@ def phase3_http() -> None:
               < html.index('id="convToggle"')
               < html.index('data-acc="rules"'))
         check("前端含自定义目录输入", "customPath" in html)
+        # i18n L1：界面骨架双语。中文是 HTML 源码默认文案，字典只收英文；
+        # 这里校验基础设施存在 + 字典键完整覆盖所有 data-i18n 引用
+        #（缺键会静默回退中文，属于手滑而不是故障，必须在这里拦住）。
+        check("i18n 基础设施：语言切换器与应用逻辑",
+              'id="langSeg"' in html and "function applyI18n" in html
+              and "function i18nLocale" in html and '"oc-lang"' in html)
+        _i18n_keys = set(re.findall(
+            r'"([a-zA-Z][\w.]*)"\s*:',
+            html[html.index("const I18N_EN"):html.index("function i18nLocale")]))
+        _i18n_refs = set(re.findall(r'data-i18n(?:-ph|-title)?="([^"]+)"', html))
+        _i18n_missing = sorted(_i18n_refs - _i18n_keys)
+        check("i18n 字典键覆盖所有 data-i18n 引用",
+              not _i18n_missing, "缺键: " + ", ".join(_i18n_missing))
         check("前端含自定义换算单位表单", "btnUnitAdd" in html and "btnUnitExample" in html)
         check("主题系统：三态切换与浅色变量组",
               '[data-theme="light"]' in html and "themeSeg" in html
