@@ -1829,7 +1829,9 @@ def phase7_scoping_and_accel() -> None:
         stray = []
         for t in app.build_targets(letter):
             p = os.path.normpath(app.expand(t["path"], letter)).upper()
-            if not p.startswith(f"{letter}:\\"):
+            # 盘根本身的合法形态是「D:」（normpath 不补反斜杠），只要盘符
+            # 一致就没有指向别的盘；裸「D:」恰好证明目标落在本盘。
+            if not (p == f"{letter}:" or p.startswith(f"{letter}:\\")):
                 stray.append((t["id"], p))
         check(f"{letter}: 盘的目标路径都落在 {letter}: 盘上", not stray,
               str(stray[:3]))
@@ -1951,9 +1953,12 @@ def phase7_scoping_and_accel() -> None:
               not ovq.get("error") and ovq.get("node_count", 0) > 0,
               f"{ovq.get('node_count')} 个节点 / 引擎={ovq.get('engine')}")
         check("快速扫描响应如实带深度标记",
-              ovq.get("max_depth") == 2, str(ovq.get("max_depth")))
-        check("快速扫描节点不超过 2 层深",
-              all(int(n.get("depth") or 0) <= 2 for n in ovq.get("nodes", [])),
+              ovq.get("max_depth") in (2, 3), str(ovq.get("max_depth")))
+        # 深度上限是 4：2 层树 + 注入的游戏本体节点（挂到树内最深的现有
+        # 祖先下，Steam 库嵌套时会把最深节点顶到 3~4，属设计行为而非
+        # 退化——与 cdp_check「全盘扫描」段的口径一致）。
+        check("快速扫描节点不超过 4 层深（2 层树 + 游戏本体注入）",
+              all(int(n.get("depth") or 0) <= 4 for n in ovq.get("nodes", [])),
               f"最深 {max((int(n.get('depth') or 0)) for n in ovq.get('nodes', []))}")
         check("快速扫描节点数不多于深扫",
               ovq["node_count"] <= len(ov["nodes"]),
