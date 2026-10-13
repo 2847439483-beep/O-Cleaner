@@ -43,6 +43,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request as _UrlRequest, urlopen as _urlopen
+from ps_scripts import (PS_DIR_KIND, PS_LOCK_HOLDERS, PS_MEASURE_GLOB,
+                        PS_MEASURE_TREE, PS_RECYCLE, PS_STEAM,
+                        PS_STEAM_ORPHAN_SIZE, PS_TREE_WALK, PS_UTF8_PREAMBLE)
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = BASE_DIR / "config"
@@ -146,14 +149,6 @@ def target_id_for(target: dict, drive: str | None) -> str:
     if drive and is_drive_specific(target):
         return f"{tid}@{drive.rstrip(':').upper()}"
     return tid
-
-
-# PowerShell 5.1 通过管道输出时使用控制台的 ANSI 代码页（中文系统为 GBK），
-# 而 Python 侧按 UTF-8 解码 —— 结果中文名会变成乱码（软件 -> ����）。
-# 强制让子进程把管道输出设为 UTF-8，与控制台 chcp 无关。
-PS_UTF8_PREAMBLE = ("$OutputEncoding=[System.Text.Encoding]::UTF8;"
-                    "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;")
-
 
 def _kill_ps_tree(p) -> None:
     """结束 PowerShell 进程及其子孙，并**保证收尾动作有上限**。
@@ -304,77 +299,6 @@ def record_disk_snapshot(info: dict) -> None:
 # 故意不用 .format()：那会要求把 PowerShell 里所有字面量花括号都写成 {{ }}，
 # 极易漏改且报错信息晦涩（已经踩过两次）。
 
-PS_MEASURE_TREE = r"""
-$ErrorActionPreference='SilentlyContinue'
-$p='__PATH__'
-$denied = $false
-if (Test-Path -LiteralPath $p) {
-    $ErrorActionPreference='Stop'
-    try {
-        $m = Get-ChildItem -LiteralPath $p -Recurse -Force -File -ErrorAction Stop |
-             Measure-Object -Property Length -Sum
-    } catch {
-        # 无权限读取。必须与“目录本来就是空的”区分开，
-        # 否则界面上会把“读不到”显示成 0 B，看起来像没东西可清。
-        $denied = $true
-        $m = $null
-    }
-    $ErrorActionPreference='SilentlyContinue'
-}
-[pscustomobject]@{size=[int64]$m.Sum; files=[int]$m.Count; denied=$denied} |
-    ConvertTo-Json -Compress
-"""
-
-PS_MEASURE_GLOB = r"""
-$ErrorActionPreference='SilentlyContinue'
-$p='__PATH__'; $g='__GLOB__'
-$denied = $false
-if (Test-Path -LiteralPath $p) {
-    $ErrorActionPreference='Stop'
-    try {
-        $m = @(Get-ChildItem -LiteralPath $p -Filter $g -Force -File -ErrorAction Stop) |
-             Measure-Object -Property Length -Sum
-    } catch {
-        $denied = $true
-        $m = $null
-    }
-    $ErrorActionPreference='SilentlyContinue'
-}
-[pscustomobject]@{size=[int64]$m.Sum; files=[int]$m.Count; denied=$denied} |
-    ConvertTo-Json -Compress
-"""
-
-# 回收站：按盘符定位。用 try/catch 把权限问题收敛成 size=-1，
-# 而不是让 PowerShell 以非零退出码结束并丢掉 stdout。
-PS_RECYCLE = r"""
-$ErrorActionPreference='SilentlyContinue'
-$drive='__DRIVE__'
-$items=@()
-$total=0
-$count=0
-$denied=$false
-if ($drive) {
-    $root = $drive + ':\$Recycle.Bin'
-    if (Test-Path -LiteralPath $root) {
-        $ErrorActionPreference='Stop'
-        try {
-            $all=@(Get-ChildItem -LiteralPath $root -Recurse -Force -File -ErrorAction Stop)
-            $count=$all.Count
-            $total=[int64](($all | Measure-Object -Property Length -Sum).Sum)
-            $items=@($all | Where-Object { $_.Name -notlike '$I*' -and $_.Length -gt 1MB } |
-                     Sort-Object Length -Descending |
-                     Select-Object -First 40 @{n='name';e={$_.Name}},@{n='size';e={[int64]$_.Length}},@{n='path';e={$_.FullName}})
-        } catch {
-            $denied=$true
-        }
-        $ErrorActionPreference='SilentlyContinue'
-    }
-}
-[pscustomobject]@{size=$total; files=$count; items=$items; denied=$denied} |
-    ConvertTo-Json -Compress -Depth 4
-"""
-
-
 def _json_items(raw) -> list[dict]:
     if isinstance(raw, dict):
         raw = [raw]
@@ -450,141 +374,6 @@ DISK_TREE_MAX_PER_DIR = 40                          # 单个目录最多列出�
 # 放大会更全面但更慢（每个深分支都要把整棵子树量一遍）。
 DISK_TREE_MAX_DESCENTS = 4
 
-PS_TREE_WALK = r"""
-$ErrorActionPreference='SilentlyContinue'
-$root = '__ROOT__'
-$minChild = __MINCHILD__
-$ratio = __RATIO__
-$floor = __FLOOR__
-$maxDepth = __MAXDEPTH__
-$maxPerDir = __MAXPERDIR__
-$maxNodes = __MAXNODES__
-$maxDescents = __MAXDESCENTS__
-# 进度文件：Python 侧每 0.5 秒读一次，把「预算已用」换算成百分比。
-# 为空串表示不需要上报（例如从命令行直接调用本脚本）。
-$progFile = '__PROGFILE__'
-
-$script:out = New-Object System.Collections.ArrayList
-$script:budget = $maxNodes
-$script:sizeCache = @{}
-$script:tick = 0
-
-# 目录体积按需测量并缓存 —— 同一目录只量一次
-function Size-Of([string]$p) {
-    if ($script:sizeCache.ContainsKey($p)) { return $script:sizeCache[$p] }
-    $m = Get-ChildItem -LiteralPath $p -Recurse -Force -File -ErrorAction SilentlyContinue |
-         Measure-Object -Property Length -Sum
-    $v = [int64]$m.Sum
-    $script:sizeCache[$p] = $v
-    return $v
-}
-
-function Min-Descend([int64]$parentSize) {
-    $d = [int64]($parentSize * $ratio)
-    if ($d -lt $floor) { $d = [int64]$floor }
-    if ($d -gt 4000000000) { $d = [int64]4000000000 }
-    return $d
-}
-
-function Walk([string]$p, [int]$depth, [string]$parentKey, [int64]$selfSize) {
-    if ($depth -gt $maxDepth -or $script:budget -le 0) { return }
-    $minDescend = Min-Descend $selfSize
-
-    $ErrorActionPreference='Stop'
-    try { $all = @(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop) }
-    catch { $all = @() }
-    $ErrorActionPreference='SilentlyContinue'
-
-    $kids = @()
-    foreach ($d in ($all | Where-Object { $_.PSIsContainer })) {
-        if ($d.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
-        $sz = Size-Of $d.FullName
-        if ($sz -lt $minChild) { continue }
-        $kids += [pscustomobject]@{ type='dir'; name=$d.Name; path=$d.FullName
-            size=$sz; modified=$d.LastWriteTime.ToString('yyyy-MM-dd') }
-    }
-    foreach ($f in ($all | Where-Object { -not $_.PSIsContainer })) {
-        if ($f.Length -lt $minChild) { continue }
-        $kids += [pscustomobject]@{ type='file'; name=$f.Name; path=$f.FullName
-            size=[int64]$f.Length; modified=$f.LastWriteTime.ToString('yyyy-MM-dd') }
-    }
-    $kids = @($kids | Sort-Object -Property size -Descending | Select-Object -First $maxPerDir)
-
-    # 只在最粗的几条分支上继续深入，控制总耗时
-    $descended = 0
-    foreach ($k in $kids) {
-        if ($script:budget -le 0) { break }
-        $script:budget--
-        # 每 25 个节点报一次进度。写文件比 Set-Content 循环便宜得多，
-        # 但也不能每个节点都写 —— 递归本身才是瓶颈，别让它被 I/O 拖慢。
-        $script:tick++
-        if ($progFile -ne '' -and ($script:tick % 25) -eq 0) {
-            try {
-                [System.IO.File]::WriteAllText($progFile, "$($maxNodes - $script:budget)/$maxNodes")
-            } catch { }
-        }
-        $key = $k.path.ToLower()
-        $hasKids = $false
-        if ($k.type -eq 'dir' -and $k.size -ge $minDescend -and $depth -lt $maxDepth `
-            -and $descended -lt $maxDescents -and $script:budget -gt 0) {
-            $descended++
-            $hasKids = $true
-        }
-        [void]$script:out.Add([pscustomobject]@{ parent=$parentKey; name=$k.name
-            path=$k.path; type=$k.type; size=$k.size; depth=$depth
-            modified=$k.modified; hasChildren=$hasKids })
-        if ($hasKids) { Walk $k.path ($depth + 1) $key $k.size }
-    }
-}
-
-$total = 0
-$ErrorActionPreference='Stop'
-try { $tops = @(Get-ChildItem -LiteralPath $root -Force -Directory -ErrorAction Stop) }
-catch { $tops = @() }
-$ErrorActionPreference='SilentlyContinue'
-
-$topList = @()
-foreach ($d in $tops) {
-    if ($d.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
-    $sz = Size-Of $d.FullName
-    $topList += [pscustomobject]@{ name=$d.Name; path=$d.FullName; size=$sz
-        modified=$d.LastWriteTime.ToString('yyyy-MM-dd') }
-    $total += $sz
-}
-$topList = @($topList | Sort-Object -Property size -Descending)
-
-foreach ($t in $topList) {
-    if ($script:budget -le 0) { break }
-    $key = $t.path.ToLower()
-    $script:budget--
-    $hasKids = ($t.size -ge (Min-Descend $total) -and $script:budget -gt 0)
-    [void]$script:out.Add([pscustomobject]@{ parent=$root.ToLower(); name=$t.name
-        path=$t.path; type='dir'; size=$t.size; depth=1
-        modified=$t.modified; hasChildren=$hasKids })
-    if ($hasKids) { Walk $t.path 2 $key $t.size }
-}
-
-# 盘符根目录下的大文件
-$rootFiles = @()
-$ErrorActionPreference='Stop'
-try { $rf = @(Get-ChildItem -LiteralPath $root -Force -File -ErrorAction Stop) }
-catch { $rf = @() }
-$ErrorActionPreference='SilentlyContinue'
-foreach ($f in $rf) {
-    if ($f.Length -lt $minChild) { continue }
-    $rootFiles += [pscustomobject]@{ name=$f.Name; path=$f.FullName
-        size=[int64]$f.Length; modified=$f.LastWriteTime.ToString('yyyy-MM-dd') }
-}
-
-[pscustomobject]@{
-    root=$root.ToLower()
-    nodes=$script:out
-    rootfiles=$rootFiles
-    total=[int64]$total
-} | ConvertTo-Json -Compress -Depth 4
-"""
-
-
 # ======================================================================
 #  WizTree 加速：借它的 MFT 读取，把全盘扫描从几分钟压到几十秒
 # ======================================================================
@@ -622,8 +411,6 @@ WIZTREE_LICENSE_NOTE = (
 )
 # 便携版解压到这里（相对 O-Cleaner 根目录，跟着文件夹走）
 WIZTREE_PORTABLE_DIR = BASE_DIR / "portable" / "WizTree"
-
-
 
 def find_wiztree() -> str | None:
     """找 WizTree 可执行文件。返回完整路径或 None（没装就静默走原路径）。
@@ -1663,8 +1450,6 @@ def is_system_drive(letter: str) -> bool:
             or (os.path.isdir(os.path.join(root, "Windows"))
                 and os.path.isdir(os.path.join(root, "Users"))))
 
-
-
 # ======================================================================
 #  配置加载
 # ======================================================================
@@ -2186,31 +1971,6 @@ BROWSER_CACHE_DIRS = {
 # 所以判定统一走 _looks_like_browser_profile()：必须在目录内部
 # 真的看到 Cache / Code Cache 这类缓存子目录才认。
 
-PS_DIR_KIND = r"""
-$ErrorActionPreference='SilentlyContinue'
-$p = '__PATH__'
-$denied = $false
-$dirs = @()
-$files = @()
-$ErrorActionPreference='Stop'
-try { $all = @(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop) }
-catch { $denied = $true; $all = @() }
-$ErrorActionPreference='SilentlyContinue'
-foreach ($c in $all) {
-    if ($c.PSIsContainer) {
-        if ($c.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
-        $dirs += [pscustomobject]@{ name=$c.Name; path=$c.FullName
-            modified=$c.LastWriteTime.ToString('yyyy-MM-dd') }
-    } else {
-        $files += [pscustomobject]@{ name=$c.Name; path=$c.FullName
-            size=[int64]$c.Length; modified=$c.LastWriteTime.ToString('yyyy-MM-dd') }
-    }
-}
-[pscustomobject]@{ denied=$denied; dirs=$dirs; files=$files } |
-    ConvertTo-Json -Compress -Depth 4
-"""
-
-
 def _looks_like_game_install(path: str) -> bool:
     """判断目录是否是一个游戏本体（而非缓存）。
 
@@ -2373,66 +2133,6 @@ STEAM_STATE_FLAGS = {
     32: "已预载", 64: "预载未解锁", 128: "已锁定", 256: "已计划更新",
     512: "需要密钥", 1024: "需要许可证", 2048: "正在校验",
 }
-
-PS_STEAM = r"""
-$ErrorActionPreference='SilentlyContinue'
-$roots = @()
-foreach ($k in @('HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam')) {
-    $p = (Get-ItemProperty -Path $k -ErrorAction SilentlyContinue).SteamPath
-    if ($p) { $roots += $p }
-}
-foreach ($p in @('C:\Steam','D:\Steam','D:\steam','E:\Steam','E:\steam',
-                 (Join-Path ${env:ProgramFiles(x86)} 'Steam'),
-                 (Join-Path $env:ProgramFiles 'Steam'))) {
-    if ($p) { $roots += $p }
-}
-
-$acfs = @()
-foreach ($root in ($roots | Select-Object -Unique)) {
-    if (-not (Test-Path -LiteralPath $root)) { continue }
-    $libPaths = @($root)
-    $vdf = Join-Path $root 'steamapps\libraryfolders.vdf'
-    if (Test-Path -LiteralPath $vdf) {
-        $txt = Get-Content -LiteralPath $vdf -Raw -ErrorAction SilentlyContinue
-        foreach ($m in [regex]::Matches($txt, '"path"\s+"([^"]+)"')) {
-            $libPaths += ($m.Groups[1].Value -replace '\\\\', '\')
-        }
-    }
-    foreach ($lp in ($libPaths | Select-Object -Unique)) {
-        $sa = Join-Path $lp 'steamapps'
-        if (-not (Test-Path -LiteralPath $sa)) { continue }
-        foreach ($f in (Get-ChildItem -LiteralPath $sa -Filter 'appmanifest_*.acf' -File -ErrorAction SilentlyContinue)) {
-            $acfs += [pscustomobject]@{ library=$lp; path=$f.FullName }
-        }
-    }
-}
-[pscustomobject]@{
-    roots = @($roots | Select-Object -Unique)
-    manifests = @($acfs | ForEach-Object { $_.library + '|' + $_.path })
-} | ConvertTo-Json -Compress -Depth 4
-"""
-
-# 残留目录体积：单独一次（路径数量少，代价可控）
-PS_STEAM_ORPHAN_SIZE = r"""
-$ErrorActionPreference='SilentlyContinue'
-$paths = @()
-if (Test-Path -LiteralPath '__LIST__') {
-    $paths = @(Get-Content -LiteralPath '__LIST__' -Encoding UTF8 | Where-Object { $_ })
-}
-$out = @()
-foreach ($p in $paths) {
-    if (-not (Test-Path -LiteralPath $p)) { continue }
-    $m = Get-ChildItem -LiteralPath $p -Recurse -Force -File -ErrorAction SilentlyContinue |
-         Measure-Object -Property Length -Sum
-    $out += ('{{"path":"{0}","size":{1}}}' -f ($p -replace '\\', '/'), [int64]$m.Sum)
-}
-# 手工拼 JSON 数组，不用 ConvertTo-Json：
-# 它在数组**只有一个元素**时会退化成序列化对象自身属性
-# （Name/FullName/Length/Mode…），实测因此拿到一堆 path 为 null 的条目、体积全变 0。
-# 路径统一转成正斜杠，彻底避开反斜杠转义问题。
-'[' + ($out -join ',') + ']'
-"""
-
 
 def _parse_vdf(text: str) -> dict:
     """极简 Valve VDF（KeyValues）解析器。
@@ -3561,46 +3261,6 @@ def probe_locked(path: str) -> dict:
     out["why"] = "当前没有被占用"
     return out
 
-
-PS_LOCK_HOLDERS = r"""
-$targets = @(__TARGETS__)
-$rows = New-Object System.Collections.ArrayList
-foreach ($pr in (Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)) {
-    # 跳过扫描者自己：本脚本把目标路径当作字面量写在命令行里，
-    # 不排除的话 powershell.exe 一定会「命令行里含这个完整路径」命中自己，
-    # 既制造假候选、又把真正的候选挤到后面。
-    if ($pr.ProcessId -eq $PID) { continue }
-    $exe = $pr.ExecutablePath
-    $cmd = $pr.CommandLine
-    if ([string]::IsNullOrEmpty($exe) -and [string]::IsNullOrEmpty($cmd)) { continue }
-    foreach ($t in $targets) {
-        $dir = [System.IO.Path]::GetDirectoryName($t)
-        $nm  = [System.IO.Path]::GetFileName($t)
-        $why = ''
-        $strong = $false
-        if (-not [string]::IsNullOrEmpty($exe) -and -not [string]::IsNullOrEmpty($dir)) {
-            $pfx = $dir.ToLower() + [System.IO.Path]::DirectorySeparatorChar
-            if ($exe.ToLower().StartsWith($pfx)) {
-                $strong = $true; $why = '程序本体就在这个目录下'
-            }
-        }
-        if (-not $strong -and -not [string]::IsNullOrEmpty($cmd)) {
-            $cl = $cmd.ToLower()
-            if ($cl.Contains($t.ToLower())) { $strong = $true; $why = '命令行里含这个完整路径' }
-            elseif ($nm.Length -ge 4 -and $cl.Contains($nm.ToLower())) { $why = '命令行里含同名文件' }
-        }
-        if ($why -ne '') {
-            [void]$rows.Add([pscustomobject]@{
-                target = $t; pid = [int]$pr.ProcessId; name = $pr.Name
-                exe = $exe; why = $why; strong = [bool]$strong })
-        }
-    }
-}
-if ($rows.Count -eq 0) { '[]' }
-else { $rows | Select-Object -First __LIMIT__ | ConvertTo-Json -Compress -Depth 3 }
-"""
-
-
 def find_lock_holders(paths: list) -> dict:
     """探测这些路径的占用状态，并给出「可能是谁占用」的候选清单。
 
@@ -3651,9 +3311,6 @@ def find_lock_holders(paths: list) -> dict:
             candidates = candidates[:LOCK_CANDIDATE_LIMIT]
     return {"results": results, "candidates": candidates,
             "truncated": truncated, "ps_error": ps_error}
-
-
-
 
 # 自动发现的深度上限 = 2（盘符根的直接子目录，及其子目录）。
 # 这里刻意用下面两段展开的循环实现，而不是递归 + 深度常量：

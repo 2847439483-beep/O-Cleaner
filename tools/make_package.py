@@ -39,6 +39,7 @@ ROOT = HERE.parent
 # 分发清单。顶层目录在 zip 里固定为 O-Cleaner/。
 INCLUDE = [
     "app.py",
+    "ps_scripts.py",
     "start-ocleaner.bat",
     "README.md",
     "docs/USAGE.md",

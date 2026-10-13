@@ -597,10 +597,10 @@ def lint_consistency() -> None:
 
 
 # ======================================================================
-#  6. 内嵌脚本模板的语法（app.py 的 PS_* 模板）
+#  6. 内嵌脚本模板的语法（app.py + ps_scripts.py 的 PS_* 模板）
 # ======================================================================
 def lint_ps_templates() -> None:
-    """检查 app.py 内嵌脚本模板的括号是否配平。
+    """检查内嵌脚本模板（app.py + ps_scripts.py）的括号是否配平。
 
     这一关是被一次真实事故催出来的：v2.3 给磁盘递归脚本加「按节点预算上报
     进度」时，`if (...) {` 少写了一个右花括号。模板本身能渲染、占位符也都能
@@ -613,15 +613,30 @@ def lint_ps_templates() -> None:
     （tools/selftest.py 阶段七）。两者角度不同：这里保证「一眼可见的配平
     问题」在提交前就被挡下，而且不依赖 Windows 环境也能跑。
     """
-    print("\n[7/8] 内嵌脚本模板语法（app.py 的 PS_* 模板）")
+    print("\n[7/8] 内嵌脚本模板语法（app.py + ps_scripts.py 的 PS_* 模板）")
     n0 = len(ERRORS)
-    app_py = HERE / "app.py"
-    if not app_py.exists():
-        err("找不到 app.py，无法检查内嵌脚本模板")
-        return
-    found = SCRIPT_TEMPLATE_RE.findall(app_py.read_text(encoding="utf-8"))
+    found: list[tuple[str, str]] = []
+    for fname in ("app.py", "ps_scripts.py"):
+        fpath = HERE / fname
+        if not fpath.exists():
+            if fname == "app.py":
+                err("找不到 app.py，无法检查内嵌脚本模板")
+            else:
+                # ps_scripts.py 缺失不算单独的错：真删了模板的话，
+                # 两个文件加起来 0 个模板会被下面的兜底报错拦住
+                # （缺陷注入测试只在临时目录放一个假 app.py，不能误伤它）。
+                print("  ps_scripts.py 不存在，跳过该文件")
+            continue
+        hits = SCRIPT_TEMPLATE_RE.findall(fpath.read_text(encoding="utf-8"))
+        if not hits and fname == "ps_scripts.py":
+            err("ps_scripts.py 里没有匹配到任何 PS_* 脚本模板"
+                "（模板应集中在该文件，app.py 里不应再有）")
+        elif not hits and fname == "app.py":
+            print("  app.py 已无 PS_* 模板（已全部抽出至 ps_scripts.py），正常")
+        found.extend((f"[{fname}] {name}", body) for name, body in hits)
     if not found:
-        err("app.py 里没有匹配到任何 PS_* 脚本模板（检查用的正则可能已失效）")
+        err("app.py + ps_scripts.py 加起来没有匹配到任何 PS_* 脚本模板"
+            "（检查用的正则可能已失效）")
         return
     for name, body in found:
         for open_ch, close_ch in (("{", "}"), ("(", ")")):
