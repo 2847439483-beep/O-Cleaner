@@ -34,9 +34,7 @@
     --danger-fg:#f87171; --danger-bd:#7a2323; --danger-bg:#2c1414;
     --info-fg:#60a5fa; --info-bd:#1e4478; --info-bg:#12203a;
     --purple-fg:#c4a6ff; --purple-bd:#4a3a78; --purple-bg:#221b38;
-    --teal-fg:#5eead4; --teal-bd:#1f5b52; --teal-bg:#0f2a27;
-    --orange-fg:#fdba74; --orange-bd:#7c3f12; --orange-bg:#2b1a0c;
-  }
+     }
   [data-theme="light"]{
     --bg:#f4f6fa; --panel:#ffffff; --panel2:#eef1f6;
     --line:#dfe4ec; --line2:#cbd3df;
@@ -53,8 +51,6 @@
     --danger-fg:#b91c1c; --danger-bd:#fca5a5; --danger-bg:#fef2f2;
     --info-fg:#1d4ed8; --info-bd:#93c5fd; --info-bg:#eff6ff;
     --purple-fg:#7c3aed; --purple-bd:#c4b5fd; --purple-bg:#f5f3ff;
-    --teal-fg:#0f766e; --teal-bd:#5eead4; --teal-bg:#f0fdfa;
-    --orange-fg:#c2410c; --orange-bd:#fdba74; --orange-bg:#fff7ed;
   }
   *{box-sizing:border-box; min-width:0}
   html,body{margin:0}
@@ -170,10 +166,6 @@
   }
 
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .cathead{margin:16px 0 8px;font-size:11.5px;letter-spacing:.1em;color:var(--dim2);
-           text-transform:uppercase;font-weight:700;display:flex;align-items:center;gap:8px}
-  .cathead .cnt{color:var(--dim2);font-weight:500;letter-spacing:0;text-transform:none}
-  .cathead::after{content:"";flex:1;height:1px;background:var(--line)}
   .list{display:flex;flex-direction:column;gap:8px}
 
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
@@ -236,34 +228,8 @@
                white-space:normal;overflow-wrap:anywhere;word-break:break-word;max-width:100%}
   .preset.act{border-color:var(--accent);background:var(--accent-soft)}
   .preset.act strong{color:var(--accent-soft-fg)}
-
-  /* ================= 目标卡片 =================
-     旧版问题：三列网格 auto|1fr|132px，右侧固定窄列里的内容（大小/文件数/'?'按钮）
-     被压成窄高竖条，而中间正文全宽很空 —— 视觉上就是「挤在左上侧」。
-     新版：正文与操作区宽度按内容自适应，操作区从卡片最右侧起算并留足宽度，
-     正文与操作区之间用虚线分隔，整行纵向居中，空白分布均匀。 */
-  .card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:0 14px;
-        align-items:start;background:var(--panel);border:1px solid var(--line);
-        border-radius:11px;padding:13px 15px;cursor:pointer;transition:.13s}
-  .card:hover{border-color:var(--line2);background:var(--panel-hover)}
-  .card.on{border-color:var(--accent);background:var(--accent-soft)}
-  .card.dead{opacity:.45;cursor:not-allowed}
-  .card > input[type=checkbox]{width:18px;height:18px;margin:3px 0 0;
-        accent-color:var(--accent);cursor:inherit;flex:none}
-
-  /* 操作区：大小 + 文件数 + 按钮，自成一块，靠右对齐且宽度自适应 */
-  .cact{display:flex;align-items:flex-start;gap:16px;padding-left:16px;
-        border-left:1px dashed var(--line);align-self:stretch}
   .cnum{text-align:right;min-width:112px}
-  .cnum .size{font-weight:700;font-size:16.5px;font-variant-numeric:tabular-nums;
-              line-height:1.3;white-space:nowrap}
-  .cnum .meta{color:var(--dim2);font-size:11.5px;margin-top:4px;
-              font-variant-numeric:tabular-nums;white-space:nowrap}
-  .cbtns{display:flex;flex-direction:column;gap:6px}
-
-  .l1{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
   .label{font-weight:600;font-size:15px;overflow-wrap:anywhere}
-  .badges{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
   .desc{color:var(--dim);font-size:12.5px;margin-top:7px;line-height:1.55;
         overflow-wrap:anywhere}
   .path{color:var(--dim2);font-size:11px;margin-top:6px;overflow-wrap:anywhere;
@@ -278,33 +244,7 @@
   .b-mid{color:var(--warn-fg);border-color:var(--warn-bd);background:var(--warn-bg)}
   .b-high{color:var(--danger-fg);border-color:var(--danger-bd);background:var(--danger-bg)}
   .b-cat{color:var(--dim);border-color:var(--line);background:var(--panel2)}
-  .b-admin{color:var(--purple-fg);border-color:var(--purple-bd);background:var(--purple-bg)}
-  .b-custom{color:var(--teal-fg);border-color:var(--teal-bd);background:var(--teal-bg)}
-  .b-disc{color:var(--orange-fg);border-color:var(--orange-bd);background:var(--orange-bg)}
 
-  .know{grid-column:2/-1;margin-top:12px;padding:12px 14px;background:var(--panel2);
-        border:1px dashed var(--line2);border-radius:9px;font-size:13px;display:none}
-  .card.open .know{display:block}
-  .know h4{margin:0 0 9px;font-size:13px;color:var(--accent)}
-  .know dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;margin:0}
-  .know dt{color:var(--dim2);font-size:12px;white-space:nowrap}
-  .know dd{margin:0;color:var(--fg-soft);overflow-wrap:anywhere;line-height:1.6}
-  .subitems{grid-column:2/-1;margin-top:12px;border-top:1px solid var(--line);
-            padding-top:10px;display:none}
-  .card.open .subitems{display:block}
-  .srow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;
-        align-items:center;padding:4px 0;font-size:12.5px}
-  .srow input{width:15px;height:15px;accent-color:var(--warn);cursor:pointer}
-  .srow .sname{color:var(--fg-soft);overflow-wrap:anywhere}
-  .srow .ssize{color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
-
-  /* 窄屏：操作区换到下一行，避免被挤成竖条 */
-  @media(max-width:900px){
-    .card{grid-template-columns:auto minmax(0,1fr)}
-    .cact{grid-column:2;padding-left:0;border-left:0;border-top:1px dashed var(--line);
-          margin-top:12px;padding-top:11px;justify-content:space-between;width:100%}
-    .cnum{text-align:left}
-  }
 
   /* ================= 侧栏 ================= */
   .stat{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:13px;
@@ -389,19 +329,6 @@
   .drillhint{font-size:11.5px;color:var(--dim2);margin-top:7px}
   .vrow .vgo{font-size:10.5px;color:var(--accent);border:1px solid var(--info-bd);
              background:var(--info-bg);border-radius:99px;padding:1px 7px;white-space:nowrap}
-
-  /* 卡片列表子项展开树 */
-  .card-kids{display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);
-             flex-direction:column;gap:6px}
-  .card-kids.open{display:flex}
-  .card-kids-list{margin-left:14px;padding-left:12px;border-left:2px solid var(--line2);
-                  display:flex;flex-direction:column;gap:5px;max-height:360px;overflow:auto}
-  .card-krow{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px;
-             font-size:12px;background:var(--panel2);border:1px solid var(--line)}
-  .card-krow:hover{border-color:var(--line2)}
-  .card-krow .knm{flex:1;min-width:0;overflow-wrap:anywhere}
-  .card-krow .ksz{font-variant-numeric:tabular-nums;color:var(--dim);margin-left:auto}
-  .card-kids .loading{color:var(--dim2);font-size:12px;padding:6px 0;display:flex;align-items:center;gap:6px}
 
   /* 嵌套子项展开树 */
   .vrow-kids{display:none;margin-left:22px;padding-left:14px;border-left:2px solid var(--line2);
