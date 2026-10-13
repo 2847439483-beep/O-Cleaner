@@ -2659,7 +2659,11 @@ def discover_steam() -> dict:
     # 残留目录测体积：这些是「Steam 已无记录但目录还在」的空间，
     # 通常是最值得回收的一类，不测体积就没有意义
     if orphans:
-        lst = BASE_DIR / ".steam-orphans.tmp"
+        # 固定名放系统临时目录、反复覆盖、不做删除：这里的 unlink 曾落在
+        # 仓库目录且每次扫描必删一次，在带安全删除钩子的宿主环境里
+        # 会耗尽删除配额并让钩子抛 SystemExit 杀死整个扫描线程
+        #（表现为「扫描报错」，CI 无钩子不复现）。
+        lst = Path(tempfile.gettempdir()) / "oc-steam-orphans.tmp"
         try:
             lst.write_text("\n".join(o["path"] for o in orphans[:40]),
                            encoding="utf-8")
@@ -2677,11 +2681,6 @@ def discover_steam() -> dict:
                 orphans.sort(key=lambda o: -o["size"])
         except OSError:
             pass
-        finally:
-            try:
-                lst.unlink()
-            except OSError:
-                pass
 
     total = sum(g["size"] for g in games)
     return {
