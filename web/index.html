@@ -637,7 +637,7 @@
     <button id="btnScan" class="primary">重新扫描</button>
     <button id="btnFullScan">全盘扫描本盘</button>
     <select id="fsDepthSel" style="width:auto"
-            title="全盘扫描的展开深度。快速模式只展开 2 层，先定位占地大头，适合大多数场景；更深的目录在结果里仍可点击下钻（现场扫描）">
+            title="全盘扫描的展开深度。快速模式只展开 2 层，先定位占地大头；游戏本体始终会出现在排行里（不受深度限制），深层目录也可点击下钻（现场扫描）">
       <option value="quick">快速（默认，2 层）</option>
       <option value="deep">深扫（更细，较慢）</option>
     </select>
@@ -1467,11 +1467,24 @@ function selTotal() {
   }
   const norm = p => String(p || "").replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
   const real = entries.map(e => norm(e[0])).filter(Boolean);
+  // 游戏本体判定：树节点带 steam_game / game_platform 标记（与后端同一口径）
+  const nodeByPath = new Map((FS?.nodes || []).map(n => [norm(n.path), n]));
+  const isGameBody = p => {
+    const n = nodeByPath.get(p);
+    return !!(n && (n.steam_game || n.game_platform));
+  };
   let sum = 0;
   for (const [p, size] of entries) {
     const np = norm(p);
+    if (!np) { sum += size; continue; }
+    const hasInner = real.some(q => q && q !== np && q.startsWith(np + "\\"));
+    if (isGameBody(np) && hasInner) {
+      // 游戏本体整删不拆：本体体积已覆盖内部勾选项，只计本体
+      sum += size;
+      continue;
+    }
     // 外层被跳过：存在另一条真实勾选路径位于它内部（保留更小的那条）
-    if (np && real.some(q => q && q !== np && q.startsWith(np + "\\"))) continue;
+    if (hasInner) continue;
     sum += size;
   }
   return sum;
@@ -2668,7 +2681,7 @@ async function loadSubLevel(node) {
 function renderChart() {
   const here = fsChildren();
   let rows;
-  if (fsMode === "clean") rows = FS.nodes.filter(n => n.cleanable);
+  if (fsMode === "clean") rows = FS.nodes.filter(n => n.cleanable && !n.in_game_body);
   else if (fsMode === "files") rows = here.filter(n => n.type === "file");
   else if (fsMode === "biggest") {
     // 全盘最大项目：纯按体积降序，把中间容器（steamapps/common 等）剔掉，
@@ -2679,7 +2692,7 @@ function renderChart() {
       "binaries", "content", "data", "models", "files",
     ]);
     rows = FS.nodes.filter(n => n.type === "dir" && n.depth >= 2 && n.size > 0
-      && !containers.has(n.name.toLowerCase()));
+      && !containers.has(n.name.toLowerCase()) && !n.in_game_body);
   }
   else rows = here;
   // 全部视图都按体积降序取前 30

@@ -1252,6 +1252,78 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
             continue
     for i, n in enumerate(nodes):
         n["id"] = i
+
+    # 快速扫描只展开 2 层，游戏本体（常见在 steamapps\common\ 下第 4 层）会被
+    # 挡在树外 —— 而它们恰恰是用户最想整删的大项。把树里缺失的游戏本体补进
+    # 来：挂到树内最深的现有祖先下，保证父子链可导航。有 WizTree 时查表
+    # O(1)；无加速时限量实测（只补前 60 个），避免快速扫描反而变慢。
+    if max_depth < 4:
+        prog_set("inject", "补齐游戏本体节点", 88, indeterminate=True)
+        have = {os.path.normpath(n["path"]).lower() for n in nodes if n.get("path")}
+        wiz_tbl = _WIZ_DIRS.get(letter, {}).get("table", {}) or {}
+        wiz_dirs_tbl = wiz_tbl.get("dirs") if engine == "wiztree" else None
+        cands: list[str] = []
+        for common in steam_common:
+            c = os.path.normpath(common)
+            if os.path.splitdrive(c)[0].rstrip(":").upper() != letter:
+                continue
+            if wiz_dirs_tbl is not None:
+                cands += [ch["path"] for ch in
+                          _wiztree_children(wiz_dirs_tbl, common, limit=120)]
+            else:
+                try:
+                    with os.scandir(common) as it:
+                        cands += [e.path for e in it
+                                  if e.is_dir(follow_symlinks=False)]
+                except OSError:
+                    pass
+        cands += [os.path.normpath(p) for p in other_game_dirs]
+        injected = 0
+        for cand in cands:
+            low = os.path.normpath(cand).lower()
+            if low in have or injected >= 60:
+                continue
+            if os.path.splitdrive(low)[0].rstrip(":").upper() != letter:
+                continue
+            if wiz_dirs_tbl is not None:
+                size = int(wiz_tbl.get("dirs", {}).get(low) or 0)
+            else:
+                sz, _trunc = _size_of_dir_budgeted(cand)
+                size = int(sz or 0)
+            if size <= 0:
+                continue
+            best, best_len = None, 0
+            for n in nodes:
+                if n["type"] != "dir" or not n.get("path"):
+                    continue
+                np = os.path.normpath(n["path"]).lower()
+                if np != low and low.startswith(np + "\\") and len(np) > best_len:
+                    best, best_len = n, len(np)
+            node = mk({"name": os.path.basename(cand.rstrip("\\") or cand),
+                       "path": cand,
+                       "parent": (best["path"] if best else root_key).lower(),
+                       "depth": (best["depth"] + 1 if best else 1),
+                       "type": "dir", "size": size,
+                       "modified": "", "hasChildren": True}, root_key)
+            node["can_drill"] = True
+            node["injected"] = True
+            nodes.append(node)
+            have.add(low)
+            injected += 1
+
+    # 游戏本体整删不拆分：本体行出现在排行里时，它内部的子项不再单独成行
+    #（同一项目整删；「压缩包 / download」这类可拆分目录不受影响，
+    # 子项照常显示）。标记给前端过滤，同时供勾选去重参考。
+    for g in [n for n in nodes if n.get("steam_game") or n.get("game_platform")]:
+        pre = os.path.normpath(g["path"]).lower()
+        pre = pre if pre.endswith("\\") else pre + "\\"
+        for m in nodes:
+            if m is g or m["type"] != "dir" or not m.get("path"):
+                continue
+            mp = os.path.normpath(m["path"]).lower()
+            if mp.startswith(pre):
+                m["in_game_body"] = g["path"]
+
     # 把「这条树节点正好是某个清理目标」的对应关系直接标在节点上（target_id）：
     # 占用排行里的可清理行靠它优先走「按目标 id 清理」，从而保留回收站等
     # 特殊目标的清理语义；对不上目标的可清理行才走按路径清理（服务端重校验）。
@@ -3060,39 +3132,69 @@ def find_game_save_candidates(install_path: str,
     return found[:5]
 
 
-def dedup_nested_targets(selected: list[dict]) -> tuple[list[dict], list[dict]]:
-    """勾选项包含关系去重：外层路径包含内层勾选项时，只清最小（最深）项。
+def _is_game_body_path(path: str) -> bool:
+    """这个路径是不是「游戏本体」目录（steamapps\\common 下一层 / Epic / GOG 安装路径）。
 
-    用户场景：占用排行里「大项和子项包含相同内容、体积近似」（子项几乎就是
-    大项的全部内容），两行都勾上时不应重复删除、也不应重复计体积。
-    规则：保留最深的勾选项、跳过它的祖先；删除始终以整个文件夹为单位，
-    **不把文件夹拆成子项逐个删**。没有实体路径的目标（如回收站）不参与。
-    返回 (保留列表, 被跳过的外层列表)。
+    游戏本体是同一项目的整体：勾选去重时优先整删，不继续拆分 ——
+    拆出子项单独删既不省空间（整款游戏还在）也不安全（漏删/误删一半）。
+    """
+    low = os.path.normpath(str(path or "")).lower()
+    if not low or ":" not in low:
+        return False
+    try:
+        common, _libs = steam_common_dirs()
+        if os.path.dirname(low) in common:
+            return True
+        other_dirs, _libs2 = game_install_dirs()
+        return low in other_dirs
+    except Exception:
+        return False
+
+
+def dedup_nested_targets(selected: list[dict]) -> tuple[list[dict], list[dict]]:
+    """勾选项包含关系去重：同一项目整删不拆，可拆分项取最小。
+
+    外层路径包含内层勾选项时（占用排行里「大项和子项体积近似」的重复内容）：
+    * 外层是**游戏本体** → 同一项目，保留外层整删、跳过它里面的勾选项
+     （游戏文件夹拆出子项单独删，剩下的游戏壳毫无意义）；
+    * 其他项目（压缩包、download 这类**可继续拆分**的目录）→ 保留最小项、
+      跳过外层，不重复删除、不重复计体积。
+    没有实体路径的目标（如回收站）不参与。
+    返回 (保留列表, 被跳过列表)。
     """
 
     def norm(p) -> str:
         return os.path.normpath(str(p)).rstrip("\\").lower() if p else ""
 
     paths = [norm(t.get("path")) for t in selected]
-    kept: list[dict] = []
-    merged: list[dict] = []
+    is_game = [_is_game_body_path(t.get("path")) for t in selected]
+    dropped: dict[int, dict] = {}
     for i, t in enumerate(selected):
         p = paths[i]
-        if not p:
-            kept.append(t)
+        if not p or i in dropped:
             continue
-        # 是某条其他勾选路径的祖先（严格包含）→ 本项跳过，只清里面那条
-        if any(q and q != p and q.startswith(p + "\\")
-               for j, q in enumerate(paths) if j != i):
-            inner = next((selected[j] for j, q in enumerate(paths)
-                          if j != i and q and q != p and q.startswith(p + "\\")),
-                         None)
-            merged.append({"label": t.get("label") or t.get("id", ""),
-                           "path": t.get("path", ""),
-                           "kept": (inner or {}).get("path", ""),
-                           "reason": "已包含更小的勾选项，只清理最小项"})
+        desc = [j for j, q in enumerate(paths)
+                if j != i and q and q != p and q.startswith(p + "\\")
+                and j not in dropped]
+        if not desc:
+            continue
+        if is_game[i]:
+            # 游戏本体：整删，它里面的勾选项一并跳过
+            for j in desc:
+                dropped[j] = {"label": selected[j].get("label")
+                              or selected[j].get("id", ""),
+                              "path": selected[j].get("path", ""),
+                              "kept": t.get("path", ""),
+                              "reason": "已在同一游戏本体内，整删不拆分"}
         else:
-            kept.append(t)
+            # 可拆分项目：保留最小项，跳过外层
+            inner = selected[desc[0]]
+            dropped[i] = {"label": t.get("label") or t.get("id", ""),
+                          "path": t.get("path", ""),
+                          "kept": inner.get("path", ""),
+                          "reason": "已包含更小的勾选项，只清理最小项"}
+    kept = [t for i, t in enumerate(selected) if i not in dropped]
+    merged = [dropped[i] for i in sorted(dropped)]
     return kept, merged
 
 

@@ -456,6 +456,33 @@ def phase1() -> None:
     check("去重与勾选顺序无关",
           {k.get("path", "") for k in kept3} == {"E:\\big\\cache"})
 
+    # 游戏本体：同一项目整删不拆（祖先=游戏本体 → 保留本体、跳过内部勾选项）
+    _saved_sc, _saved_gd = app.steam_common_dirs, app.game_install_dirs
+    try:
+        app.steam_common_dirs = lambda: (
+            {"e:\\steamlibrary\\steamapps\\common"}, set())
+        app.game_install_dirs = lambda: ({"e:\\epic\\game": "epic"}, set())
+        _game = {"id": "tree:g", "label": "游戏本体",
+                 "path": "E:\\SteamLibrary\\steamapps\\common\\Elden Ring"}
+        _ginner = {"id": "tree:gi", "label": "游戏内缓存",
+                   "path": "E:\\SteamLibrary\\steamapps\\common\\Elden Ring\\data"}
+        kept4, merged4 = app.dedup_nested_targets([_game, _ginner])
+        check("游戏本体祖先：整删不拆（保留本体、跳过内部项）",
+              [k.get("path") for k in kept4] == [_game["path"]]
+              and len(merged4) == 1 and merged4[0]["kept"] == _game["path"],
+              str(merged4))
+        _epic = {"id": "tree:e", "label": "Epic 游戏", "path": "E:\\Epic\\game"}
+        _einner = {"id": "tree:ei", "label": "游戏内缓存",
+                   "path": "E:\\Epic\\game\\data"}
+        kept5, merged5 = app.dedup_nested_targets([_epic, _einner])
+        check("Epic/GOG 游戏本体同样整删不拆",
+              [k.get("path") for k in kept5] == [_epic["path"]]
+              and len(merged5) == 1)
+        kept6, _ = app.dedup_nested_targets([_game, _other])   # 无包含关系互不影响
+        check("游戏本体与无关项互不影响", len(kept6) == 2)
+    finally:
+        app.steam_common_dirs, app.game_install_dirs = _saved_sc, _saved_gd
+
 
 # ======================================================================
 #  阶段二
@@ -761,6 +788,12 @@ def phase3_http() -> None:
               "find(d => !d.is_system)" in html and '"oc-drive"' in html)
         check("换盘结果缓存（10 分钟内回切不再重扫）",
               "FS_CACHE" in html and "FS_CACHE_TTL" in html)
+        check("游戏本体整删不拆：排行过滤内部子项（in_game_body）",
+              "in_game_body" in html)
+        app_src = (HERE / "app.py").read_text(encoding="utf-8")
+        check("快速扫描注入游戏本体（不受 2 层深度限制）",
+              "补齐游戏本体节点" in app_src
+              and "_is_game_body_path" in app_src)
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检已移除兼容性分析（面板只留环境与权限）",
