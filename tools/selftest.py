@@ -759,6 +759,51 @@ def phase3_http() -> None:
             _bad_kind = True
         check("错误 kind 的数据包被拒绝", _bad_kind)
 
+        # ---- 按路径清理（占用排行行内勾选的后端链路）----
+        # 安全模型：服务端对每条路径**重新 identify**，必须判为可清理才动手；
+        # 不可清理路径进 skipped_paths 而不是静默忽略。node_modules 是知识库
+        # 认识的开发工具链缓存，临时目录里造一份真删掉。
+        _rc_base = os.path.join(tempfile.gettempdir(), "_oc_selftest_rowclean")
+        _rc_junk = os.path.join(_rc_base, "node_modules")
+        shutil.rmtree(_rc_base, ignore_errors=True)
+        os.makedirs(_rc_junk, exist_ok=True)
+        with open(os.path.join(_rc_junk, "x.js"), "w", encoding="utf-8") as fh:
+            fh.write("x")
+        _rc = get("/__oc__/clean", method="POST", payload={
+            "drive": "C", "ids": [], "paths": [_rc_junk, r"C:\\Windows"]})
+        _rc_entry = _rc.get("entry") or {}
+        _rc_res = next((x for x in _rc_entry.get("results", [])
+                        if x.get("label") == "node_modules"), None)
+        check("按路径清理：可识别目录被清空内容（保留目录本身）",
+              bool(_rc_res) and not _rc_res.get("error") and _rc_res.get("freed", 0) >= 1
+              and os.path.isdir(_rc_junk)
+              and not os.path.exists(os.path.join(_rc_junk, "x.js")),
+              str(_rc_res)[:150] if _rc_res else str(_rc)[:150])
+        check("按路径清理：不可清理路径被点名拒绝",
+              any("C:\\Windows" in str(x.get("path", ""))
+                  and "不可清理" in str(x.get("reason", ""))
+                  for x in _rc.get("skipped_paths", [])),
+              json.dumps(_rc.get("skipped_paths", []), ensure_ascii=False)[:150])
+        # 全部路径被拒时返回 400；HTTPError 自带响应体，把 error 与
+        # skipped_paths 都取出来断言
+        try:
+            _rc_rej = get("/__oc__/clean", method="POST", payload={
+                "drive": "C", "ids": [], "paths": [r"C:\\Windows"]})
+            _rc_err = (_rc_rej or {}).get("error")
+            _rc_skip = (_rc_rej or {}).get("skipped_paths", [])
+        except urllib.error.HTTPError as e:
+            try:
+                _body = json.loads(e.read().decode("utf-8"))
+                _rc_err = _body.get("error")
+                _rc_skip = _body.get("skipped_paths", [])
+            except Exception:
+                _rc_err, _rc_skip = str(e), []
+        except Exception as e:
+            _rc_err, _rc_skip = str(e), []
+        check("按路径清理：全部被拒时明确报没有可清理项",
+              bool(_rc_err) and len(_rc_skip) == 1, str(_rc_err)[:150])
+        shutil.rmtree(_rc_base, ignore_errors=True)
+
         # 扫描进度：必须是真实阶段，而不是把时间映射成百分比
         _pg = get("/__oc__/progress")
         check("进度端点在不扫描时明确标记为未激活",

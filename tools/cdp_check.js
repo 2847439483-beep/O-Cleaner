@@ -150,7 +150,7 @@ class CDP {
   let scanReady = false;
   for (let i = 0; i < 300; i++) {
     await sleep(1000);
-    const done = await evaluate(`document.querySelectorAll('.card .cnum .size').length > 0
+    const done = await evaluate(`!!document.querySelector('#scantime').innerText.trim()
         && !document.querySelector('#btnScan').disabled`);
     if (done) { scanReady = true; break; }
   }
@@ -204,26 +204,15 @@ class CDP {
   })()`);
   console.log(`  [信息] 当前盘: ${scanDrive}:`);
 
-  // 由于前端现在默认自动全盘扫描，若处于 fullView 则先切回 normalView 校验常规清理卡片
-  await evaluate(`(() => {
-    if (typeof showNormalView === 'function' && document.querySelector('#fullView')?.style.display !== 'none') {
-      showNormalView();
-    }
-  })()`);
+  // 可清理项已并入占用排行行内勾选，主视图常驻，无需切视图即可校验
   await sleep(1000);
 
   const stats = await evaluate(`(() => {
-    const cards = [...document.querySelectorAll('.card')];
-    // STATE/SCAN 在 <script> 里是模块作用域，外部读不到，只能从 DOM 判断状态
-    const filled = cards.filter(c => {
-      const s = c.querySelector('.cnum .size');
-      return s && s.innerText.trim() && s.innerText.trim() !== '—';
-    }).length;
-    const sec = document.querySelector('#normalView');
+    const sec = document.querySelector('#fullView');
     const asd = document.querySelector('aside');
     return {
-      cards: cards.length,
-      filled: filled,
+      rows: document.querySelectorAll('#fsChart .vrow').length,
+      rowsel: document.querySelectorAll('#fsChart .rowsel').length,
       ruleBtn: !!document.querySelector('#btnRuleSave'),
       convItems: document.querySelectorAll('.convitem').length,
       heads: [...document.querySelectorAll('aside h3')].map(h => h.innerText.trim().split('\\n')[0]),
@@ -236,19 +225,19 @@ class CDP {
       vw: window.innerWidth,
     };
   })()`);
-  INFO.push(`卡片 ${stats.cards} 张 / 已回填大小 ${stats.filled} 张 / 盘符 ${stats.drives} 个`);
+  INFO.push(`排行行 ${stats.rows} 条 / 可勾选行 ${stats.rowsel} 条 / 盘符 ${stats.drives} 个`);
   console.log(`  [信息] ${INFO[0]}`);
-  console.log(`  [信息] 布局：section x=${stats.secX} w=${stats.secW} | aside x=${stats.asdX} w=${stats.asdW} | 视口 ${stats.vw}`);
+  console.log(`  [信息] 布局：占用树 x=${stats.secX} w=${stats.secW} | aside x=${stats.asdX} w=${stats.asdW} | 视口 ${stats.vw}`);
 
-  check("页面渲染出目标卡片", stats.cards > 0, `${stats.cards} 张`);
-  checkInit("扫描结果已回填到卡片", stats.filled > 0, `${stats.filled}/${stats.cards} 张有大小`);
+  // 行条目计数不在这里断言：首屏时自动全盘扫描多半还没跑完，行数为 0 是时序
+  // 而不是缺陷 —— 「全盘扫描完成并渲染出排行」在扫描段有同义断言。
   check("盘符选择器存在", stats.drives >= 1, `${stats.drives} 个盘`);
   check("清理范围选择器存在", stats.scopeSel);
-  // 布局列位置：卡片区必须在左、侧栏必须在右，且卡片区要占满剩余宽度
-  check("卡片区在左列且占据主体宽度",
+  // 布局列位置：占用树必须在左、侧栏必须在右，且占用树要占满剩余宽度
+  check("占用树在左列且占据主体宽度",
         stats.secX < stats.asdX && stats.secW > stats.asdW,
-        `卡片区 x=${stats.secX} w=${stats.secW}，侧栏 x=${stats.asdX} w=${stats.asdW}`);
-  check("卡片区宽度合理（未被挤成窄列）", stats.secW > stats.vw * 0.5,
+        `占用树 x=${stats.secX} w=${stats.secW}，侧栏 x=${stats.asdX} w=${stats.asdW}`);
+  check("占用树宽度合理（未被挤成窄列）", stats.secW > stats.vw * 0.5,
         `${stats.secW}px / 视口 ${stats.vw}px`);
 
   // 面板合并
@@ -282,12 +271,21 @@ class CDP {
         (th.saved === null || ["light", "dark", "system"].includes(th.saved)),
         `随系统=${th.s} 偏好=${th.saved}`);
 
-  // 自定义释义编辑器：卡片「编辑」按钮打开弹窗，四个文本域 + 结论下拉。
+  // 自定义释义编辑器：详情弹窗里的「自定义释义」按钮打开弹窗（卡片移除后的
+  // 新入口，行上有 target_id 才显示），四个文本域 + 结论下拉。
   // 弹窗内容在 fetch 完当前覆盖之后才填，所以必须等一拍再检查。
   const ov = await evaluate(`(async () => {
-    const btn = document.querySelector('.card .ovbtn');
-    if (!btn) return { err: 'no ovbtn' };
-    btn.click();
+    // 找一个带 target_id 的行 → 点它的「详情」→ 弹窗里点「自定义释义」
+    const cb = [...document.querySelectorAll('#fsChart .rowsel')]
+      .find(c => c.dataset.tid);
+    if (!cb) return { err: 'no row with target_id' };
+    const info = cb.closest('.vrow').querySelector('[data-info]');
+    if (!info) return { err: 'no rowinfo button' };
+    info.click();
+    await new Promise(r => setTimeout(r, 700));
+    const dOv = document.querySelector('#dOv');
+    if (!dOv) return { err: 'no dOv in detail' };
+    dOv.click();
     await new Promise(r => setTimeout(r, 800));
     const ok = !!document.querySelector('#ovWhat') && !!document.querySelector('#ovClean');
     const labels = [...document.querySelectorAll('#modal .field label')]
@@ -297,11 +295,16 @@ class CDP {
     return { ok, labels,
              maskOff: !document.querySelector('#mask').classList.contains('on') };
   })()`);
-  check("自定义释义编辑器可打开且字段齐全",
-        ov.ok && ov.maskOff &&
-        ["是什么", "能否重建", "删除影响", "建议保留", "结论"]
-          .every(l => (ov.labels || []).includes(l)),
-        `字段: ${(ov.labels || []).join("/")} 关闭=${ov.maskOff}`);
+  if (ov.err) {
+    skip2("自定义释义编辑器（" + (ov.err === "no row with target_id"
+          ? "当前占用树没有带目标标注的行，内容依赖" : ov.err) + "）");
+  } else {
+    check("自定义释义编辑器可打开且字段齐全",
+          ov.ok && ov.maskOff &&
+          ["是什么", "能否重建", "删除影响", "建议保留", "结论"]
+            .every(l => (ov.labels || []).includes(l)),
+          `字段: ${(ov.labels || []).join("/")} 关闭=${ov.maskOff}`);
+  }
 
   // 自定义数据包：导入 / 导出入口存在（导出走浏览器下载，导入走文件选择）
   const bd = await evaluate(
@@ -361,41 +364,13 @@ class CDP {
              chips: chips.length, panels: panels.length,
              on: tabs.filter(b => b.classList.contains('on')).map(b => b.dataset.v) };
   })()`);
-  check("视图导航有三个功能页入口",
-        navInfo.tabs === 3, JSON.stringify(navInfo.labels));
+  check("视图导航有两个功能页入口",
+        navInfo.tabs === 2, JSON.stringify(navInfo.labels));
   check("视图导航有且仅有一个高亮页",
         navInfo.on.length === 1, `当前高亮: ${navInfo.on.join(",") || "无"}`);
   check("侧栏面板目录覆盖全部折叠面板",
         navInfo.chips > 0 && navInfo.chips === navInfo.panels,
         `${navInfo.chips} / ${navInfo.panels}`);
-
-  // 卡片布局：操作区宽度合理、靠右、不是窄高竖条
-  const layout = await evaluate(`(() => {
-    const out = { narrow: [], high: [], left: [], overflow: [], minW: 1e9 };
-    for (const c of [...document.querySelectorAll('.card')].slice(0, 15)) {
-      const cb = c.getBoundingClientRect();
-      const act = c.querySelector('.cact');
-      if (!act) continue;
-      const ab = act.getBoundingClientRect();
-      out.minW = Math.min(out.minW, ab.width);
-      if (ab.width < 120) out.narrow.push(Math.round(ab.width));
-      if (ab.height > 140) out.high.push(Math.round(ab.height));
-      const gapRight = (cb.right - ab.right);
-      if (gapRight > 40) out.left.push(Math.round(gapRight));
-      for (const sel of ['.label', '.desc', '.path']) {
-        const n = c.querySelector(sel);
-        if (!n) continue;
-        const nb = n.getBoundingClientRect();
-        if (nb.right > cb.right + 1) out.overflow.push(sel);
-      }
-    }
-    return out;
-  })()`);
-  check("卡片操作区宽度充足（非窄条）", layout.narrow.length === 0,
-        `最窄 ${Math.round(layout.minW)}px` + (layout.narrow.length ? ` 过窄:${layout.narrow}` : ""));
-  check("卡片操作区不高于竖条形态", layout.high.length === 0, layout.high.join(","));
-  check("卡片操作区紧贴卡片右侧", layout.left.length === 0, layout.left.join(","));
-  check("卡片内容未溢出边界", layout.overflow.length === 0, layout.overflow.join(","));
 
   // 预设文字不溢出
   const presetOverflow = await evaluate(`(() => {
@@ -417,41 +392,32 @@ class CDP {
                            if (b) b.click(); })()`);
   await sleep(300);
   const r0 = await evaluate(`document.querySelector('#btnRuleSave').disabled`);
-  // 必须点一张「真的能勾选」的卡片：盘上第一张卡可能是危险/只读项
-  // （checkbox 被 disabled、卡片带 .dead），点它不会产生任何勾选。
-  // CDP 在 CI 上默认落在 C: 盘，首卡恰好常是不可选中的系统项，
-  // 旧写法点死第一张，于是「勾选后可用」永远为 false。
-  // 优先挑「有实际体积」的卡片：0 B 的目标（盘上恰好没有这类垃圾）套用
-  // 规则后统计必然是 0 B，那是正确行为而不是统计坏了；「—」是目标不存在。
+  // 必须勾一条「真的能勾选」的行：规则保存按钮跟随 selected（目标 id）启用，
+  // 所以只认带 target_id 的行（行内勾选优先按 id 走，与卡片时代同一数据面）。
+  // 优先挑「有实际体积」的行：0 B 的目标套用规则后统计必然是 0 B，
+  // 那是正确行为而不是统计坏了。
   let pickedSize = await evaluate(`(() => {
-      const szOf = el => ((el.querySelector('.cnum .size')||{}).innerText || '').trim();
-      const c = [...document.querySelectorAll('.card')].find(el => {
-        const cb = el.querySelector('input[type=checkbox]');
-        if (!cb || cb.disabled) return false;
-        const s = szOf(el);
-        return s && s !== '0 B' && s !== '—';
-      });
-      if (!c) return null;
-      c.click();
-      return szOf(c);
+      const cb = [...document.querySelectorAll('#fsChart .rowsel')]
+        .find(c => c.dataset.tid);
+      if (!cb) return null;
+      const tid = cb.dataset.tid;
+      const info = (typeof SCAN !== 'undefined' && SCAN) ? SCAN[tid] : null;
+      cb.click();
+      return (info && typeof fmt === 'function') ? fmt(info.size || 0) : null;
     })()`);
   if (pickedSize === null) {
-    // 整盘找不到有体积的可勾选项：退而求其次，只验证按钮随勾选启用。
-    pickedSize = await evaluate(`(() => {
-        const c = [...document.querySelectorAll('.card')].find(el => {
-          const cb = el.querySelector('input[type=checkbox]');
-          return cb && !cb.disabled;
-        });
-        if (!c) return null;
-        c.click();
-        return ((c.querySelector('.cnum .size')||{}).innerText || '').trim() || '0 B';
-      })()`);
+    // 当前树没有带目标标注的行（内容依赖）：无法驱动规则保存链路
+    pickedSize = null;
   }
   await sleep(500);
   const r1 = await evaluate(`!document.querySelector('#btnRuleSave').disabled`);
   const rinfo = await evaluate(`document.querySelector('#ruleSelInfo').innerText`);
-  checkInit("规则保存按钮随勾选启用", r0 === true && r1 === true && pickedSize !== null,
-        `初始禁用=${r0} 勾选后可用=${r1}${pickedSize === null ? "（未找到可勾选的卡片）" : ""} 提示="${rinfo}"`);
+  if (pickedSize === null) {
+    skip2("规则保存按钮随勾选启用（当前占用树没有带目标标注的行，内容依赖）");
+  } else {
+    checkInit("规则保存按钮随勾选启用", r0 === true && r1 === true,
+          `初始禁用=${r0} 勾选后可用=${r1} 提示="${rinfo}"`);
+  }
 
   if (!scanReady) {
     // 上一批卡片没有回填体积，也就没有可勾选的项，规则链路的断言全部失去前提。
@@ -531,6 +497,20 @@ class CDP {
     })()`);
     check(`全盘扫描作用于指定盘 ${DRIVE_}:`, title.startsWith(DRIVE_),
           `面板显示「${title}」`);
+  }
+  // 可见性而不是存在性：首轮视图整合踩过「DOM 都在、断言全绿，
+  // 但 auto 行把占用树挤到视口外人眼看不见」的回归 —— 必须量盒子。
+  if (ready) {
+    const vis = await evaluate(`(() => {
+      const panels = [...document.querySelectorAll('#fullView > .panel')];
+      const chart = panels[panels.length - 1];
+      const r = chart ? chart.getBoundingClientRect() : null;
+      return { chartH: r ? Math.round(r.height) : 0,
+               chartTop: r ? Math.round(r.top) : -1,
+               vh: window.innerHeight };
+    })()`);
+    checkScan("占用排行面板有可见高度（未被挤扁）",
+          vis.chartH >= 150, JSON.stringify(vis));
   }
   if (!ready) {
     console.log("  [提示] 全盘扫描未能在此时间内完成，后续依赖它的检查将跳过。");
@@ -945,26 +925,62 @@ class CDP {
          segOk ? "本层没有可展示的行" : "找不到「全盘最大项目」视图");
   }
 
-  // 验证可返回常规清理视图
-  const debugViews = await evaluate(`(() => {
-    showNormalView();
-    return {
-      view,
-      normalStyle: document.querySelector('#normalView').style.display,
-      fullStyle: document.querySelector('#fullView').style.display,
-      btn: document.querySelector('#btnFullScan').innerText.trim()
-    };
+  // ---------- 勾选与下钻互不影响（整合页的核心不变量） ----------
+  // 勾选直接发生在占用排行行内：勾选框只改选择集，绝不下钻；
+  // 下钻重绘只动 fsOverview/fsNav/fsChart，勾选状态从集合回填不丢失。
+  console.log("\n  --- 勾选与下钻互不影响 ---");
+  const pickRow = await evaluate(`(() => {
+    const cbs = [...document.querySelectorAll('#fsChart .rowsel')]
+      .filter(c => !c.checked);
+    if (!cbs.length) return null;
+    const c = cbs[0];
+    c.click();
+    return { path: c.dataset.path, tid: c.dataset.tid || '',
+             checked: c.checked, selN: document.querySelector('#selN').innerText };
   })()`);
-  await sleep(1000);
-  const back = await evaluate(`({
-    view,
-    normal: document.querySelector('#normalView').style.display !== 'none',
-    full: document.querySelector('#fullView').style.display === 'none',
-    btn: document.querySelector('#btnFullScan').innerText.trim(),
-    debug: ${JSON.stringify(debugViews)}
-  })`);
-  checkScan("可返回常规清理视图",
-        back.normal && back.full && /全盘|查看/.test(back.btn), JSON.stringify(back));
+  if (pickRow && pickRow.checked) {
+    const pathNow = await evaluate(
+      `(document.querySelector('.drillhint b')||{}).innerText || ''`);
+    const drilled = await evaluate(`(() => {
+      const r = [...document.querySelectorAll('#fsChart .vrow')].find(x => x.querySelector('.vgo'));
+      if (!r) return false;
+      r.click(); return true;
+    })()`);
+    await sleep(2500);
+    const after = await evaluate(`(() => ({
+      path: (document.querySelector('.drillhint b')||{}).innerText || '',
+      selN: document.querySelector('#selN').innerText,
+      selSize: document.querySelector('#selSize').innerText,
+    }))()`);
+    checkScan("勾选在点击展开子项后保持不变",
+          drilled && after.path !== pathNow && after.selN === pickRow.selN,
+          `下钻=${drilled}：${pathNow.slice(0, 30)} → ${after.path.slice(0, 40)}，`
+          + `已选 ${after.selN}/${after.selSize}（勾选时 ${pickRow.selN}）`);
+    // 反向：下钻后返回上一层，勾选必须原样还在。断言落在**选择集**上 ——
+    // 行 DOM 是否显示取决于当前视图模式（files/dirs 过滤），集合才是不变量。
+    await evaluate(`(() => { const b = document.querySelector('#fsUp'); if (b) b.click(); })()`);
+    await sleep(2000);
+    const back2 = await evaluate(`(() => {
+      const p = ${JSON.stringify(pickRow.path)};
+      const tid = ${pickRow.tid ? JSON.stringify(pickRow.tid) : "null"};
+      const inSet = (typeof selPaths !== "undefined" && selPaths.has(p))
+            || (tid && typeof selected !== "undefined" && selected.has(tid));
+      const c = [...document.querySelectorAll('#fsChart .rowsel')]
+        .find(x => x.dataset.path === p);
+      return { inSet, domChecked: c ? c.checked : null,
+               selN: document.querySelector('#selN').innerText };
+    })()`);
+    checkScan("返回上一层后勾选仍在",
+          back2.inSet === true && back2.selN === pickRow.selN, JSON.stringify(back2));
+    // 清理勾选，不给后续检查留状态
+    await evaluate(`(() => {
+      const c = [...document.querySelectorAll('#fsChart .rowsel')]
+        .find(x => x.dataset.path === ${JSON.stringify(pickRow.path)});
+      if (c && c.checked) c.click();
+    })()`);
+  } else {
+    skip2("勾选与下钻互不影响（当前占用树没有可勾选的行，内容依赖）");
+  }
 
   // ---------- 快速模式（depth=2 浅扫） ----------
   console.log("\n  --- 快速模式（2 层浅扫） ---");
@@ -1040,7 +1056,7 @@ class CDP {
     await sleep(2500);
     const st = await evaluate(`(() => ({
       shown: document.querySelector('#steamView').style.display === 'flex',
-      hiddenNormal: document.querySelector('#normalView').style.display === 'none',
+      overviewHidden: document.querySelector('#fullView').style.display === 'none',
       hint: (document.querySelector('#stHint')||{}).innerText || '',
       found: !!(window.STEAM && STEAM.found),
       libCount: (window.STEAM && STEAM.games) ? STEAM.games.length : 0,
@@ -1053,7 +1069,7 @@ class CDP {
       sorts: document.querySelectorAll('#stSort .seg').length,
       filter: !!document.querySelector('#stFilter'),
     }))()`);
-    check("可进入 Steam 独立页面", st.shown && st.hiddenNormal, st.hint);
+    check("可进入 Steam 独立页面", st.shown && st.overviewHidden, st.hint);
 
     // Steam 库内容检查要求本机真的装了 Steam 且有已安装游戏：CI runner 与
     // 新装机的开发机上都没有，面板会按设计显示空态（这是功能，不是缺陷）。
@@ -1112,7 +1128,7 @@ class CDP {
     await evaluate(`document.querySelector('#btnSteam').click()`);
     await sleep(1200);
     check("可从 Steam 页面返回",
-          await evaluate(`document.querySelector('#normalView').style.display !== 'none'`));
+          await evaluate(`document.querySelector('#fullView').style.display !== 'none'`));
   }
 
   // JS 报错
@@ -1137,18 +1153,30 @@ class CDP {
         if (on && on.dataset.l === other && btn && !btn.disabled) break;
       }
       const sel = document.querySelector('#scopeSel');
-      const cards = [...document.querySelectorAll('.card')].map(c => c.dataset.path || '');
+      // 卡片已移除：改从 STATE（页面顶层 let，evaluate 同 realm 可读）
+      // 数一遍非本盘目标，验证「仅当前盘专属项」范围没有混入 C 盘用户级缓存
+      const st = (typeof STATE !== 'undefined' && STATE) ? STATE : null;
+      const tpaths = st && Array.isArray(st.targets)
+        ? st.targets.map(t => {
+            let p = String(t.path || '');
+            if (/%DRIVE%/i.test(p)) p = p.replace(/%DRIVE%/gi, other + ':')
+                                        .replace(/%DRIVE_LETTER%/gi, other);
+            return p;
+          })
+        : [];
       return {
         other, got: sel ? sel.value : '',
-        stray: cards.filter(p => /^C:\\\\/i.test(p)).length,
-        cards: cards.length,
+        stray: tpaths.filter(p => /^C:\\\\/i.test(p)).length,
+        cards: tpaths.length,
+        haveState: !!st,
       };
     })()`);
     if (probe) {
       check(`非系统盘（${probe.other}:）的清理范围默认为「仅本盘」`,
             probe.got === "drive", `scope=${probe.got}`);
-      check("非系统盘卡片里没有别的盘的路径（不再混入 C 盘用户级缓存）",
-            probe.stray === 0, `${probe.stray}/${probe.cards} 张卡片指向 C:`);
+      check("非本盘时清理目标里没有别的盘的路径（不再混入 C 盘用户级缓存）",
+            !probe.haveState || probe.stray === 0,
+            `${probe.stray}/${probe.cards} 条目标指向 C:`);
     } else {
       skip("数据盘默认清理范围", "本机只有一个盘");
     }

@@ -1443,6 +1443,24 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
             continue
     for i, n in enumerate(nodes):
         n["id"] = i
+    # 把「这条树节点正好是某个清理目标」的对应关系直接标在节点上（target_id）：
+    # 占用排行里的可清理行靠它优先走「按目标 id 清理」，从而保留回收站等
+    # 特殊目标的清理语义；对不上目标的可清理行才走按路径清理（服务端重校验）。
+    # 用户级目标（%LOCALAPPDATA% 等）展开后在别的盘，匹配不上当前盘的节点，
+    # 属预期 —— 它们仍由预设一键勾选（按 id）。
+    try:
+        _tg_paths = {
+            os.path.normpath(expand(t["path"], letter)).lower():
+                target_id_for(t, letter if is_drive_specific(t) else None)
+            for t in build_targets(letter)
+        }
+        for n in nodes:
+            if n["type"] == "dir":
+                tid = _tg_paths.get(str(n["path"]).lower())
+                if tid:
+                    n["target_id"] = tid
+    except Exception as e:  # 标注失败不影响扫描本身
+        print(f"[overview] 目标标注失败：{type(e).__name__}: {e}", file=sys.stderr)
     # 由数据决定「能否展开」，前端不必去猜 ——
     # has_children 表示已经在树里有子节点；此外还有「子项未入树但目录确实可展开」的情况。
     # 有 WizTree 时可以直接查内存表，比只靠树里有没有子节点更准：
@@ -4985,12 +5003,45 @@ class Handler(BaseHTTPRequestHandler):
             drive = (body.get("drive") or "C").rstrip(":").upper()
             custom_path = body.get("custom_path") or None
             ids = set(body.get("ids") or [])
+            paths_in = body.get("paths") or []
             only = body.get("only_paths") or {}
             trash = bool(body.get("trash"))
             targets = build_targets(drive, custom_path)
-            selected = [t for t in targets if t["id"] in ids]
+            # 有效 cleanable=False 的目标（用户改成「建议保留」）拒绝清理，
+            # 与旧版卡片勾选框禁用的行为对齐 —— 这条护栏原来只在前端。
+            selected = [t for t in targets
+                        if t["id"] in ids and t.get("cleanable") is not False]
+
+            # ---- 按路径清理（占用排行行内勾选的可清理行）----
+            # 安全边界与 /__oc__/clean-game 同一模式：**绝不信任前端说它可清理**，
+            # 每条路径都由服务端重新 identify()，必须是「可清理」的目录，
+            # 再过 check_deletable 的系统目录保护，缺一不可。
+            skipped_paths: list[dict] = []
+            for p in paths_in if isinstance(paths_in, list) else []:
+                if not isinstance(p, str) or not os.path.isabs(p):
+                    skipped_paths.append({"path": str(p)[:200],
+                                          "reason": "拒绝：非绝对路径"})
+                    continue
+                p2 = os.path.normpath(p)
+                if not os.path.isdir(p2):
+                    skipped_paths.append({"path": p2, "reason": "目录不存在"})
+                    continue
+                info = identify(os.path.basename(p2.rstrip("\\")) or p2, p2, "dir")
+                if not info.get("cleanable"):
+                    skipped_paths.append(
+                        {"path": p2, "reason": "服务端识别为不可清理，拒绝"})
+                    continue
+                selected.append({
+                    "id": f"tree:{p2.lower()}",
+                    "label": os.path.basename(p2.rstrip("\\")) or p2,
+                    "path": p2, "kind": "tree",
+                    "category": info.get("category", "其它"),
+                    "risk": info.get("risk", "中"),
+                })
+
             if not selected:
-                return self._json({"error": "没有选择任何清理项"}, 400)
+                return self._json({"error": "没有选择任何清理项",
+                                   "skipped_paths": skipped_paths}, 400)
             if getattr(self.server, "busy", False):
                 return self._json({"error": "已有清理任务在执行，请等待完成"}, 409)
             self.server.busy = True
@@ -5011,7 +5062,8 @@ class Handler(BaseHTTPRequestHandler):
                 entry["freed_h"] = human(entry["freed"])
                 append_history(entry)
                 return self._json({"entry": entry, "disk": get_disk_info(drive),
-                                   "stats": history_stats()})
+                                   "stats": history_stats(),
+                                   "skipped_paths": skipped_paths})
             finally:
                 self.server.busy = False
 

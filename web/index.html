@@ -440,6 +440,9 @@
   .vrow{cursor:pointer;border-radius:8px;padding:6px 8px;transition:.13s;
         border:1px solid transparent}
   .vrow:hover{background:var(--panel2);border-color:var(--line2)}
+  /* 行内勾选框（可清理行）：与下钻点击互斥 —— change 只改选择集 */
+  #fsChart .rowsel{width:16px;height:16px;flex:0 0 auto;margin-top:2px;
+                   cursor:pointer;accent-color:var(--accent)}
   .vrow .vtop{display:flex;align-items:baseline;gap:9px;margin-bottom:5px}
   .vrow .fname{font-weight:600;font-size:13px;overflow-wrap:anywhere;
                display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0}
@@ -686,7 +689,6 @@
     </div>
     <div class="grow"></div>
     <nav class="viewnav" id="viewNav" aria-label="功能视图导航">
-      <button data-v="normal">常规清理</button>
       <button data-v="full">扫描概览</button>
       <button data-v="steam">Steam 游戏库</button>
     </nav>
@@ -738,8 +740,9 @@
     <div id="diskInfo"></div>
   </div>
 
-  <section id="normalView"><div id="cards"></div></section>
-
+  <!-- 可清理项：常规清理卡片并入扫描概览页（2026-10-13 起不再有独立的
+       「常规清理」视图）。勾选这里与下方占用树的点击展开互不影响 ——
+       两块 DOM 各自渲染，勾选状态（selected 集合）不随下钻重绘。 -->
   <section id="steamView" class="fspanel" style="display:none">
     <div class="panel">
       <h3>Steam 库总览 <span class="hint" id="stHint"></span></h3>
@@ -768,7 +771,7 @@
     </div>
   </section>
 
-  <section id="fullView" class="fspanel" style="display:none">
+  <section id="fullView" class="fspanel">
     <div class="panel">
       <h3>扫描概览 <span class="hint" id="fsHint"></span></h3>
       <div id="fsOverview"></div>
@@ -995,12 +998,12 @@ const fmt = n => {
   return (i === 0 ? Math.round(n) : n.toFixed(1)) + " " + u[i];
 };
 const riskCls = r => ({"无":"b-none","低":"b-low","中":"b-mid","高":"b-high"}[r] || "b-none");
-const CAT_ORDER = ["包管理器","浏览器","临时文件","显卡缓存","缩略图","系统","诊断",
-                   "回收站","自定义目录","自定义规则"];
-
 let STATE = null, SCAN = {}, selected = new Set(), subSel = {},
     busy = false, drive = "C", customPath = "", convOnly = null,
     scope = "all", toastTimer = null;
+// 占用排行行内勾选的「按路径清理」集合：行没有对应清理目标（target_id）
+// 时走这里，清理请求带 paths 由服务端逐条重新识别校验。
+let selPaths = new Set();
 // 最近一次 AI 方案里被挑中的目标 id。只用来做「按方案勾选」，
 // 不参与清理本身 —— 清理由底部的按钮与后端同一条链路完成。
 let AI_PICKS = [];
@@ -1047,7 +1050,6 @@ async function loadState() {
   renderDrives(); renderDisk(); renderPresets(); renderCumulative();
   renderUnits(); renderRules(); renderSchedule(); renderHistory();
   renderGuide(); renderPacks(); renderAI();
-  buildCards();
 }
 async function scan() {
   const b = $("btnScan");
@@ -1060,7 +1062,7 @@ async function scan() {
     renderDisk(data.disk);
     $("scantime").textContent = `上次扫描 ${data.scan_time}`;
     applyPreset(STATE.presets.find(p => p.id === "safe"));
-    updateCards(); updateFooter();
+    updateFooter();
   } catch (e) {
     $("scantime").innerHTML = '<span class="res-err">扫描失败：' + esc(e.message) + "</span>";
   } finally { b.disabled = false; b.textContent = old; }
@@ -1336,7 +1338,7 @@ function aiApplyPicks() {
     const s = SCAN[id];
     if (known.has(id) && s && !s.missing && !s.error) { selected.add(id); n++; }
   });
-  updateCards(); updateFooter(); renderRules();
+  updateFooter(); renderRules();
   toast(n ? `已勾选 ${n} 项，确认后点底部「清理选中项」` : "这些项当前不可清理，已忽略");
 }
 
@@ -1458,219 +1460,8 @@ function drawDiskTrend() {
     `近 ${pts.length} 天可用空间：最高 ${fmt(hi)} · 最低 ${fmt(lo)} · 最新 ${fmt(vals[vals.length - 1])}`;
 }
 
-/* ==================== 卡片 ==================== */
-function buildCards() {
-  const groups = {};
-  STATE.targets.forEach(t => (groups[t.category] ||= []).push(t));
-  const cats = Object.keys(groups).sort((a, b) => {
-    const ia = CAT_ORDER.indexOf(a), ib = CAT_ORDER.indexOf(b);
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-  });
-  let html = "";
-  for (const cat of cats) {
-    html += `<div class="cathead">${esc(cat)}
-             <span class="cnt">${groups[cat].length} 项</span></div><div class="list">`;
-    for (const t of groups[cat]) html += cardHTML(t);
-    html += "</div>";
-  }
-  $("cards").innerHTML = html || '<div class="panel">没有可清理的目标。</div>';
-
-  $("cards").querySelectorAll(".card").forEach(card => {
-    const id = card.dataset.id;
-    const cb = card.querySelector("input[type=checkbox]");
-    card.querySelector(".knowbtn").addEventListener("click", e => {
-      e.stopPropagation(); card.classList.toggle("open");
-    });
-    const rev = card.querySelector(".revealbtn");
-    if (rev) rev.addEventListener("click", async e => {
-      e.stopPropagation();
-      await revealPath(card.dataset.path);
-    });
-    const ovb = card.querySelector(".ovbtn");
-    if (ovb) ovb.addEventListener("click", e => {
-      e.stopPropagation();
-      const t = STATE.targets.find(x => x.id === id);
-      if (t) editOverride(t);
-    });
-    const exp = card.querySelector(".expcardbtn");
-    if (exp) exp.addEventListener("click", async e => {
-      e.stopPropagation();
-      toggleCardKids(card, id, exp);
-    });
-    card.addEventListener("click", e => {
-      if (e.target.closest("button") || e.target.tagName === "INPUT") return;
-      if (cb.disabled) return;
-      cb.checked = !cb.checked; setSel(id, cb.checked);
-    });
-    cb.addEventListener("change", () => setSel(id, cb.checked));
-    bindSubItems(card, id);
-  });
-}
-
-function bindSubItems(card, id) {
-  card.querySelectorAll(".srow input[type=checkbox]").forEach(sb => {
-    sb.addEventListener("click", e => e.stopPropagation());
-    sb.addEventListener("change", () => {
-      (subSel[id] ||= {})[sb.dataset.path] = sb.checked;
-      updateFooter();
-    });
-  });
-}
-
-/** 常规卡片列表：点击就地懒加载展开子项，无需切页或返回上一级 */
-async function toggleCardKids(card, id, btn) {
-  const container = card.querySelector(".card-kids");
-  if (!container) return;
-  if (container.classList.contains("open")) {
-    container.classList.remove("open");
-    btn.textContent = "展开 ▾";
-    return;
-  }
-  container.classList.add("open");
-  btn.textContent = "收起 ▴";
-  if (container.dataset.loaded) return;
-
-  container.innerHTML = '<div class="loading"><span class="spin"></span>正在按需扫描子项…</div>';
-  try {
-    const p = card.dataset.path;
-    const res = await fetch(`${API}/__oc__/subdirs?drive=${encodeURIComponent(drive)}&path=${encodeURIComponent(p)}&limit=100`);
-    const r = await res.json();
-    if (r.error || !(r.children || []).length) {
-      container.innerHTML = '<div class="empty" style="margin:4px 0">此项暂无可见子目录或为空。</div>';
-      container.dataset.loaded = "1";
-      return;
-    }
-    container.dataset.loaded = "1";
-    container.innerHTML = `
-      <div style="font-size:11.5px;color:var(--dim2);margin-bottom:4px">
-        子项分布（共 ${r.children.length} 项 · ${esc(r.listed_total_h || "")}）：
-      </div>
-      <div class="card-kids-list">
-        ${r.children.map(c => `
-          <div class="card-krow" data-path="${esc(c.path)}">
-            <span class="knm">${esc(c.display_name || c.name)}${
-              c.type === "file" ? ' <span style="color:var(--dim2);font-size:11px">[文件]</span>' : ""}</span>
-            <span class="ksz">${esc(c.size_h)}</span>
-            <button class="tiny ghost" data-open="${esc(c.path)}">打开</button>
-          </div>
-        `).join("")}
-      </div>`;
-    container.querySelectorAll("[data-open]").forEach(b => {
-      b.addEventListener("click", ev => {
-        ev.stopPropagation();
-        revealPath(b.dataset.open);
-      });
-    });
-  } catch (err) {
-    container.innerHTML = `<div class="errline">扫描失败：${esc(err.message)}</div>`;
-  }
-}
-
-function cardHTML(t) {
-  const cur = STATE?.current_drive || "C";
-  const showUserTag = t.scope === "user" && cur !== "C";
-  return `
-  <div class="card" data-id="${esc(t.id)}" data-path="${esc(t.path)}">
-    <input type="checkbox" disabled>
-    <div>
-      <div class="l1"><span class="label">${esc(t.label)}</span></div>
-      <div class="badges">
-        <span class="badge b-cat">${esc(t.category)}</span>
-        <span class="badge ${riskCls(t.risk)}">风险 ${esc(t.risk)}</span>
-        ${t.needs_admin ? '<span class="badge b-admin">需管理员</span>' : ""}
-        ${t.temp_target ? '<span class="badge b-custom">自定义目录</span>' : ""}
-        ${t.discovered ? '<span class="badge b-disc" title="由知识库自动识别发现，不是预定义目标">自动发现</span>' : ""}
-        ${t.custom ? '<span class="badge b-custom" title="释义或「可清理」结论被你改过，优先于内置与资源包">已自定义</span>' : ""}
-        ${t.custom && t.cleanable === false ? '<span class="badge b-mid" title="你把它改成了不可清理">已改为建议保留</span>' : ""}
-        ${showUserTag ? '<span class="badge b-cat" title="这是用户级路径，与所选盘符无关">用户级</span>' : ""}
-      </div>
-      <div class="desc">${esc(t.short)}</div>
-      <div class="path">${esc(t.path)}</div>
-      <div class="size2"></div>
-    </div>
-    <div class="cact">
-      <div class="cnum">
-        <div class="size">—</div>
-        <div class="meta">待扫描</div>
-      </div>
-      <div class="cbtns">
-        <button class="tiny knowbtn" title="这一项到底是什么">?</button>
-        <button class="tiny ghost ovbtn" title="自定义释义与「可清理」结论">编辑</button>
-        ${t.kind !== "recyclebin"
-          ? '<button class="tiny ghost expcardbtn" title="就地展开查看子目录">展开 ▾</button>' : ""}
-        ${t.kind === "recyclebin"
-          ? '<button class="tiny revealbtn" title="打开回收站所在位置">打开</button>' : ""}
-      </div>
-    </div>    <div class="know">
-      <h4>${esc(t.label)} —— 类型说明</h4>
-      <dl>
-        <dt>是什么</dt><dd>${esc(t.what)}</dd>
-        <dt>能否重建</dt><dd>${esc(t.rebuild)}</dd>
-        <dt>删除影响</dt><dd>${esc(t.impact)}</dd>
-        <dt>建议保留</dt><dd>${esc(t.keep_if)}</dd>
-      </dl>
-    </div>
-    <div class="subitems"></div>
-    <div class="card-kids" id="ck_${esc(t.id)}"></div>
-  </div>`;
-}
-
-function updateCards() {
-  for (const t of STATE.targets) {
-    const card = $("cards").querySelector(`.card[data-id="${CSS.escape(t.id)}"]`);
-    if (!card) continue;
-    const cb = card.querySelector("input[type=checkbox]");
-    const info = SCAN[t.id];
-    const sizeEl = card.querySelector(".cnum .size");
-    const metaEl = card.querySelector(".cnum .meta");
-    const size2 = card.querySelector(".size2");
-    const sub = card.querySelector(".subitems");
-
-    if (!info) {
-      cb.disabled = true; card.classList.add("dead");
-      sizeEl.textContent = "—"; metaEl.textContent = "待扫描";
-      size2.textContent = ""; sub.innerHTML = ""; continue;
-    }
-    if (info.missing) {
-      cb.disabled = true; cb.checked = false; selected.delete(t.id);
-      card.classList.add("dead", "on"); card.classList.remove("on");
-      sizeEl.textContent = "—"; metaEl.textContent = "不存在";
-      size2.innerHTML = '<div class="empty">该盘上没有这个目录，已跳过。</div>';
-      sub.innerHTML = ""; continue;
-    }
-    if (info.error) {
-      cb.disabled = true; cb.checked = false; selected.delete(t.id);
-      card.classList.add("dead");
-      sizeEl.textContent = "—"; metaEl.textContent = "不可用";
-      size2.innerHTML = `<div class="errline">${esc(info.error)}</div>`;
-      sub.innerHTML = ""; continue;
-    }
-    cb.disabled = false; card.classList.remove("dead");
-    sizeEl.textContent = info.size_h;
-    metaEl.textContent = info.files.toLocaleString() + " 个文件";
-    size2.innerHTML = info.size === 0
-      ? '<div class="empty">当前没有可清理的内容</div>' : "";
-    if (info.items && info.items.length) {
-      const shown = info.items.slice(0, 15);
-      sub.innerHTML =
-        '<div style="color:var(--dim2);font-size:11.5px;margin-bottom:6px">' +
-        `回收站内较大的条目（共 ${info.files.toLocaleString()} 个文件，可单独勾选）：</div>` +
-        shown.map(i => `<label class="srow">
-            <input type="checkbox" data-path="${esc(i.path)}" ${subSel[t.id]?.[i.path] ? "checked" : ""}>
-            <span class="sname">${esc(i.name)}</span>
-            <span class="ssize">${i.size_h}</span></label>`).join("") +
-        (info.items.length > 15
-          ? `<div style="color:var(--dim2);font-size:11.5px;margin-top:5px">…另有 ${info.items.length - 15} 个较大条目未列出</div>`
-          : "");
-      bindSubItems(card, t.id);
-    } else {
-      sub.innerHTML = "";
-    }
-    cb.checked = selected.has(t.id);
-    card.classList.toggle("on", cb.checked);
-  }
-}
-
+/* 卡片（常规清理列表）已移除：可清理项直接在占用排行行内勾选，
+   按 id（行上有 target_id 时）或按路径（服务端重校验）接入清理。 */
 /* ==================== 预设 ==================== */
 function renderPresets() {
   $("presets").innerHTML = STATE.presets.map(p =>
@@ -1710,14 +1501,12 @@ function applyPreset(p) {
   });
   $("presets").querySelectorAll(".preset").forEach(b =>
     b.classList.toggle("act", b.dataset.id === p.id));
-  updateCards(); updateFooter();
+  updateFooter();
 }
 
 /* ==================== 选择与统计 ==================== */
 function setSel(id, on) {
   if (on) selected.add(id); else selected.delete(id);
-  const card = $("cards").querySelector(`.card[data-id="${CSS.escape(id)}"]`);
-  if (card) card.classList.toggle("on", on);
   $("presets").querySelectorAll(".preset").forEach(b => b.classList.remove("act"));
   updateFooter();
   renderRules();          // 同步「保存当前勾选为规则」按钮的可用状态
@@ -1733,16 +1522,23 @@ function selTotal() {
     }
     sum += info.size || 0;
   }
+  // 行内按路径勾选的项：体积直接取树节点自身
+  const nodes = FS?.nodes || [];
+  for (const p of selPaths) {
+    const n = nodes.find(x => x.path === p);
+    if (n) sum += n.size || 0;
+  }
   return sum;
 }
 function updateFooter() {
-  $("selN").textContent = selected.size;
+  const n = selected.size + selPaths.size;
+  $("selN").textContent = n;
   const total = selTotal();
   $("selSize").textContent = fmt(total);
   const d = STATE?.disk;
   $("selFree").innerHTML = (d && total > 0)
     ? ` · 清理后 ${d.letter}: 可用约 <span class="free">${fmt(d.free + total)}</span>` : "";
-  $("btnClean").disabled = selected.size === 0 || busy;
+  $("btnClean").disabled = n === 0 || busy;
 }
 
 /* ============ 累积清理 + 换算（合并为一个面板） ============ */
@@ -1931,7 +1727,7 @@ function renderRules() {
       if (s && !s.missing && !s.error) selected.add(t.id);
     }
     $("presets").querySelectorAll(".preset").forEach(x => x.classList.remove("act"));
-    updateCards(); updateFooter(); renderRules();
+    updateFooter(); renderRules();
     toast(`已套用规则「${r.name}」，点底部「清理选中项」执行`);
   }));
   box.querySelectorAll("[data-run]").forEach(b => b.addEventListener("click", async e => {
@@ -2349,7 +2145,17 @@ function confirmDialog() {
     }
     return { id, label: t.label, risk: t.risk, size, files, note,
              path: t.path, admin: t.needs_admin };
-  }).sort((a, b) => b.size - a.size);
+  });
+  // 占用排行里按路径勾选的行：体积取树节点，最终以服务端重新识别为准
+  const nodes = FS?.nodes || [];
+  for (const p of selPaths) {
+    const n = nodes.find(x => x.path === p);
+    rows.push({ id: "path:" + p, label: (n && (n.display_name || n.name)) || p,
+                risk: (n && n.risk) || "中", size: (n && n.size) || 0,
+                files: 0, note: "清空目录内容（服务端会重新识别校验）",
+                path: p, admin: false });
+  }
+  rows.sort((a, b) => b.size - a.size);
 
   const total = rows.reduce((a, r) => a + r.size, 0);
   const risky = rows.filter(r => r.risk === "高" || r.risk === "中");
@@ -2409,7 +2215,8 @@ async function doClean() {
   try {
     const res = await fetch(`${API}/__oc__/clean`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: [...selected], only_paths: only,
+      body: JSON.stringify({ ids: [...selected], paths: [...selPaths],
+                             only_paths: only,
                              drive, custom_path: customPath,
                              trash: !!(trashBox && trashBox.checked) })
     });
@@ -2418,6 +2225,7 @@ async function doClean() {
     const e = data.entry;
     STATE.stats = data.stats;
     loadDiskTrend();           // 清理后空间变了，趋势里的「今天」要更新
+    selPaths.clear();        // 已清理的路径勾选作废；树数字已过期，界面会提示
     showCleanResult(e, data.stats, t0, "清理完成");
   } catch (e) {
     const log = $("plog");
@@ -2558,7 +2366,7 @@ async function findLockHolders(bad, btn) {
 }
 
 /* ============ 磁盘概览：可逐层下钻的占用树 ============ */
-let FS = null, fsMode = "dirs", view = "normal";
+let FS = null, fsMode = "dirs", view = "full";
 // 下钻路径栈：元素 { path, name, size }
 let fsStack = [];
 // 在途全盘扫描属于哪个盘、用什么作废。换盘时旧盘的扫描必须作废重开：
@@ -2574,27 +2382,23 @@ function setToolbars(visible, mode) {
 }
 
 /** 视图导航高亮当前页。view 变化的所有路径（switchView / startFullScan 手动置值）
-    都要走到这里，否则会出现「页面在扫描概览、导航却亮着常规清理」的错位。 */
+    都要走到这里，否则会出现「页面在扫描概览、导航却亮着 Steam 库」的错位。 */
 function renderViewNav() {
   document.querySelectorAll("#viewNav button").forEach(b =>
     b.classList.toggle("on", b.dataset.v === view));
 }
 
-/** 统一切换三个子页面：常规清理 / 磁盘概览 / Steam 游戏库 */
+/** 统一切换两个子页面：扫描概览（含可清理项）/ Steam 游戏库。
+    常规清理已并入扫描概览页（可清理项面板），不再有第三个视图。 */
 function switchView(name) {
   view = name;
-  $("normalView").style.display = name === "normal" ? "" : "none";
   $("fullView").style.display = name === "full" ? "flex" : "none";
   $("steamView").style.display = name === "steam" ? "flex" : "none";
-  setToolbars(true, name === "normal" ? "normal" : "compact");
-  $("btnFullScan").textContent = name === "full" ? "返回常规清理"
-    : (FS ? "查看磁盘概览" : "全盘扫描本盘");
-  $("btnSteam").textContent = name === "steam" ? "返回常规清理" : "Steam 游戏库";
+  setToolbars(true, name === "steam" ? "compact" : "normal");
+  $("btnSteam").textContent = name === "steam" ? "返回扫描概览" : "Steam 游戏库";
   renderViewNav();
   if (name === "steam") renderSteamPage();
 }
-
-function showNormalView() { switchView("normal"); }
 
 function showFullView() {
   switchView("full");
@@ -2603,21 +2407,16 @@ function showFullView() {
 
 /** 全盘扫描：点一次就自动开扫，不需要再点第二次。
  *
- * 四种情形：
- *   * 已经在扫且是同一盘（手动点了又点）→ 只切到扫描页，不重复发请求；
+ * 三种情形：
+ *   * 已经在扫且是同一盘同一深度（手动点了又点）→ 不重复发请求；
  *   * 已经在扫但是别的盘或换了深度档位（快速↔深扫）→ 作废旧扫描，
  *     立刻按新参数开扫；
- *   * 扫完了 → 切到扫描页看到上次结果，再点一次则返回常规清理；
- *   * 从没扫过 → 立刻进入扫描页并**自动发起扫描**（这是本次的改动重点：
- *     以前点一下只是切页，用户得再点一次「开始」，很容易以为没反应）。
+ *   * 其余情况（没扫过 / 扫完了想重扫）→ **直接发起扫描**。常规清理并入
+ *     本页后这个按钮不再承担切页职责，就是纯粹的「（重新）扫描本盘」。
  */
 async function startFullScan() {
-  if (FS) {
-    if (view === "full") { showNormalView(); }
-    else { fsStack = []; showFullView(); renderOverview(); renderChart(); }
-    return;
-  }
-  // 正在扫：同一盘且同一深度就只切页，别重复发请求；换了盘或换了扫描
+  // 常规清理并入本页后，这个按钮就是纯粹的「（重新）扫描本盘」；
+  // 正在扫：同一盘且同一深度就只切到概览，别重复发请求；换了盘或换了扫描
   // 深度（快速↔深扫）则作废旧扫描、立即按新参数开扫。
   const quick = $("fsDepthSel").value === "quick";
   if ($("fsScanning")) {
@@ -2632,7 +2431,7 @@ async function startFullScan() {
   view = "full";
   renderViewNav();                   // 扫描页可能还没机会走 switchView，先同步导航
   fsStack = [];
-  $("normalView").style.display = "none";
+  $("steamView").style.display = "none";
   $("fullView").style.display = "flex";
   setToolbars(true, true);
   $("fsHint").textContent = `${drive}: 盘`;
@@ -2698,6 +2497,7 @@ async function startFullScan() {
                                  { signal: ac.signal })).json();
     if (r.error) throw new Error(r.error);
     FS = r;
+    selPaths.clear();     // 新树新路径：上一棵树的按路径勾选全部作废
     buildKidsIndex();     // 预先按父路径归拢，下钻与「本层」视图都靠它
     fsMode = "biggest";   // 默认直接给「全盘最大项目」：新用户一眼看到占地大头
     switchView("full");   // 统一走 switchView 确保按钮文字与工具栏状态一致
@@ -2950,6 +2750,12 @@ function renderChart() {
                       : '<span class="vbadge keep">建议保留</span>');
     const w = Math.max(2, (it.size / maxSize * 100)).toFixed(1);
     const drillable = !!it.can_drill;
+    // 可清理行内直接勾选（可清理项不再单独列出）：行若对应某个清理目标
+    // （扫描时后端已标注 target_id）优先按 id 勾选 —— 保留回收站等特殊
+    // 目标的清理语义；对不上的走按路径清理（服务端会重新识别校验）。
+    const canCheck = !!it.cleanable;
+    const rowChecked = canCheck &&
+      (it.target_id ? selected.has(it.target_id) : selPaths.has(it.path));
     // 全盘视图里必须显示它在哪里，否则只看到一个名字不知道归属
     const loc = fsMode === "biggest"
       ? it.path.replace(/\\[^\\]+$/, "") + "\\" : "";
@@ -2964,6 +2770,7 @@ function renderChart() {
     <div class="vrow-wrap" data-path="${esc(it.path)}">
       <div class="vrow ${cls}" data-i="${idx}" data-can-drill="${drillable ? 1 : 0}">
         <div class="vtop">
+          ${canCheck ? `<input type="checkbox" class="rowsel" data-path="${esc(it.path)}"${it.target_id ? ` data-tid="${esc(it.target_id)}"` : ""}${rowChecked ? " checked" : ""} title="勾选这项参与清理">` : ""}
           ${drillable ? `<button class="tiny ghost expinline" data-tree="${idx}" title="就地展开查看子目录">展开 ▾</button>` : ""}
           <span class="fname">${esc(it.display_name || it.name)}${badge}${
             drillable ? '<span class="vgo">点开看子项 ›</span>' : ""}</span>
@@ -2987,8 +2794,19 @@ function renderChart() {
   }).join("");
   $("fsChart").querySelectorAll(".vrow").forEach(el =>
     el.addEventListener("click", ev => {
-      if (ev.target.closest("[data-info]") || ev.target.closest(".expinline")) return;
+      if (ev.target.closest("[data-info]") || ev.target.closest(".expinline")
+          || ev.target.closest(".rowsel")) return;
       fsDrill(rows[+el.dataset.i]);
+    }));
+  // 勾选与展开互不影响：勾选框只改选择集，绝不触发行的下钻；
+  // 行点击/下钻重绘时勾选状态从集合回填，不随渲染丢失。
+  $("fsChart").querySelectorAll(".rowsel").forEach(cb =>
+    cb.addEventListener("change", () => {
+      const tid = cb.dataset.tid;
+      if (tid) setSel(tid, cb.checked);
+      else if (cb.checked) selPaths.add(cb.dataset.path);
+      else selPaths.delete(cb.dataset.path);
+      updateFooter();
     }));
   $("fsChart").querySelectorAll(".expinline").forEach(b =>
     b.addEventListener("click", ev => {
@@ -3192,9 +3010,10 @@ function showDetail(it) {
     </div>
     <div class="mfoot">
       <div class="left">${clean
-        ? "本项目可由常规清理处理，见主列表对应条目"
+        ? "勾选占用排行里这一行即可清理"
         : "本工具不会删除此项"}</div>
       ${STATE?.ai?.ready ? '<button id="dAi" class="ghost">让 AI 解释</button>' : ""}
+      ${it.target_id ? '<button id="dOv" class="ghost">自定义释义</button>' : ""}
       ${it.path && it.type !== "file"
         ? `<button id="dPart" class="ghost">细分查看：哪些能删</button>` : ""}
       ${gamePlat ? '<button id="dDelGame" class="go">删除这个游戏</button>' : ""}
@@ -3205,6 +3024,13 @@ function showDetail(it) {
     </div>`;
   $("mask").classList.add("on");
   $("dClose").addEventListener("click", closeModal);
+  const ovBtn = $("dOv");
+  if (ovBtn) {
+    // 卡片移除后「自定义释义」改从详情进：行上有 target_id 才显示，
+    // 用对应目标的 ovkey（普通项 = base_id），与原卡片入口完全同键
+    const ovT = STATE?.targets?.find(t => t.id === it.target_id);
+    if (ovT) ovBtn.addEventListener("click", () => editOverride(ovT));
+  }
   $("dReveal").addEventListener("click", () => revealPath(it.path));
   const bl = $("dLocate");
   if (bl) bl.addEventListener("click", () => revealPath(it.path, true));
@@ -3318,9 +3144,16 @@ function confirmDeleteGame(it, plat, orphan) {
       $("dgClose").addEventListener("click", () => {
         closeModal();
         if (r.ok) {
-          FS = null;                 // 树是删除前扫的，作废；下次进概览会重新扫
+          FS = null;                 // 树是删除前扫的，作废
           if (view === "steam") { loadSteam(); renderSteamPage(); }
-          else showNormalView();
+          else {
+            // 扫描概览常驻：清掉旧树并如实告知数字已过期
+            fsStack = [];
+            $("fsOverview").innerHTML =
+              '<div class="empty" style="margin:0">刚删除了内容，占用树已作废。' +
+              '点工具栏「全盘扫描本盘」重新扫描。</div>';
+            $("fsChart").innerHTML = ""; $("fsModes").innerHTML = "";
+          }
           toast(`已删除 ${r.name}，释放 ${r.freed_h}`);
         } else if (r.freed > 0 && view === "steam") {
           loadSteam();               // 残留目录部分删除后体积变了，刷新列表
@@ -3558,12 +3391,11 @@ try {
 $("fsDepthSel").addEventListener("change", () => {
   try { localStorage.setItem("oc-fs-depth", $("fsDepthSel").value); } catch (e) {}
 });
-/* 视图导航：三个页常驻可达。扫描概览没扫过时与工具栏按钮同一行为 ——
+/* 视图导航：两个页常驻可达。扫描概览没扫过时与工具栏按钮同一行为 ——
    点一下就自动开扫，不需要再点第二次。 */
 document.querySelectorAll("#viewNav button").forEach(b => b.addEventListener("click", async () => {
   const v = b.dataset.v;
   if (v === view) return;
-  if (v === "normal") { showNormalView(); return; }
   if (v === "full") {
     if (FS) { fsStack = []; showFullView(); renderOverview(); renderChart(); }
     else await startFullScan();
@@ -3573,7 +3405,7 @@ document.querySelectorAll("#viewNav button").forEach(b => b.addEventListener("cl
   loadSteam();
 }));
 $("btnSteam").addEventListener("click", () => {
-  if (view === "steam") { showNormalView(); return; }
+  if (view === "steam") { switchView("full"); return; }
   switchView("steam");
   loadSteam();
 });
@@ -3582,21 +3414,32 @@ $("stFilter").addEventListener("input", () => {
   if (view === "steam") renderSteamPage();
 });
 $("btnAll").addEventListener("click", () => {
+  // 全选 = 全部可清理目标（扫描成功且未被改成「建议保留」的）
+  //       + 当前占用排行里所有可清理行
   STATE.targets.forEach(t => {
     const s = SCAN[t.id];
-    if (s && !s.missing && !s.error) selected.add(t.id);
+    if (s && !s.missing && !s.error && t.cleanable !== false) selected.add(t.id);
   });
-  updateCards(); updateFooter(); renderRules();
+  document.querySelectorAll("#fsChart .rowsel").forEach(cb => {
+    cb.checked = true;
+    const tid = cb.dataset.tid;
+    if (tid) selected.add(tid); else selPaths.add(cb.dataset.path);
+  });
+  updateFooter(); renderRules();
 });
-$("btnNone").addEventListener("click", () =>
-  applyPreset(STATE.presets.find(p => p.id === "none")));
+$("btnNone").addEventListener("click", () => {
+  applyPreset(STATE.presets.find(p => p.id === "none"));
+  selPaths.clear();
+  document.querySelectorAll("#fsChart .rowsel").forEach(cb => { cb.checked = false; });
+  updateFooter();
+});
 $("btnClean").addEventListener("click", confirmDialog);
 $("mask").addEventListener("click", e => { if (e.target === $("mask") && !busy) closeModal(); });
 
 /* Esc 键：逐级返回。
-   优先级 —— 弹窗 > 全盘页的下钻层 > 全盘页本身 > Steam 页。
-   扫描进行中不响应：那会儿页面正被 tick() 反复重绘，退回常规清理会被
-   扫描完成回调再拽回全盘页，看起来像「按了没反应」。 */
+   优先级 —— 弹窗 > 概览页的下钻层 > Steam 页。
+   扫描进行中不响应：那会儿页面正被 tick() 反复重绘，退层会被
+   扫描完成回调再拽回扫描视图，看起来像「按了没反应」。 */
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape" || busy) return;
   if ($("mask").classList.contains("on")) { closeModal(); return; }
@@ -3609,12 +3452,11 @@ document.addEventListener("keydown", e => {
                                 : (FS ? FS.drive + ": 盘" : "上一层");
       toast(`已返回上一级：${up}`);
     } else {
-      showNormalView();
-      toast("已返回常规清理");
+      toast("已在顶层目录");
     }
     return;
   }
-  if (view === "steam") { showNormalView(); toast("已返回常规清理"); }
+  if (view === "steam") { switchView("full"); toast("已返回扫描概览"); }
 });
 
 $("btnCustom").addEventListener("click", async () => {
@@ -3915,7 +3757,7 @@ function initTheme() {
   await loadState();
   // Steam 数据是读本地清单（秒级），与扫描互不依赖，异步加载不阻塞首屏
   loadSteam();
-  // 启动后台常规项扫描（供切换回常规清理时即用）
+  // 启动后台常规项扫描（供「可清理项」面板即用，不阻塞下面的全盘扫描）
   scan();
   // 用户诉求：默认直接进入全盘扫描，无需手动点击「全盘扫描本盘」按钮
   await startFullScan();
