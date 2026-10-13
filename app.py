@@ -1246,6 +1246,8 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
                 item["title"] = ov["note"]
                 item["note_override"] = True
                 item["custom"] = True
+            if ov.get("pin"):
+                item["pinned"] = True
         return item
 
     root_key = str(r.get("root") or root).lower()
@@ -1341,8 +1343,54 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
             if mp.startswith(pre):
                 m["in_game_body"] = g["path"]
 
-    # 把「这条树节点正好是某个清理目标」的对应关系直接标在节点上（target_id）：
-    # 占用排行里的可清理行靠它优先走「按目标 id 清理」，从而保留回收站等
+    # 自定义提级（2026-10-13）：用户右键把某个深层子目录「提级」，它就固定
+    # 出现在排行顶层，不受展开深度限制。标记存在 custom-overrides.json 的
+    # pin 字段里，随迁移数据（bundle 导出/导入）一起走。目录已消失时静默
+    # 跳过 —— 提级只是显示偏好，绝不该因为显示偏好让扫描报错。
+    try:
+        _pins = {k: v for k, v in (_row_overrides or {}).items()
+                 if isinstance(v, dict) and v.get("pin")}
+    except Exception:
+        _pins = {}
+    if _pins:
+        wiz_tbl = (_WIZ_DIRS.get(letter, {}).get("table", {}) or {})
+        wiz_dirs_tbl2 = wiz_tbl.get("dirs") if engine == "wiztree" else None
+        have2 = {os.path.normpath(n["path"]).lower() for n in nodes if n.get("path")}
+        pinned_added = 0
+        for pkey in _pins:
+            if pinned_added >= 40:
+                break
+            if not isinstance(pkey, str) or len(pkey) < 4:
+                continue
+            cand = os.path.normpath(pkey)
+            if os.path.splitdrive(cand)[0].rstrip(":").upper() != letter:
+                continue              # 别的盘的提级项，在那一盘的扫描里出现
+            if not os.path.isdir(cand):
+                continue              # 目录已被删除/移动：静默跳过
+            low = cand.lower()
+            if low in have2 or low == root_key or root_key.startswith(low + "\\"):
+                continue              # 树里已有（mk 会带 pinned 标记）或无意义祖先
+            if wiz_dirs_tbl2 is not None:
+                size = int(wiz_tbl.get("dirs", {}).get(low) or 0)
+                if size <= 0:
+                    # WizTree 内存表只存 ≥50MB 的目录；提级项是用户点名要看的，
+                    # 小目录也必须给出真实体积，查不到就现场量。
+                    sz, _trunc = _size_of_dir_budgeted(cand)
+                    size = int(sz or 0)
+            else:
+                sz, _trunc = _size_of_dir_budgeted(cand)
+                size = int(sz or 0)
+            node = mk({"name": os.path.basename(cand) or cand,
+                       "path": cand, "parent": root_key, "depth": 1,
+                       "type": "dir", "size": size, "modified": "",
+                       "hasChildren": True}, root_key)
+            node["can_drill"] = True
+            node["pinned"] = True
+            nodes.append(node)
+            have2.add(low)
+            pinned_added += 1
+
+    # 把「这条树节点正好是某个清理目标」的对应关系直接标在节点上（target_id）：    # 占用排行里的可清理行靠它优先走「按目标 id 清理」，从而保留回收站等
     # 特殊目标的清理语义；对不上目标的可清理行才走按路径清理（服务端重校验）。
     # 用户级目标（%LOCALAPPDATA% 等）展开后在别的盘，匹配不上当前盘的节点，
     # 属预期 —— 它们仍由预设一键勾选（按 id）。
@@ -1488,6 +1536,16 @@ def list_subdirs(drive: str, path: str, limit: int = 80) -> dict:
                                    or (cached and cached.get("table")
                                        and _wiztree_children(
                                            cached["table"]["dirs"], c["path"], 1))))
+    # 自定义提级标注：下钻视图里也要能看到「这一项已提级到顶层」
+    try:
+        _pin_keys = {k for k, v in (load_overrides().get("targets") or {}).items()
+                     if isinstance(v, dict) and v.get("pin")}
+    except Exception:
+        _pin_keys = set()
+    if _pin_keys:
+        for c in children:
+            if os.path.normpath(str(c.get("path") or "")).lower() in _pin_keys:
+                c["pinned"] = True
     # Epic/GOG 游戏标注：子项恰好是某游戏安装目录时给出与占用树一致的身份
     try:
         gdirs, glibs = game_install_dirs()
@@ -1701,6 +1759,8 @@ def load_overrides() -> dict:
                 entry[f] = v[f].strip()
         if isinstance(v.get("cleanable"), bool):
             entry["cleanable"] = v["cleanable"]
+        if isinstance(v.get("pin"), bool):
+            entry["pin"] = v["pin"]          # 自定义提级（2026-10-13）
         if entry:
             out[str(k)] = entry
     return {"targets": out}
@@ -5487,7 +5547,8 @@ class Handler(BaseHTTPRequestHandler):
             # 路径键只是查找键，不参与任何删除路径解析，放宽反斜杠限制；
             # 仍要求形如绝对盘符路径并限长，防止乱键写满配置文件。
             _is_path_key = bool(re.match(r"^[a-zA-Z]:\\", oid)) and len(oid) <= 500
-            if (not oid or len(oid) > 200
+            if (not oid
+                    or len(oid) > (500 if _is_path_key else 200)
                     or ("/" in oid or ("\\" in oid and not _is_path_key))):
                 return self._json({"error": "无效的清理项标识"}, 400)
             entry = {}
@@ -5505,6 +5566,8 @@ class Handler(BaseHTTPRequestHandler):
                     entry[f] = v.strip()
             if isinstance(body.get("cleanable"), bool):
                 entry["cleanable"] = body["cleanable"]
+            if isinstance(body.get("pin"), bool):
+                entry["pin"] = body["pin"]
             data = load_overrides()
             if entry:
                 data["targets"][oid] = entry
@@ -5574,8 +5637,14 @@ class Handler(BaseHTTPRequestHandler):
             data = load_overrides()
             for k, v in (body.get("overrides") or {}).items():
                 k = str(k).strip()
-                if not k or len(k) > 200 or "/" in k or "\\" in k:
-                    rep["overrides_skipped"].append(f"「{k}」键不合法")
+                # 路径键（占用排行右键自定义 / 自定义提级用的归一化路径）
+                # 与目标键走同一套校验：形如盘符绝对路径且限长 500。
+                # 此前一刀切拒绝含反斜杠的键，导致导出的行级覆盖导不回来
+                # （2026-10-13 修复，随「自定义提级」一起走迁移数据）。
+                _is_path_key = bool(re.match(r"^[a-zA-Z]:\\", k)) and len(k) <= 500
+                if (not k or len(k) > (500 if _is_path_key else 200)
+                        or "/" in k or ("\\" in k and not _is_path_key)):
+                    rep["overrides_skipped"].append(f"「{k[:60]}」键不合法")
                     continue
                 entry = None
                 if isinstance(v, dict):
@@ -5587,8 +5656,14 @@ class Handler(BaseHTTPRequestHandler):
                                 entry = None
                                 break
                             entry[f] = t.strip()
+                    for f in ("label", "note"):
+                        t = v.get(f)
+                        if isinstance(t, str) and t.strip() and len(t) <= 200:
+                            entry[f] = t.strip()
                     if isinstance(v.get("cleanable"), bool):
                         entry["cleanable"] = v["cleanable"]
+                    if isinstance(v.get("pin"), bool):
+                        entry["pin"] = v["pin"]
                     if not entry:
                         entry = None
                 if entry is None:

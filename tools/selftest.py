@@ -1945,21 +1945,50 @@ def phase7_scoping_and_accel() -> None:
         check("占用树的节点带体积可读格式",
               all(n.get("size_h") for n in ov["nodes"]))
 
-        # ---- 快速模式（depth=2）：给没装 WizTree 的慢机器用 ----
-        # 界面工具栏可选「快速（2 层）」，请求带 &depth=2。树只展开 2 层，
-        # 更深的目录由前端下钻时的 list_subdirs 现场补齐。
-        ovq = app.scan_disk_overview(letter, 2)
-        check("快速扫描正常返回",
-              not ovq.get("error") and ovq.get("node_count", 0) > 0,
-              f"{ovq.get('node_count')} 个节点 / 引擎={ovq.get('engine')}")
-        check("快速扫描响应如实带深度标记",
-              ovq.get("max_depth") in (2, 3), str(ovq.get("max_depth")))
-        # 深度上限是 4：2 层树 + 注入的游戏本体节点（挂到树内最深的现有
-        # 祖先下，Steam 库嵌套时会把最深节点顶到 3~4，属设计行为而非
-        # 退化——与 cdp_check「全盘扫描」段的口径一致）。
-        check("快速扫描节点不超过 4 层深（2 层树 + 游戏本体注入）",
-              all(int(n.get("depth") or 0) <= 4 for n in ovq.get("nodes", [])),
-              f"最深 {max((int(n.get('depth') or 0)) for n in ovq.get('nodes', []))}")
+        # ---- 深扫（depth=2）与快速（depth=1）：2026-10-13 起排行默认只列
+        # 第 1 层（父级不拆子级，深层靠下钻），「深扫」也只到 2 层。
+        ov = app.scan_disk_overview(letter, 2)
+        # 自定义提级：造一个深层目录、写入 pin 覆盖，快速扫描（1 层）后它
+        # 必须作为顶层节点出现（不受展开深度限制）。
+        probe = os.path.join(f"{letter}:\\", "_oc_pin_probe", "deep", "target")
+        os.makedirs(probe, exist_ok=True)
+        with open(os.path.join(probe, "x.bin"), "wb") as f:
+            f.write(b"0" * 4096)
+        _ov_real = app.load_overrides()
+        _ov_backup = {k: dict(v) for k, v in _ov_real.get("targets", {}).items()
+                      if k == os.path.normpath(probe).lower()}
+        _ov_real.setdefault("targets", {})[os.path.normpath(probe).lower()] = \
+            {"pin": True}
+        app.save_overrides(_ov_real)
+        try:
+            ovq = app.scan_disk_overview(letter, 1)
+            check("快速扫描正常返回",
+                  not ovq.get("error") and ovq.get("node_count", 0) > 0,
+                  f"{ovq.get('node_count')} 个节点 / 引擎={ovq.get('engine')}")
+            check("快速扫描响应如实带深度标记",
+                  ovq.get("max_depth") in (1, 2, 3), str(ovq.get("max_depth")))
+            # 深度上限是 3：1 层树 + 注入的游戏本体/提级节点（Steam 库嵌套
+            # 时最深到 3，属设计行为而非退化——与 cdp_check 口径一致）。
+            check("快速扫描节点不超过 3 层深（1 层树 + 游戏本体/提级注入）",
+                  all(int(n.get("depth") or 0) <= 3 for n in ovq.get("nodes", [])),
+                  f"最深 {max((int(n.get('depth') or 0)) for n in ovq.get('nodes', []))}")
+            pinned = [n for n in ovq.get("nodes", []) if n.get("pinned")]
+            check("自定义提级目录出现在排行顶层",
+                  any(os.path.normpath(n["path"]).lower()
+                      == os.path.normpath(probe).lower()
+                      and int(n.get("depth") or 0) == 1 and n.get("pinned")
+                      for n in pinned),
+                  f"pinned={len(pinned)} / probe={'命中' if pinned else '缺失'}")
+            check("提级节点带 drill 能力（下钻看子项）",
+                  all(n.get("can_drill") for n in pinned) if pinned else False)
+        finally:
+            cur = app.load_overrides()
+            cur.setdefault("targets", {}).pop(os.path.normpath(probe).lower(), None)
+            for k, v in _ov_backup.items():
+                cur["targets"][k] = v
+            app.save_overrides(cur)
+        shutil.rmtree(os.path.join(f"{letter}:\\", "_oc_pin_probe"),
+                      ignore_errors=True)
         check("快速扫描节点数不多于深扫",
               ovq["node_count"] <= len(ov["nodes"]),
               f"快速 {ovq['node_count']} vs 深扫 {len(ov['nodes'])}")

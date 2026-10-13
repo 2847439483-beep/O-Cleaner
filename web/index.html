@@ -2838,6 +2838,8 @@ function renderChart() {
     const badgeText = it.badge_label
       || (!it.recognized ? "未识别" : (it.cleanable ? "可清理" : "建议保留"));
     const badge = `<span class="vbadge ${!it.recognized ? "unk" : (it.cleanable ? "clean" : "keep")}">${esc(badgeText)}</span>`;
+    const pinBadge = it.pinned
+      ? `<span class="vbadge clean" title="已提级：固定显示在排行顶层，右键可取消">已提级</span>` : "";
     const w = Math.max(2, (it.size / maxSize * 100)).toFixed(1);
     const drillable = !!it.can_drill;
     // 2026-10-13：**所有行都可勾选** —— 「建议保留 / 未识别」不再是勾选禁区。
@@ -2865,7 +2867,7 @@ function renderChart() {
         <div class="vtop">
           ${canCheck ? `<input type="checkbox" class="rowsel" data-path="${esc(it.path)}"${it.target_id ? ` data-tid="${esc(it.target_id)}"` : ""}${rowChecked ? " checked" : ""} title="勾选这项参与清理">` : ""}
           ${drillable ? `<button class="tiny ghost expinline" data-tree="${idx}" title="就地展开查看子目录">展开 ▾</button>` : ""}
-          <span class="fname">${esc(it.name)}${badge}${
+          <span class="fname">${esc(it.name)}${badge}${pinBadge}${
             drillable ? '<span class="vgo">点开看子项 ›</span>' : ""}</span>
           <button class="tiny ghost rowinfo" data-info="${idx}">详情</button>
           <span class="fsize">${fmt(it.size)}</span>
@@ -2953,8 +2955,14 @@ async function openRowOverride(node) {
       <label style="display:block;font-size:13px;margin:12px 0 4px">下方说明（留空恢复识别出的说明）</label>
       <textarea id="ovNote" rows="3" style="width:100%" maxlength="200"
                 placeholder="写在这里会替换行下方的说明文字">${esc(cur.note || "")}</textarea>
+      <label style="display:flex;align-items:flex-start;gap:8px;margin:14px 0 4px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="ovPin" style="margin-top:2px"${cur.pin ? " checked" : ""}>
+        <span><b>提级到排行顶层</b><span style="color:var(--dim2);font-size:12px">
+          （把这个深层目录固定显示在占用排行第一层，不用一层层点下去找；
+          取消勾选即恢复。标记保存在本机自定义数据里，随迁移数据一起走）</span></span>
+      </label>
       <div style="color:var(--dim2);font-size:12px;margin-top:8px">
-        注意：这只是你给自己看的显示文字，不改变工具对这个目录的风险判定，
+        注意：这些只是你给自己看的显示偏好，不改变工具对这个目录的风险判定，
         也不会把「建议保留」变成「可清理」。</div>
     </div>
     <div class="mfoot">
@@ -2972,21 +2980,52 @@ async function openRowOverride(node) {
     } catch (_) {}
     delete node.badge_label;
     if (node.note_override) { delete node.note_override; }
+    if (node.pinned) {
+      delete node.pinned;
+      if (typeof FS !== "undefined" && FS && FS.nodes) {
+        FS.nodes = FS.nodes.filter(n =>
+          !(n.pinned && normKey(n.path) === key && n.depth === 1));
+        buildKidsIndex(); renderOverview(); renderChart();
+      }
+    }
     closeModal(); renderChart(); toast("已恢复默认显示");
   });
   $("ovSave").addEventListener("click", async () => {
     const label = $("ovLabel").value.trim();
     const note = $("ovNote").value.trim();
+    const pin = $("ovPin").checked;
     try {
       const res = await fetch(`${API}/__oc__/overrides/set`, { method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: key, label, note }) });
+        body: JSON.stringify({ id: key, label, note, pin }) });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       if (label) node.badge_label = label; else delete node.badge_label;
       if (note) { node.title = note; node.note_override = true; }
       else if (node.note_override) { delete node.note_override; }
-      closeModal(); renderChart(); toast("自定义显示已保存");
+      // 提级本地即时生效，不必重扫：
+      //   勾上 → 若树里还没有这个目录（快速扫描只列第 1 层），复制当前行
+      //          的展示字段造一个顶层节点挂到盘根下；取消 → 从顶层移除。
+      //   下次全盘扫描时后端会按 pin 标记自己注入，两边一致。
+      const wasPinned = !!node.pinned;
+      node.pinned = pin;
+      if (typeof FS !== "undefined" && FS && FS.nodes && node.type === "dir") {
+        if (pin && !wasPinned) {
+          const exists = FS.nodes.some(n => normKey(n.path) === key);
+          if (!exists) {
+            const top = Object.assign({}, node, {
+              parent: FS.root || "", depth: 1, pinned: true, can_drill: true,
+            });
+            FS.nodes.push(top);
+          }
+        } else if (!pin && wasPinned) {
+          FS.nodes = FS.nodes.filter(n =>
+            !(n.pinned && normKey(n.path) === key && n.depth === 1));
+        }
+        buildKidsIndex();
+        renderOverview(); renderChart();
+      }
+      closeModal(); toast(pin ? "已提级到排行顶层" : "自定义显示已保存");
     } catch (e) { toast("保存失败：" + e.message); }
   });
 }
