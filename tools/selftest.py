@@ -784,9 +784,9 @@ def phase3_http() -> None:
             shutil.rmtree(_dd, ignore_errors=True)
         check("状态负载带数据存档目录（界面自检面板展示用）",
               '"data_dir"' in (HERE / "app.py").read_text(encoding="utf-8"))
-        check("默认快速扫描档位（HTML 选项与记忆逻辑一致）",
-              'value="quick">快速（默认' in html
-              and '=== "deep" ? "deep" : "quick"' in html)
+        check("默认扫描层数 2（HTML 选项与记忆逻辑一致）",
+              '<option value="2" selected>2 层（默认）</option>' in html
+              and 'saved === "quick" ? 1 : saved === "deep" ? 2' in html)
         check("起始盘默认数据盘并记住选择",
               "find(d => !d.is_system)" in html and '"oc-drive"' in html)
         check("换盘结果缓存（10 分钟内回切不再重扫）",

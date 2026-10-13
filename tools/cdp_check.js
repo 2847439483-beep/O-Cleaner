@@ -180,11 +180,11 @@ class CDP {
     else check(name, false, detail);
   }
 
-  // 默认档位：全新会话（无本地存储）应落在「快速」——2 层先定位占地大头，
-  // 深扫在小文件极多的系统盘上可能要几分钟，不该是默认值。
+  // 默认层数：全新会话（无本地存储）应落在 2 层——先定位占地大头，
+  // 更多层数在小文件极多的系统盘上可能要几分钟，不该是默认值。
   const depth0 = await evaluate(
     `document.querySelector('#fsDepthSel') ? document.querySelector('#fsDepthSel').value : '(missing)'`);
-  check("默认扫描档位为快速（2 层）", depth0 === "quick", String(depth0));
+  check("默认扫描层数为 2", depth0 === "2", String(depth0));
 
   // 起始盘默认数据盘：多盘机器上首个非系统盘（上次用的盘优先，但全新会话
   // 没有本地存储，走数据盘默认）；单盘机器无意义，跳过。
@@ -1058,19 +1058,19 @@ class CDP {
     skip2("勾选与下钻互不影响（当前占用树没有可勾选的行，内容依赖）");
   }
 
-  // ---------- 快速模式（depth=2 浅扫） ----------
-  console.log("\n  --- 快速模式（2 层浅扫） ---");
-  // 档位持久化：切到「快速」后刷新页面应记住选择
+  // ---------- 浅扫模式（depth=1） ----------
+  console.log("\n  --- 浅扫模式（1 层） ---");
+  // 层数持久化：切到 1 层后刷新页面应记住选择
   await evaluate(`(() => {
     const s = document.querySelector('#fsDepthSel');
-    if (s) { s.value = 'quick'; s.dispatchEvent(new Event('change')); }
+    if (s) { s.value = '1'; s.dispatchEvent(new Event('change')); }
   })()`);
   await evaluate(`location.reload()`);
   await sleep(3500);
   const depthKept = await evaluate(
     `document.querySelector('#fsDepthSel') ? document.querySelector('#fsDepthSel').value : '(missing)'`);
-  check("扫描深度档位刷新后保持", depthKept === "quick", String(depthKept));
-  if (depthKept === "quick") {
+  check("扫描层数刷新后保持", depthKept === "1", String(depthKept));
+  if (depthKept === "1") {
     // 刷新后盘符选择回到默认（系统盘），与深扫保持同一目标盘再开扫
     if (DRIVE_) {
       await evaluate(`(() => {
@@ -1110,8 +1110,8 @@ class CDP {
       check("快速扫描完成并渲染出排行",
             qInfo.rows > 0 && qInfo.maxDepth >= 1 && qInfo.maxDepth <= 3,
             `${qSec} 秒 / max_depth=${qInfo.maxDepth}（1 层树 + 游戏本体注入）`);
-      check("快速扫描在面板上如实标注",
-            /快速/.test(qInfo.hint), qInfo.hint);
+      check("扫描层数在面板上如实标注",
+            /\d+ 层/.test(qInfo.hint), qInfo.hint);
       const g = await evaluate(`(() => {
         const ns = (typeof FS !== 'undefined' && FS && FS.nodes) ? FS.nodes : [];
         const games = ns.filter(n => n.steam_game || n.game_platform);
@@ -1134,10 +1134,10 @@ class CDP {
     } else {
       check("快速扫描完成并渲染出排行", false, `${qSec} 秒超时`);
     }
-    // 恢复默认深扫，不给后续检查留档位残留
+    // 恢复默认 2 层，不给后续检查留层数残留
     await evaluate(`(() => {
       const s = document.querySelector('#fsDepthSel');
-      if (s) { s.value = 'deep'; s.dispatchEvent(new Event('change')); }
+      if (s) { s.value = '2'; s.dispatchEvent(new Event('change')); }
     })()`);
   }
 

@@ -384,8 +384,8 @@ def _measure_existing(t: dict, path: str, drive: str | None) -> dict:
 DISK_TREE_MIN_DESCEND_RATIO = 0.08
 DISK_TREE_MIN_DESCEND_FLOOR = 300 * 1024 * 1024    # 绝对下限 300 MB
 DISK_TREE_MIN_CHILD_MB = 50                         # 子项 ≥50 MB 才进入该层清单
-DISK_TREE_MAX_DEPTH = 1                             # 默认只展开第 1 层（2026-10-13 用户要求：
-                                                    # 父级不再拆成子级，深层靠手动下钻；「深扫」= 2 层）
+DISK_TREE_MAX_DEPTH = 2                             # 默认展开 2 层（2026-10-14 起；
+                                                    # 前端可在 1~5 层间自选，这里是默认值与上限参考）
 DISK_TREE_MAX_NODES = 420                           # 总节点上限，控制耗时与数据量
 DISK_TREE_MAX_PER_DIR = 40                          # 单个目录最多列出的子项数
 # 每层最多沿几条最粗的分支继续深入。这是扫描耗时的主要开关：

@@ -650,9 +650,12 @@
     <button id="btnScan" class="primary">重新扫描</button>
     <button id="btnFullScan">全盘扫描本盘</button>
     <select id="fsDepthSel" style="width:auto"
-            title="全盘扫描的展开深度。快速模式只列盘根的直接子目录（父级不再拆成子级），深层目录点击下钻查看（按占用/名称排序）；游戏本体与已提级的目录始终会出现在排行里">
-      <option value="quick">快速（默认，1 层）</option>
-      <option value="deep">深扫（2 层，较慢）</option>
+            title="扫描展开的层数（2026-10-14 起可自定义，默认 2 层）。层数越少越快，深层目录点击下钻查看（按占用/名称排序）；游戏本体与已提级的目录始终会出现在排行里">
+      <option value="1">1 层（最快）</option>
+      <option value="2" selected>2 层（默认）</option>
+      <option value="3">3 层</option>
+      <option value="4">4 层</option>
+      <option value="5">5 层（最慢）</option>
     </select>
     <button id="btnSteam">Steam 游戏库</button>
     <button id="btnAll">全选</button>
@@ -2466,7 +2469,7 @@ let FS_SORT = (() => {
 let fsStack = [];
 // 在途全盘扫描属于哪个盘、用什么作废。换盘时旧盘的扫描必须作废重开：
 // 否则「扫描中」守卫会把新盘的扫描吞掉，用户点 E 盘却一直看 C 盘的扫描面板。
-let fsScanDrive = null, fsAbort = null, fsScanQuick = null;
+let fsScanDrive = null, fsAbort = null, fsScanDepth = null;
 /* 换盘提速：每个盘最近一次全盘扫描结果缓存 10 分钟。来回切盘时不再
    重新扫描（系统盘一扫几分钟），过期或点了「全盘扫描本盘」才真扫。
    缓存只存树本身；勾选状态不缓存（selPaths 在恢复时照常清空）。 */
@@ -2517,11 +2520,11 @@ function showFullView() {
 async function startFullScan() {
   // 常规清理并入本页后，这个按钮就是纯粹的「（重新）扫描本盘」；
   // 正在扫：同一盘且同一深度就只切到概览，别重复发请求；换了盘或换了扫描
-  // 深度（快速↔深扫）则作废旧扫描、立即按新参数开扫。
-  const quick = $("fsDepthSel").value === "quick";
-  // 结果缓存命中：同一个盘、同一深度、10 分钟内 → 直接展示，不重扫
+  // 层数换了则作废旧扫描、立即按新参数开扫。
+  const depth = Math.min(5, Math.max(1, parseInt($("fsDepthSel").value, 10) || 2));
+  // 结果缓存命中：同一个盘、同一层数、10 分钟内 → 直接展示，不重扫
   const hit = FS_CACHE.get(drive);
-  if (hit && hit.quick === quick && Date.now() - hit.at < FS_CACHE_TTL) {
+  if (hit && hit.depth === depth && Date.now() - hit.at < FS_CACHE_TTL) {
     FS = hit.fs;
     selPaths.clear();          // 新树新路径：按路径勾选作废
     buildKidsIndex();
@@ -2534,12 +2537,12 @@ async function startFullScan() {
     return;
   }
   if ($("fsScanning")) {
-    if (fsScanDrive === drive && fsScanQuick === quick) { showFullView(); return; }
+    if (fsScanDrive === drive && fsScanDepth === depth) { showFullView(); return; }
     fsAbort?.abort();
   }
   const ac = fsAbort = new AbortController();
   fsScanDrive = drive;
-  fsScanQuick = quick;
+  fsScanDepth = depth;
   const b = $("btnFullScan");
   b.disabled = true; b.textContent = "全盘扫描中…";
   view = "full";
@@ -2573,10 +2576,7 @@ async function startFullScan() {
         <span class="scanhint" id="scanHint"></span>
       </div>
       <div class="scanfacts">
-        ${quick
-          ? "快速模式：只列盘根的直接子目录（父级不拆子级）；"
-            + "点任意目录下钻看子项（可按占用/名称排序）。"
-          : "展开到第 2 层，能多看到一层目录；更深处同样点击下钻。"}
+        展开 ${depth} 层；更深处点击任意目录下钻看子项（可按占用/名称排序）。
         <b>请保持本窗口与命令行窗口开启。</b>
         ${STATE?.wiztree?.found ? "（已启用 WizTree 加速）"
                                 : "（未装 WizTree，逐目录递归会慢一些）"}
@@ -2606,11 +2606,11 @@ async function startFullScan() {
   const timer = setInterval(poll, 500);
   try {
     const r = await (await fetch(`${API}/__oc__/overview?drive=${drive}`
-                                 + (quick ? "&depth=1" : "&depth=2"),
+                                 + `&depth=${depth}`,
                                  { signal: ac.signal })).json();
     if (r.error) throw new Error(r.error);
     FS = r;
-    FS_CACHE.set(fsScanDrive, { fs: r, quick, at: Date.now() });
+    FS_CACHE.set(fsScanDrive, { fs: r, depth, at: Date.now() });
     selPaths.clear();     // 新树新路径：上一棵树的按路径勾选全部作废
     buildKidsIndex();     // 预先按父路径归拢，下钻与「本层」视图都靠它
     fsMode = "biggest";   // 默认直接给「全盘最大项目」：新用户一眼看到占地大头
@@ -2632,7 +2632,7 @@ async function startFullScan() {
     if (fsAbort === ac) {
       fsAbort = null;
       fsScanDrive = null;
-      fsScanQuick = null;
+      fsScanDepth = null;
       b.disabled = false;
     }
   }
@@ -2678,7 +2678,7 @@ function renderOverview() {
 
   $("fsHint").textContent =
     `${FS.drive}: 盘 · ${FS.node_count} 个节点 · 已识别 ${FS.explained} 个`
-    + (FS.max_depth <= 2 ? " · 快速（1~2 层）" : "")
+    + ` · ${FS.max_depth} 层`
     + (FS.engine === "wiztree" ? " · WizTree MFT 加速" : "");
 
   $("fsOverview").innerHTML = `
@@ -3722,11 +3722,12 @@ async function showPartition(it) {
 /* ==================== 事件 ==================== */
 $("btnScan").addEventListener("click", () => scan());
 $("btnFullScan").addEventListener("click", () => startFullScan());
-/* 全盘扫描深度档位：默认快速（2 层先定位大头，深层可下钻），
-   记住上次选择（存储不可用就用默认快速）。 */
+/* 扫描层数（2026-10-14 起可自定义 1~5，默认 2 层）：
+   记住上次选择；旧版本的 "quick"/"deep" 值按 1/2 层换算。 */
 try {
-  $("fsDepthSel").value =
-    localStorage.getItem("oc-fs-depth") === "deep" ? "deep" : "quick";
+  const saved = localStorage.getItem("oc-fs-depth");
+  const n = saved === "quick" ? 1 : saved === "deep" ? 2 : parseInt(saved, 10);
+  if (n >= 1 && n <= 5) $("fsDepthSel").value = String(n);
 } catch (e) { /* 存储不可用就算了 */ }
 $("fsDepthSel").addEventListener("change", () => {
   try { localStorage.setItem("oc-fs-depth", $("fsDepthSel").value); } catch (e) {}
