@@ -1449,9 +1449,11 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
     # 用户级目标（%LOCALAPPDATA% 等）展开后在别的盘，匹配不上当前盘的节点，
     # 属预期 —— 它们仍由预设一键勾选（按 id）。
     try:
+        # build_targets 已经把盘符专属项的 id 加好盘符后缀（recycle-bin@C），
+        # 这里直接用 t["id"] —— 再过一遍 target_id_for 会变成 recycle-bin@C@C，
+        # 前端拿这个 id 去 SCAN/clean 里都查不到，勾了也会被后端静默丢弃。
         _tg_paths = {
-            os.path.normpath(expand(t["path"], letter)).lower():
-                target_id_for(t, letter if is_drive_specific(t) else None)
+            os.path.normpath(expand(t["path"], letter)).lower(): t["id"]
             for t in build_targets(letter)
         }
         for n in nodes:

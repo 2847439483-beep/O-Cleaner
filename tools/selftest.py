@@ -417,6 +417,15 @@ def phase1() -> None:
               any(n.get("what") for n in nodes))
         check("识别结果不含内部打分字段（payload 精简）",
               all("match_score" not in n for n in nodes))
+        # 行内勾选的 id 通道：节点上标注的 target_id 必须是 build_targets 的
+        # 真实目标 id —— 曾因对已带盘符后缀的 id 再过一遍 target_id_for，
+        # 产生 recycle-bin@C@C 这类双后缀 id，SCAN 与 clean 都查不到，
+        # 用户勾了会被后端静默丢弃。
+        valid_ids = {t["id"] for t in app.build_targets("D")}
+        marked = [n.get("target_id") for n in nodes if n.get("target_id")]
+        check("节点标注的 target_id 都是真实目标 id",
+              all(tid in valid_ids for tid in marked),
+              f"标注 {len(marked)} 条 / 合法 id {len(valid_ids)} 个")
     else:
         skip("磁盘占用树检查",
              f"本机无 D 盘或其内容过少（总体量 {(fs or {}).get('scanned_total_h', '—')}），"
@@ -617,9 +626,10 @@ def phase3_http() -> None:
               "/__oc__/clean-game" in html)
         check("游戏行徽标由后端 cleanable 数据切换",
               "g.cleanable" in html)
-        # 各功能界面导航：三个视图常驻可达（高亮当前页），11 个折叠面板有吸顶目录
-        check("视图导航提供三个功能页入口",
-              'id="viewNav"' in html and html.count('data-v="') == 3)
+        # 各功能界面导航：两个视图常驻可达（高亮当前页），11 个折叠面板有吸顶目录
+        # （v2.3 起常规清理页并入扫描概览，视图只剩 扫描概览 / Steam 游戏库）
+        check("视图导航提供两个功能页入口",
+              'id="viewNav"' in html and html.count('data-v="') == 2)
         check("侧栏面板目录条存在（吸顶导航）",
               'id="panelNav"' in html and "initPanelNav" in html)
         # Steam 残留目录（孤儿）的一键删除：与删游戏共用同一条后端校验链路，
@@ -689,8 +699,9 @@ def phase3_http() -> None:
         check("state 含盘符列表", len(state.get("drives", [])) >= 1)
 
         # 用户自定义释义 / 结论：内置 → 资源包 → 用户，用户排最上
-        check("前端含自定义释义编辑器与徽章",
-              "editOverride" in html and "已自定义" in html and "ovkey" in html)
+        # （v2.3 起入口在详情弹窗：行带 target_id 才显示「自定义释义」按钮）
+        check("自定义释义编辑器存在且入口在详情弹窗",
+              "editOverride" in html and 'id="dOv"' in html and "ovkey" in html)
         _r1 = get("/__oc__/overrides/set", method="POST",
                   payload={"id": "sandbox-tree", "what": "自测自定义释义",
                            "cleanable": False})

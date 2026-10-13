@@ -156,9 +156,23 @@ class CDP {
   }
   if (!scanReady) console.log("  [注意] 等待首屏扫描完成超时（300 秒上限）");
 
-  // 首屏「常规扫描」与「全盘扫描」是同一类环节：它要逐个量出全部清理目标的体积，
-  // 系统盘上同样可能超出时限。扫描没完成时卡片不会被回填，也不会出现可勾选的项 ——
-  // 依赖这两件事的断言就失去了前提，应记为跳过而不是成片误报。
+  // 概览扫描与目标统计是并行跑的：统计先完成时占用排行可能还没渲染出来。
+  // 后面的释义编辑器与规则链路都需要排行里的可勾行，这里给排行一个 60 秒
+  // 渲染窗口（只在本机等；统计都没完成的 CI 慢盘直接走内容依赖跳过）。
+  let rankingReady = false;
+  if (scanReady) {
+    for (let i = 0; i < 60; i++) {
+      const n = await evaluate(`document.querySelectorAll('#fsChart .vrow').length`);
+      if (n > 0) { rankingReady = true; break; }
+      await sleep(1000);
+    }
+    if (!rankingReady) console.log("  [注意] 占用排行未在 60 秒内渲染出来（内容依赖断言将跳过）");
+  }
+
+  // scanReady 只表示「目标体积统计完成」：此时切盘不会再被进行中的扫描覆盖，
+  // 界面结构也稳定了。注意它不代表「占用排行已渲染」——排行由全盘概览扫描
+  // 驱动，耗时独立且在 CI 上常超时；依赖排行内容的断言一律改看
+  // 占用排行里有没有可勾行（pickedSize），别拿这个信号当门控。
   // 本机（非 CI）超时仍判失败，因为那是真实退化。
   function checkInit(name, cond, detail) {
     if (scanReady) check(name, cond, detail);
@@ -274,6 +288,18 @@ class CDP {
   // 自定义释义编辑器：详情弹窗里的「自定义释义」按钮打开弹窗（卡片移除后的
   // 新入口，行上有 target_id 才显示），四个文本域 + 结论下拉。
   // 弹窗内容在 fetch 完当前覆盖之后才填，所以必须等一拍再检查。
+  // 默认视图（全盘最大项目）几乎不含可清理行：先切「全部可清理」视图找行，
+  // 查完切回原视图，与规则链路的找行方式保持一致。
+  let ovViewBefore = "";
+  if (rankingReady) {
+    ovViewBefore = await evaluate(
+      `(document.querySelector('#fsModes .seg.on')||{}).dataset.m || ''`);
+    await evaluate(`(() => {
+        const s = document.querySelector('#fsModes .seg[data-m="clean"]');
+        if (s) s.click();
+      })()`);
+    await sleep(600);
+  }
   const ov = await evaluate(`(async () => {
     // 找一个带 target_id 的行 → 点它的「详情」→ 弹窗里点「自定义释义」
     const cb = [...document.querySelectorAll('#fsChart .rowsel')]
@@ -295,6 +321,13 @@ class CDP {
     return { ok, labels,
              maskOff: !document.querySelector('#mask').classList.contains('on') };
   })()`);
+  if (ovViewBefore && ovViewBefore !== "clean") {
+    await evaluate(`(() => {
+        const s = document.querySelector('#fsModes .seg[data-m="' + '${ovViewBefore}' + '"]');
+        if (s) s.click();
+      })()`);
+    await sleep(400);
+  }
   if (ov.err) {
     skip2("自定义释义编辑器（" + (ov.err === "no row with target_id"
           ? "当前占用树没有带目标标注的行，内容依赖" : ov.err) + "）");
@@ -396,7 +429,7 @@ class CDP {
   // 所以只认带 target_id 的行（行内勾选优先按 id 走，与卡片时代同一数据面）。
   // 优先挑「有实际体积」的行：0 B 的目标套用规则后统计必然是 0 B，
   // 那是正确行为而不是统计坏了。
-  let pickedSize = await evaluate(`(() => {
+  const pickRowExpr = `(() => {
       const cb = [...document.querySelectorAll('#fsChart .rowsel')]
         .find(c => c.dataset.tid);
       if (!cb) return null;
@@ -404,10 +437,26 @@ class CDP {
       const info = (typeof SCAN !== 'undefined' && SCAN) ? SCAN[tid] : null;
       cb.click();
       return (info && typeof fmt === 'function') ? fmt(info.size || 0) : null;
-    })()`);
-  if (pickedSize === null) {
-    // 当前树没有带目标标注的行（内容依赖）：无法驱动规则保存链路
-    pickedSize = null;
+    })()`;
+  let pickedSize = await evaluate(pickRowExpr);
+  if (pickedSize === null && rankingReady) {
+    // 默认视图是「全盘最大项目」，几乎不含可清理行；「全部可清理」视图才是
+    // 可勾选行的全集。切过去找一条，找到后切回原视图（选择集不随视图变化）。
+    const before = await evaluate(
+      `(document.querySelector('#fsModes .seg.on')||{}).dataset.m || ''`);
+    await evaluate(`(() => {
+        const s = document.querySelector('#fsModes .seg[data-m="clean"]');
+        if (s) s.click();
+      })()`);
+    await sleep(600);
+    pickedSize = await evaluate(pickRowExpr);
+    if (before && before !== "clean") {
+      await evaluate(`(() => {
+          const s = document.querySelector('#fsModes .seg[data-m="' + '${before}' + '"]');
+          if (s) s.click();
+        })()`);
+      await sleep(400);
+    }
   }
   await sleep(500);
   const r1 = await evaluate(`!document.querySelector('#btnRuleSave').disabled`);
@@ -419,11 +468,12 @@ class CDP {
           `初始禁用=${r0} 勾选后可用=${r1} 提示="${rinfo}"`);
   }
 
-  if (!scanReady) {
-    // 上一批卡片没有回填体积，也就没有可勾选的项，规则链路的断言全部失去前提。
-    // 这里必须显式补两条同名断言，否则「跳过」会变成「少了一条检查」而无人察觉。
-    checkInit("保存规则后出现在规则列表", false, "首屏扫描未完成");
-    checkInit("规则卡片含 套用/立即清理/改名/删 操作", false, "首屏扫描未完成");
+  if (pickedSize === null) {
+    // 规则链路的前提是「占用排行里有带目标标注的可勾行」：没有行时既勾不了
+    // 也存不了规则，断言失去前提 —— 记内容依赖跳过，而不是找借口执行空保存
+    //（CI 上排行前 30 未必有可清理项，此前用 scanReady 当门控把空保存判成了失败）。
+    skip2("保存规则后出现在规则列表（当前占用树没有带目标标注的行，内容依赖）");
+    skip2("规则卡片含 套用/立即清理/改名/删 操作（当前占用树没有带目标标注的行，内容依赖）");
   } else {
     await evaluate(`document.querySelector('#ruleName').value = 'UI自测规则';
                     document.querySelector('#btnRuleSave').click()`);
