@@ -529,12 +529,15 @@ def phase2() -> None:
             r = app.clean_target({"id": "t5", "label": "占用",
                                   "path": str(SANDBOX / "tree"), "kind": "tree"})
             if r["failed"] >= 1:
-                check("被占用的文件计入 skipped 而非崩溃", True,
+                check("被占用的目录计入 failed 而非崩溃", True,
                       f"failed={r['failed']} skipped={r['skipped']}")
             else:
                 skip("被占用文件测试", "本机未对该文件加锁")
-            check("部分占用时其余文件仍被删除",
-                  not (SANDBOX / "tree" / "a0.bin").exists())
+            # 三态删除（rm_tree_strict）之后的语义：文件被占用 → 目录改名
+            # 失败 → 整树未删（零副作用），不再出现「删掉一半留下另一半」。
+            # 旧断言「部分占用时其余文件仍被删除」描述的是旧行为，已随 P1 改版。
+            check("部分占用时整树未删（三态删除零副作用）",
+                  (SANDBOX / "tree" / "a0.bin").exists())
         finally:
             fh.close()
 
