@@ -1637,6 +1637,66 @@ def phase6b_multiplatform() -> None:
               str([n["name"] for n in libtag][:3]))
 
 
+def phase6c_packs() -> None:
+    """资源包加载的「用户包覆盖内置」语义（load_packs 同 id 去重）。
+
+    回归背景：packs_update_from_remote 把与内置同 id 的更新包写进
+    config/packs-user/，load_packs 曾经把两份都列出来 —— 界面同名包出现
+    两行、匹配条目翻倍，与「覆盖」的文档承诺不符。全程用临时目录 +
+    模块属性打补丁，不往仓库 packs/ 或 config/packs-user/ 写任何文件。
+    """
+    print("\n=== 阶段六C：资源包覆盖语义（临时目录）===")
+    saved = (app.PACKS_DIR, app.USER_PACKS_DIR, dict(app._PACKS_CACHE))
+    tmp = Path(tempfile.mkdtemp(prefix="oc_packs_ovr_"))
+    try:
+        bdir = tmp / "builtin"
+        bdir.mkdir()
+        udir = tmp / "user"
+        udir.mkdir()
+        _ent = lambda title, kw: {"match": {"any": [kw]}, "title": title}  # noqa: E731
+        bpack = {"id": "ovr-pack", "name": "内置版", "type": "custom",
+                 "entries": [_ent("内置释义", "\\ovr-target")]}
+        upack = {"id": "ovr-pack", "name": "用户版", "type": "custom",
+                 "entries": [_ent("用户释义", "\\ovr-target")]}
+        other = {"id": "only-user", "name": "仅用户", "type": "custom",
+                 "entries": [_ent("仅用户释义", "\\only-user-dir")]}
+        (bdir / "ovr-pack.json").write_text(
+            json.dumps(bpack, ensure_ascii=False), encoding="utf-8")
+        (udir / "ovr-pack.json").write_text(
+            json.dumps(upack, ensure_ascii=False), encoding="utf-8")
+        (udir / "only-user.json").write_text(
+            json.dumps(other, ensure_ascii=False), encoding="utf-8")
+        app.PACKS_DIR = bdir
+        app.USER_PACKS_DIR = udir
+        app._PACKS_CACHE["key"] = None
+        r = app.load_packs(use_cache=False)
+        ids = [p["id"] for p in r["packs"]]
+        check("同 id 用户包覆盖内置（列表无重复）",
+              sorted(ids) == ["only-user", "ovr-pack"], str(ids))
+        byid = {p["id"]: p for p in r["packs"]}
+        check("覆盖后的包来自用户目录（元信息取用户版）",
+              byid["ovr-pack"]["source"] == "user"
+              and byid["ovr-pack"]["name"] == "用户版")
+        hit = app.packs_lookup("ovr-target", "C:\\ovr-target")
+        check("匹配命中用户版条目",
+              bool(hit) and hit.get("title") == "用户释义",
+              str((hit or {}).get("title")))
+        # 损坏的用户包同样参与覆盖：如实显示错误行，不静默回退
+        (udir / "broken.json").write_text("{ not json", encoding="utf-8")
+        app._PACKS_CACHE["key"] = None
+        r2 = app.load_packs(use_cache=False)
+        bro = next((p for p in r2["packs"] if p["id"] == "broken"), None)
+        check("损坏用户包如实报错（source=user、ok=False）",
+              bro is not None and not bro["ok"] and bro["source"] == "user")
+        check("损坏包不产生匹配条目",
+              all(rec["pack"] != "broken" for rec in r2["entries"]))
+    finally:
+        app.PACKS_DIR, app.USER_PACKS_DIR = saved[0], saved[1]
+        app._PACKS_CACHE.clear()
+        app._PACKS_CACHE.update(saved[2])
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def phase7_scoping_and_accel() -> None:
     """盘符归属 + 自动发现的安全护栏 + WizTree 加速。
 
@@ -2010,6 +2070,7 @@ def main() -> int:
         _phase("阶段五（Steam）", phase5_steam)
         _phase("阶段六（分区分析）", phase6_partition)
         _phase("阶段六B（多平台游戏）", phase6b_multiplatform)
+        _phase("阶段六C（资源包覆盖语义）", phase6c_packs)
         _phase("阶段七（盘符与加速）", phase7_scoping_and_accel)
     finally:
         shutil.move(str(BACKUP), str(REAL_TARGETS))

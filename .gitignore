@@ -38,7 +38,6 @@ tools/_partition_deep.png
 *.backup
 config/.targets.backup.json
 config/.filetypes.linttest.bak
-config/.probe.bak
 
 # 编辑器
 .vscode/

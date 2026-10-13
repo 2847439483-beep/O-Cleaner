@@ -4020,7 +4020,14 @@ def pack_entry_hit(rec: dict, name: str, path: str) -> bool:
 
 
 def load_packs(use_cache: bool = True) -> dict:
-    """加载全部资源包。返回 {"packs": [包元信息...], "entries": [匹配记录...]}。"""
+    """加载全部资源包。返回 {"packs": [包元信息...], "entries": [匹配记录...]}。
+
+    同 id 的包只保留一份：config/packs-user/ 里的用户包**覆盖**内置版本
+    （packs_update_from_remote / import_pack 都把更新写进用户目录，这里的
+    去重就是「覆盖」语义的落地——否则界面会列出两行同名包、匹配条目翻倍）。
+    用户包损坏时同样参与覆盖：界面如实显示错误行，删掉用户目录里那份即可
+    回退内置版本。
+    """
     state = load_packs_state()
     key = json.dumps({k: state.get(k) for k in ("disabled",)},
                      sort_keys=True, ensure_ascii=False)
@@ -4029,22 +4036,25 @@ def load_packs(use_cache: bool = True) -> dict:
     disabled = {str(x) for x in (state.get("disabled") or [])}
     packs: list[dict] = []
     entries: list[dict] = []
-    for folder, src in ((PACKS_DIR, "builtin"), (USER_PACKS_DIR, "user")):
+
+    def _collect(folder, src, out, skip_ids=frozenset()) -> None:
         if not folder.is_dir():
-            continue
+            return
         for f in sorted(folder.glob("*.json")):
             if f.name.lower() == "index.json":       # 清单文件不是包
                 continue
             data, err = None, ""
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 err = f"读取失败：{e}"
             if data is not None and not err:
                 ok, why = pack_validate(data)
                 if not ok:
                     err = why
             pid = str((data or {}).get("id") or f.stem)
+            if pid in skip_ids:                      # 用户包覆盖内置版本
+                continue
             meta = {
                 "id": pid,
                 "name": str((data or {}).get("name") or f.stem),
@@ -4059,7 +4069,7 @@ def load_packs(use_cache: bool = True) -> dict:
                 "source": src, "file": f.name,
                 "ok": not err, "error": err,
             }
-            packs.append(meta)
+            out.append(meta)
             if err or pid in disabled:
                 continue
             for e in (data.get("entries") or []):
@@ -4068,6 +4078,20 @@ def load_packs(use_cache: bool = True) -> dict:
                     continue
                 entries.append({"entry": e, "pack": pid,
                                 "any": any_t, "all": all_t})
+
+    # 先收集用户包 id（含损坏包，按文件名兜底），供内置侧跳过同 id 包
+    user_ids: set[str] = set()
+    if USER_PACKS_DIR.is_dir():
+        for f in sorted(USER_PACKS_DIR.glob("*.json")):
+            if f.name.lower() == "index.json":
+                continue
+            try:
+                ud = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                ud = None
+            user_ids.add(str((ud or {}).get("id") or f.stem))
+    _collect(PACKS_DIR, "builtin", packs, skip_ids=user_ids)
+    _collect(USER_PACKS_DIR, "user", packs)
     out = {"packs": packs, "entries": entries}
     _PACKS_CACHE["key"], _PACKS_CACHE["data"] = key, out
     return out
@@ -4603,9 +4627,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(analyze_dir_partition(p))
         if route == "/__oc__/subdirs":
             # 大清理项逐层拆子项：查 WizTree 常驻表，任意深度都是 O(1)
-            return self._json(list_subdirs(q.get("drive") or "",
-                                           q.get("path") or "",
-                                           min(400, int(q.get("limit") or 80))))
+            p = q.get("path") or ""
+            if not p:
+                return self._json({"error": "缺少 path 参数"}, 400)
+            try:
+                limit = min(400, max(1, int(q.get("limit") or 80)))
+            except ValueError:
+                return self._json({"error": "limit 必须是整数"}, 400)
+            return self._json(list_subdirs(q.get("drive") or "", p, limit))
         if route == "/__oc__/wiztree":
             # 新用户引导要的信息全在这里：找到没有、是不是本目录自带、怎么装
             return self._json(wiztree_status())
@@ -4617,7 +4646,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(scan_disk_overview(letter))
         if route == "/__oc__/overview":
             letter = (q.get("drive") or "C").rstrip(":").upper()
-            depth = int(q.get("depth") or DISK_TREE_MAX_DEPTH)
+            try:
+                depth = int(q.get("depth") or DISK_TREE_MAX_DEPTH)
+            except ValueError:
+                return self._json({"error": "depth 必须是整数"}, 400)
             try:
                 r = scan_disk_overview(letter, max(1, min(depth, 6)))
             except BaseException as e:
