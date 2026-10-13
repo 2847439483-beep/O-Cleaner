@@ -436,6 +436,26 @@ def phase1() -> None:
           "不会" in unknown["advice"] and not unknown["cleanable"],
           unknown["advice"][:40])
 
+    # ---- 勾选包含关系去重：外层包含内层时只清最小项（纯函数，直接验证） ----
+    _outer = {"id": "tree:e:\\big", "label": "大项", "path": "E:\\big"}
+    _inner = {"id": "tree:e:\\big\\cache", "label": "子项", "path": "E:\\big\\cache"}
+    _other = {"id": "tree:e:\\elsewhere", "label": "无关项", "path": "E:\\elsewhere"}
+    _nopath = {"id": "recycle-bin@E", "label": "回收站"}      # 无实体路径不参与
+    kept, merged = app.dedup_nested_targets([_outer, _inner, _other, _nopath])
+    kept_paths = {k.get("path", "") for k in kept} - {""}   # 无路径目标不参与
+    check("包含关系去重：外层被跳过、保留最小项",
+          kept_paths == {"E:\\big\\cache", "E:\\elsewhere"}
+          and len(kept) == 3 and [m["path"] for m in merged] == ["E:\\big"],
+          str(kept_paths))
+    check("包含关系去重：跳过记录带去向（kept=保留的最小项）",
+          merged and merged[0]["kept"] == "E:\\big\\cache", str(merged))
+    kept2, merged2 = app.dedup_nested_targets([_other, _nopath])
+    check("无包含关系时全部保留（无路径目标不受影响）",
+          len(kept2) == 2 and not merged2)
+    kept3, _ = app.dedup_nested_targets([_inner, _outer])   # 顺序无关
+    check("去重与勾选顺序无关",
+          {k.get("path", "") for k in kept3} == {"E:\\big\\cache"})
+
 
 # ======================================================================
 #  阶段二
@@ -699,6 +719,48 @@ def phase3_http() -> None:
               "python.org/ftp/python/" in exe_src
               and 'EMBED_VERSION = "' in exe_src
               and "import PyInstaller" not in exe_src)
+        # 数据存档目录：--data-dir / OC_DATA_DIR 把运行数据整体重定向
+        py = sys.executable
+        _dd = tempfile.mkdtemp(prefix="oc_datadir_")
+        try:
+            r = subprocess.run(
+                [py, "-c", "import app; print(app.DATA_DIR)", "--data-dir", _dd],
+                capture_output=True, text=True, cwd=str(HERE), timeout=60)
+            check("--data-dir 参数重定向数据存档目录",
+                  r.returncode == 0
+                  and os.path.normpath(r.stdout.strip().strip('"'))
+                  == os.path.normpath(_dd),
+                  r.stdout.strip() or r.stderr[-120:])
+            env = dict(os.environ, OC_DATA_DIR=_dd)
+            r2 = subprocess.run(
+                [py, "-c", "import app; print(app.DATA_DIR)"],
+                capture_output=True, text=True, cwd=str(HERE),
+                env=env, timeout=60)
+            check("OC_DATA_DIR 环境变量重定向数据存档目录",
+                  r2.returncode == 0
+                  and os.path.normpath(r2.stdout.strip().strip('"'))
+                  == os.path.normpath(_dd),
+                  r2.stdout.strip() or r2.stderr[-120:])
+            r3 = subprocess.run(
+                [py, "-c", "import app; print(app.CONFIG_DIR, app.HISTORY_PATH)"],
+                capture_output=True, text=True, cwd=str(HERE),
+                env=env, timeout=60)
+            out3 = r3.stdout.strip()
+            check("重定向后 config/ 与运行数据文件都在数据目录下",
+                  r3.returncode == 0
+                  and os.path.normpath(_dd) in out3 and "config" in out3
+                  and "history.json" in out3, out3[:120])
+        finally:
+            shutil.rmtree(_dd, ignore_errors=True)
+        check("状态负载带数据存档目录（界面自检面板展示用）",
+              '"data_dir"' in (HERE / "app.py").read_text(encoding="utf-8"))
+        check("默认快速扫描档位（HTML 选项与记忆逻辑一致）",
+              'value="quick">快速（默认' in html
+              and '=== "deep" ? "deep" : "quick"' in html)
+        check("起始盘默认数据盘并记住选择",
+              "find(d => !d.is_system)" in html and '"oc-drive"' in html)
+        check("换盘结果缓存（10 分钟内回切不再重扫）",
+              "FS_CACHE" in html and "FS_CACHE_TTL" in html)
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检已移除兼容性分析（面板只留环境与权限）",

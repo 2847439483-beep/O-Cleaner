@@ -180,6 +180,32 @@ class CDP {
     else check(name, false, detail);
   }
 
+  // 默认档位：全新会话（无本地存储）应落在「快速」——2 层先定位占地大头，
+  // 深扫在小文件极多的系统盘上可能要几分钟，不该是默认值。
+  const depth0 = await evaluate(
+    `document.querySelector('#fsDepthSel') ? document.querySelector('#fsDepthSel').value : '(missing)'`);
+  check("默认扫描档位为快速（2 层）", depth0 === "quick", String(depth0));
+
+  // 起始盘默认数据盘：多盘机器上首个非系统盘（上次用的盘优先，但全新会话
+  // 没有本地存储，走数据盘默认）；单盘机器无意义，跳过。
+  if (scanReady) {
+    const dstat = await evaluate(`(async () => {
+      const d = await (await fetch(location.origin + '/__oc__/drives')).json();
+      const list = d.drives || [];
+      if (list.length < 2) return 'single';
+      const data = list.find(x => !x.is_system);
+      const cur = document.querySelector('.drv.on');
+      return { want: data ? data.letter : "", cur: cur ? cur.dataset.l : "" };
+    })()`);
+    if (dstat === "single") skip2("起始盘默认数据盘（本机只有一个盘）");
+    else check("起始盘默认数据盘", !!(dstat && dstat.want && dstat.cur === dstat.want),
+               JSON.stringify(dstat));
+  } else if (ON_CI) {
+    skip2("起始盘默认数据盘（首屏扫描未在时限内完成，无法验证）");
+  } else {
+    check("起始盘默认数据盘", false, "首屏未完成");
+  }
+
   if (DRIVE_) {
     const got = await evaluate(`(() => {
       const cur = document.querySelector('.drv.on');
@@ -293,7 +319,7 @@ class CDP {
   let ovViewBefore = "";
   if (rankingReady) {
     ovViewBefore = await evaluate(
-      `(document.querySelector('#fsModes .seg.on')||{}).dataset.m || ''`);
+      `(document.querySelector('#fsModes .seg.on')||{}).dataset?.m || ''`);
     await evaluate(`(() => {
         const s = document.querySelector('#fsModes .seg[data-m="clean"]');
         if (s) s.click();
@@ -443,7 +469,7 @@ class CDP {
     // 默认视图是「全盘最大项目」，几乎不含可清理行；「全部可清理」视图才是
     // 可勾选行的全集。切过去找一条，找到后切回原视图（选择集不随视图变化）。
     const before = await evaluate(
-      `(document.querySelector('#fsModes .seg.on')||{}).dataset.m || ''`);
+      `(document.querySelector('#fsModes .seg.on')||{}).dataset?.m || ''`);
     await evaluate(`(() => {
         const s = document.querySelector('#fsModes .seg[data-m="clean"]');
         if (s) s.click();

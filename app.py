@@ -48,7 +48,24 @@ from ps_scripts import (PS_DIR_KIND, PS_LOCK_HOLDERS, PS_MEASURE_GLOB,
                         PS_STEAM_ORPHAN_SIZE, PS_TREE_WALK, PS_UTF8_PREAMBLE)
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = BASE_DIR / "config"
+
+
+def _argv_data_dir() -> str:
+    """启动参数里找 --data-dir（须在模块常量定值前生效，故在 import 期预扫）。"""
+    for i, v in enumerate(sys.argv):
+        if v == "--data-dir" and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+        if v.startswith("--data-dir="):
+            return v.split("=", 1)[1]
+    return ""
+
+
+# 数据存档目录：config/ 与 history.json、schedule.json、disk-trend.json 等
+# 全部运行数据都落在这里。默认跟程序同目录（绿色便携：整个文件夹拷走 =
+# 数据一起迁移，U 盘携带即插即用）；程序目录只读或想把数据单独存放时，
+# 用 --data-dir <路径> 或环境变量 OC_DATA_DIR 重定向到任意可写位置。
+DATA_DIR = Path(os.environ.get("OC_DATA_DIR") or _argv_data_dir() or BASE_DIR)
+CONFIG_DIR = DATA_DIR / "config"
 WEB_DIR = BASE_DIR / "web"
 
 # 版本号只在这里定义一次。
@@ -76,11 +93,11 @@ USER_PACKS_DIR = CONFIG_DIR / "packs-user"
 PACKS_STATE_PATH = CONFIG_DIR / "packs-state.json"
 # AI 设置（含密钥）。只存本机、不进版本库，见 .gitignore。
 AI_CONFIG_PATH = CONFIG_DIR / "ai.json"
-HISTORY_PATH = BASE_DIR / "history.json"
+HISTORY_PATH = DATA_DIR / "history.json"
 # 各盘用量快照（磁盘趋势曲线的数据源）：每天每盘最多记一条，保留 90 天。
 # 运行数据，不进版本库、不进分发包。
-DISK_TREND_PATH = BASE_DIR / "disk-trend.json"
-SCHEDULE_PATH = BASE_DIR / "schedule.json"
+DISK_TREND_PATH = DATA_DIR / "disk-trend.json"
+SCHEDULE_PATH = DATA_DIR / "schedule.json"
 
 # 绝不允许删除的目录名（即使配置文件被改坏也拦得住）
 PROTECTED_DIR_NAMES = {
@@ -3043,6 +3060,42 @@ def find_game_save_candidates(install_path: str,
     return found[:5]
 
 
+def dedup_nested_targets(selected: list[dict]) -> tuple[list[dict], list[dict]]:
+    """勾选项包含关系去重：外层路径包含内层勾选项时，只清最小（最深）项。
+
+    用户场景：占用排行里「大项和子项包含相同内容、体积近似」（子项几乎就是
+    大项的全部内容），两行都勾上时不应重复删除、也不应重复计体积。
+    规则：保留最深的勾选项、跳过它的祖先；删除始终以整个文件夹为单位，
+    **不把文件夹拆成子项逐个删**。没有实体路径的目标（如回收站）不参与。
+    返回 (保留列表, 被跳过的外层列表)。
+    """
+
+    def norm(p) -> str:
+        return os.path.normpath(str(p)).rstrip("\\").lower() if p else ""
+
+    paths = [norm(t.get("path")) for t in selected]
+    kept: list[dict] = []
+    merged: list[dict] = []
+    for i, t in enumerate(selected):
+        p = paths[i]
+        if not p:
+            kept.append(t)
+            continue
+        # 是某条其他勾选路径的祖先（严格包含）→ 本项跳过，只清里面那条
+        if any(q and q != p and q.startswith(p + "\\")
+               for j, q in enumerate(paths) if j != i):
+            inner = next((selected[j] for j, q in enumerate(paths)
+                          if j != i and q and q != p and q.startswith(p + "\\")),
+                         None)
+            merged.append({"label": t.get("label") or t.get("id", ""),
+                           "path": t.get("path", ""),
+                           "kept": (inner or {}).get("path", ""),
+                           "reason": "已包含更小的勾选项，只清理最小项"})
+        else:
+            kept.append(t)
+    return kept, merged
+
+
 def clean_target(t: dict, only_paths: list | None = None,
                  drive: str | None = None, trash: bool = False) -> dict:
     """删除一个目标的文件。only_paths 非空时只删这些子项。
@@ -4460,6 +4513,10 @@ def build_state(drive: str | None = None, custom_path: str | None = None,
         "units": resolve_units(load_convert().get("units", [])),
         "custom_rules": load_custom_rules(),
         "config_dir": str(CONFIG_DIR),
+        # 数据存档目录：运行数据（含 config/）所在位置，界面自检面板展示，
+        # 迁移/备份时整目录拷走即可
+        "data_dir": str(DATA_DIR),
+        "data_dir_redirected": DATA_DIR != BASE_DIR,
         # 首屏引导要用：加速是否可用、能不能自动装、许可证怎么算
         "wiztree": wiztree_status(),
         # 资源包元信息（不含逐条 entries，条目只在服务端参与识别）
@@ -4746,6 +4803,13 @@ class Handler(BaseHTTPRequestHandler):
             if not selected:
                 return self._json({"error": "没有选择任何清理项",
                                    "skipped_paths": skipped_paths}, 400)
+            # 包含关系去重：外层勾选项完整包含内层勾选项时只清最小项，
+            # 不重复删除、不重复计体积（界面预估体积同样按此口径）。
+            selected, merged = dedup_nested_targets(selected)
+            if not selected:
+                return self._json({"error": "没有选择任何清理项",
+                                   "skipped_paths": skipped_paths,
+                                   "merged": merged}, 400)
             if getattr(self.server, "busy", False):
                 return self._json({"error": "已有清理任务在执行，请等待完成"}, 409)
             self.server.busy = True
@@ -4767,7 +4831,8 @@ class Handler(BaseHTTPRequestHandler):
                 append_history(entry)
                 return self._json({"entry": entry, "disk": get_disk_info(drive),
                                    "stats": history_stats(),
-                                   "skipped_paths": skipped_paths})
+                                   "skipped_paths": skipped_paths,
+                                   "merged": merged})
             finally:
                 self.server.busy = False
 
@@ -5282,6 +5347,10 @@ def main() -> None:
                     help="命令行扫描磁盘占用树并打印，不开服务")
     ap.add_argument("--depth", type=int, default=0,
                     help="配合 --fullscan-only 指定展开层数（默认 5）")
+    ap.add_argument("--data-dir", default=None, metavar="PATH",
+                    help="数据存档目录：config/ 与历史记录、定时任务等运行数据"
+                         "的存放位置（也可用环境变量 OC_DATA_DIR；默认跟程序同目录，"
+                         "整个文件夹拷走即完成数据迁移）")
     ap.add_argument("--lint", action="store_true",
                     help="只跑规则 linter（发布/贡献规则前用），不开服务")
     args = ap.parse_args()
@@ -5371,6 +5440,8 @@ def main() -> None:
     print()
     print("  O-Cleaner 已启动")
     print(f"  界面地址: {url}")
+    print(f"  数据目录: {DATA_DIR}"
+          + ("（--data-dir 重定向）" if DATA_DIR != BASE_DIR else ""))
     print(f"  配置文件: {CONFIG_DIR}")
     print(f"  管理员权限: {'是' if is_admin() else '否（系统目录的项目会提示权限不足）'}")
     print("  关闭此窗口即停止服务。")

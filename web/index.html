@@ -637,9 +637,9 @@
     <button id="btnScan" class="primary">重新扫描</button>
     <button id="btnFullScan">全盘扫描本盘</button>
     <select id="fsDepthSel" style="width:auto"
-            title="全盘扫描的展开深度。快速模式只展开 2 层，适合没装 WizTree 的慢机器先定位大头；更深的目录在结果里仍可点击下钻（现场扫描）">
-      <option value="deep">深扫（默认）</option>
-      <option value="quick">快速（2 层）</option>
+            title="全盘扫描的展开深度。快速模式只展开 2 层，先定位占地大头，适合大多数场景；更深的目录在结果里仍可点击下钻（现场扫描）">
+      <option value="quick">快速（默认，2 层）</option>
+      <option value="deep">深扫（更细，较慢）</option>
     </select>
     <button id="btnSteam">Steam 游戏库</button>
     <button id="btnAll">全选</button>
@@ -1001,7 +1001,7 @@ function renderDrives() {
   if (!STATE.drives?.length) { el.innerHTML = ""; return; }
   el.innerHTML = STATE.drives.map(d => {
     const warn = d.percent > 85 ? " warn" : "";
-    const sys = d.letter === "C" ? '<span class="sys">系统</span>' : "";
+    const sys = d.is_system ? '<span class="sys">系统</span>' : "";
     return `<div class="drv${d.letter === drive ? " on" : ""}" data-l="${d.letter}"
                  title="${d.letter}: 总计 ${d.total_h}，已用 ${d.percent}%，可用 ${d.free_h}">
       <div class="dl"><span>${d.letter}:</span>${sys}</div>
@@ -1013,6 +1013,7 @@ function renderDrives() {
     if (n.dataset.l === drive) return;
     drive = n.dataset.l; selected.clear(); subSel = {}; SCAN = {};
     FS = null;                        // 换盘后全盘结果失效
+    try { localStorage.setItem("oc-drive", drive); } catch (e) {}
     // 换到非系统盘时默认只显示「本盘专属项」：
     // 用户级缓存（pip / Chrome 缓存等）永远在系统盘上，挂到 D/E 盘只会造成
     // 「为什么 D 盘有浏览器缓存」这种困惑，而它们本来在 C 盘清单里就有。
@@ -1052,6 +1053,10 @@ function renderGuide() {
       d: admin ? "已具备，可统计回收站与 Windows\\Temp"
                : "未具备。回收站、Windows\\Temp 会显示「需要管理员权限」，"
                  + "右键 start-ocleaner.bat → 以管理员身份运行可获得完整统计" },
+    { ok: true, t: "数据存档目录", d: (STATE.data_dir || "（未知）")
+        + (STATE.data_dir_redirected
+           ? "（已重定向到这里）"
+           : "（默认跟程序同目录：历史记录与配置都在其中，整个文件夹拷走即完成数据迁移，U 盘携带同理）") },
   ];
   const wzTxt = w.found
     ? `<b class="ok">已就绪</b>${w.version ? " · v" + esc(w.version) : ""}
@@ -1439,21 +1444,35 @@ function setSel(id, on) {
   renderRules();          // 同步「保存当前勾选为规则」按钮的可用状态
 }
 function selTotal() {
-  let sum = 0;
+  // 汇总每条选中项的 (真实路径, 体积)，随后做包含关系去重：
+  // 大项与其子项体积近似时只计最小项，与服务端「只清最小项」同一口径。
+  const entries = [];
   for (const id of selected) {
     const info = SCAN[id]; if (!info) continue;
     const subs = subSel[id];
     if (info.items?.length && subs) {
       const chosen = info.items.filter(i => subs[i.path]);
-      if (chosen.length) { sum += chosen.reduce((a, i) => a + i.size, 0); continue; }
+      if (chosen.length) {
+        chosen.forEach(i => entries.push([i.path, i.size || 0]));
+        continue;
+      }
     }
-    sum += info.size || 0;
+    const t = (STATE.targets || []).find(x => x.id === id);
+    entries.push([t && t.path ? t.path : "", info.size || 0]);
   }
-  // 行内按路径勾选的项：体积直接取树节点自身
   const nodes = FS?.nodes || [];
   for (const p of selPaths) {
     const n = nodes.find(x => x.path === p);
-    if (n) sum += n.size || 0;
+    entries.push([p, n ? (n.size || 0) : 0]);
+  }
+  const norm = p => String(p || "").replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+  const real = entries.map(e => norm(e[0])).filter(Boolean);
+  let sum = 0;
+  for (const [p, size] of entries) {
+    const np = norm(p);
+    // 外层被跳过：存在另一条真实勾选路径位于它内部（保留更小的那条）
+    if (np && real.some(q => q && q !== np && q.startsWith(np + "\\"))) continue;
+    sum += size;
   }
   return sum;
 }
@@ -2153,6 +2172,10 @@ async function doClean() {
     STATE.stats = data.stats;
     loadDiskTrend();           // 清理后空间变了，趋势里的「今天」要更新
     selPaths.clear();        // 已清理的路径勾选作废；树数字已过期，界面会提示
+    FS_CACHE.delete(drive);  // 清理后磁盘内容变了，缓存的扫描结果一并作废
+    // 包含关系去重的如实提示：外层项被跳过、只清了最小项
+    if (Array.isArray(data.merged) && data.merged.length)
+      toast(`已合并 ${data.merged.length} 个包含外层的勾选项（只清理最小项）`);
     showCleanResult(e, data.stats, t0, "清理完成");
   } catch (e) {
     const log = $("plog");
@@ -2299,6 +2322,11 @@ let fsStack = [];
 // 在途全盘扫描属于哪个盘、用什么作废。换盘时旧盘的扫描必须作废重开：
 // 否则「扫描中」守卫会把新盘的扫描吞掉，用户点 E 盘却一直看 C 盘的扫描面板。
 let fsScanDrive = null, fsAbort = null, fsScanQuick = null;
+/* 换盘提速：每个盘最近一次全盘扫描结果缓存 10 分钟。来回切盘时不再
+   重新扫描（系统盘一扫几分钟），过期或点了「全盘扫描本盘」才真扫。
+   缓存只存树本身；勾选状态不缓存（selPaths 在恢复时照常清空）。 */
+const FS_CACHE = new Map();
+const FS_CACHE_TTL = 10 * 60 * 1000;
 
 function setToolbars(visible, mode) {
   // mode: 'normal' 两个工具栏都显示；'compact' 只显示第一个
@@ -2346,6 +2374,20 @@ async function startFullScan() {
   // 正在扫：同一盘且同一深度就只切到概览，别重复发请求；换了盘或换了扫描
   // 深度（快速↔深扫）则作废旧扫描、立即按新参数开扫。
   const quick = $("fsDepthSel").value === "quick";
+  // 结果缓存命中：同一个盘、同一深度、10 分钟内 → 直接展示，不重扫
+  const hit = FS_CACHE.get(drive);
+  if (hit && hit.quick === quick && Date.now() - hit.at < FS_CACHE_TTL) {
+    FS = hit.fs;
+    selPaths.clear();          // 新树新路径：按路径勾选作废
+    buildKidsIndex();
+    fsMode = "biggest";
+    switchView("full");
+    renderOverview(); renderChart();
+    const mins = Math.max(1, Math.round((Date.now() - hit.at) / 60000));
+    $("fsHint").textContent =
+      `${drive}: 盘 · ${mins} 分钟前的扫描结果（点「全盘扫描本盘」强制重扫）`;
+    return;
+  }
   if ($("fsScanning")) {
     if (fsScanDrive === drive && fsScanQuick === quick) { showFullView(); return; }
     fsAbort?.abort();
@@ -2424,6 +2466,7 @@ async function startFullScan() {
                                  { signal: ac.signal })).json();
     if (r.error) throw new Error(r.error);
     FS = r;
+    FS_CACHE.set(fsScanDrive, { fs: r, quick, at: Date.now() });
     selPaths.clear();     // 新树新路径：上一棵树的按路径勾选全部作废
     buildKidsIndex();     // 预先按父路径归拢，下钻与「本层」视图都靠它
     fsMode = "biggest";   // 默认直接给「全盘最大项目」：新用户一眼看到占地大头
@@ -3359,10 +3402,11 @@ async function showPartition(it) {
 /* ==================== 事件 ==================== */
 $("btnScan").addEventListener("click", () => scan());
 $("btnFullScan").addEventListener("click", () => startFullScan());
-/* 全盘扫描深度档位：记住上次选择（存储不可用就用默认深扫）。 */
+/* 全盘扫描深度档位：默认快速（2 层先定位大头，深层可下钻），
+   记住上次选择（存储不可用就用默认快速）。 */
 try {
   $("fsDepthSel").value =
-    localStorage.getItem("oc-fs-depth") === "quick" ? "quick" : "deep";
+    localStorage.getItem("oc-fs-depth") === "deep" ? "deep" : "quick";
 } catch (e) { /* 存储不可用就算了 */ }
 $("fsDepthSel").addEventListener("change", () => {
   try { localStorage.setItem("oc-fs-depth", $("fsDepthSel").value); } catch (e) {}
@@ -3721,10 +3765,19 @@ function initTheme() {
   initTheme();               // 主题三态：亮 / 暗 / 跟随系统
   initPanelNav();            // 侧栏目录条：只依赖静态 DOM，不依赖任何接口
   loadDiskTrend();           // 磁盘趋势快照：与状态加载并行，晚到再补画
-  // 先用默认盘拉一次，拿到盘符列表后切到后端认定的当前盘，再正式加载
+  // 先用默认盘拉一次，拿到盘符列表后决定起始盘，再正式加载。
+  // 起始盘优先级：上次用的盘（还在）> 数据盘（非系统盘）> 第一个盘 ——
+  // 数据盘的内容才是清理主战场，系统盘小文件极多、扫描慢，不该是默认落点。
   await loadState();
-  if (STATE.current_drive && STATE.current_drive !== drive) {
-    drive = STATE.current_drive;
+  let want = null;
+  try { want = localStorage.getItem("oc-drive"); } catch (e) {}
+  const have = d => (STATE.drives || []).some(x => x.letter === d);
+  if (!want || !have(want)) {
+    const data = (STATE.drives || []).find(d => !d.is_system);
+    want = data ? data.letter : ((STATE.drives || [])[0] || {}).letter || drive;
+  }
+  if (want && want !== drive && have(want)) {
+    drive = want;
     await loadState();
   }
   // 首屏按盘型定默认范围：系统盘看全部，数据盘只看本盘专属项 ——
