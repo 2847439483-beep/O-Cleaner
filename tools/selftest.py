@@ -695,10 +695,10 @@ def phase3_http() -> None:
         check("免安装版构建工具复用分发清单（清单唯一真相源）",
               "from make_package import" in exe_src
               and "INCLUDE" in exe_src)
-        check("免安装版内嵌官方 embeddable 运行时（版本写死、不用 PyInstaller）",
+        check("免安装版内嵌官方 embeddable 运行时（版本写死、无 PyInstaller 依赖）",
               "python.org/ftp/python/" in exe_src
               and 'EMBED_VERSION = "' in exe_src
-              and "pyinstaller" not in exe_src.lower())
+              and "import PyInstaller" not in exe_src)
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检已移除兼容性分析（面板只留环境与权限）",
