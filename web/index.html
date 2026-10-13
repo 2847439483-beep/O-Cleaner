@@ -707,6 +707,11 @@
   <div class="toolbar">
     <button id="btnScan" class="primary">重新扫描</button>
     <button id="btnFullScan">全盘扫描本盘</button>
+    <select id="fsDepthSel" style="width:auto"
+            title="全盘扫描的展开深度。快速模式只展开 2 层，适合没装 WizTree 的慢机器先定位大头；更深的目录在结果里仍可点击下钻（现场扫描）">
+      <option value="deep">深扫（默认）</option>
+      <option value="quick">快速（2 层）</option>
+    </select>
     <button id="btnSteam">Steam 游戏库</button>
     <button id="btnAll">全选</button>
     <button id="btnNone">全不选</button>
@@ -2558,7 +2563,7 @@ let FS = null, fsMode = "dirs", view = "normal";
 let fsStack = [];
 // 在途全盘扫描属于哪个盘、用什么作废。换盘时旧盘的扫描必须作废重开：
 // 否则「扫描中」守卫会把新盘的扫描吞掉，用户点 E 盘却一直看 C 盘的扫描面板。
-let fsScanDrive = null, fsAbort = null;
+let fsScanDrive = null, fsAbort = null, fsScanQuick = null;
 
 function setToolbars(visible, mode) {
   // mode: 'normal' 两个工具栏都显示；'compact' 只显示第一个
@@ -2600,7 +2605,8 @@ function showFullView() {
  *
  * 四种情形：
  *   * 已经在扫且是同一盘（手动点了又点）→ 只切到扫描页，不重复发请求；
- *   * 已经在扫但是别的盘（扫描中换盘）→ 作废旧扫描，立刻开扫新盘；
+ *   * 已经在扫但是别的盘或换了深度档位（快速↔深扫）→ 作废旧扫描，
+ *     立刻按新参数开扫；
  *   * 扫完了 → 切到扫描页看到上次结果，再点一次则返回常规清理；
  *   * 从没扫过 → 立刻进入扫描页并**自动发起扫描**（这是本次的改动重点：
  *     以前点一下只是切页，用户得再点一次「开始」，很容易以为没反应）。
@@ -2611,13 +2617,16 @@ async function startFullScan() {
     else { fsStack = []; showFullView(); renderOverview(); renderChart(); }
     return;
   }
-  // 正在扫：同一盘就只切页，别重复发请求；换了盘则作废旧扫描、立即开扫新盘
+  // 正在扫：同一盘且同一深度就只切页，别重复发请求；换了盘或换了扫描
+  // 深度（快速↔深扫）则作废旧扫描、立即按新参数开扫。
+  const quick = $("fsDepthSel").value === "quick";
   if ($("fsScanning")) {
-    if (fsScanDrive === drive) { showFullView(); return; }
+    if (fsScanDrive === drive && fsScanQuick === quick) { showFullView(); return; }
     fsAbort?.abort();
   }
   const ac = fsAbort = new AbortController();
   fsScanDrive = drive;
+  fsScanQuick = quick;
   const b = $("btnFullScan");
   b.disabled = true; b.textContent = "全盘扫描中…";
   view = "full";
@@ -2651,8 +2660,11 @@ async function startFullScan() {
         <span class="scanhint" id="scanHint"></span>
       </div>
       <div class="scanfacts">
-        会逐层展开大目录（最深 5 层），这样才能挖到
-        <code>E:\\SteamLibrary\\steamapps\\common\\游戏名</code> 这类深层大项。
+        ${quick
+          ? "快速模式：只展开 2 层，先看清占地大头；"
+            + "更深的目录在结果里仍可点击下钻（现场扫描，稍慢）。"
+          : "会逐层展开大目录（最深 5 层），这样才能挖到"
+            + " <code>E:\\SteamLibrary\\steamapps\\common\\游戏名</code> 这类深层大项。"}
         <b>请保持本窗口与命令行窗口开启。</b>
         ${STATE?.wiztree?.found ? "（已启用 WizTree 加速）"
                                 : "（未装 WizTree，逐目录递归会慢一些）"}
@@ -2681,7 +2693,8 @@ async function startFullScan() {
   paint(null);
   const timer = setInterval(poll, 500);
   try {
-    const r = await (await fetch(`${API}/__oc__/overview?drive=${drive}`,
+    const r = await (await fetch(`${API}/__oc__/overview?drive=${drive}`
+                                 + (quick ? "&depth=2" : ""),
                                  { signal: ac.signal })).json();
     if (r.error) throw new Error(r.error);
     FS = r;
@@ -2705,6 +2718,7 @@ async function startFullScan() {
     if (fsAbort === ac) {
       fsAbort = null;
       fsScanDrive = null;
+      fsScanQuick = null;
       b.disabled = false;
     }
   }
@@ -2750,6 +2764,7 @@ function renderOverview() {
 
   $("fsHint").textContent =
     `${FS.drive}: 盘 · ${FS.node_count} 个节点 · 已识别 ${FS.explained} 个`
+    + (FS.max_depth <= 2 ? " · 快速（2 层）" : "")
     + (FS.engine === "wiztree" ? " · WizTree MFT 加速" : "");
 
   $("fsOverview").innerHTML = `
@@ -3535,6 +3550,14 @@ async function showPartition(it) {
 /* ==================== 事件 ==================== */
 $("btnScan").addEventListener("click", () => scan());
 $("btnFullScan").addEventListener("click", () => startFullScan());
+/* 全盘扫描深度档位：记住上次选择（存储不可用就用默认深扫）。 */
+try {
+  $("fsDepthSel").value =
+    localStorage.getItem("oc-fs-depth") === "quick" ? "quick" : "deep";
+} catch (e) { /* 存储不可用就算了 */ }
+$("fsDepthSel").addEventListener("change", () => {
+  try { localStorage.setItem("oc-fs-depth", $("fsDepthSel").value); } catch (e) {}
+});
 /* 视图导航：三个页常驻可达。扫描概览没扫过时与工具栏按钮同一行为 ——
    点一下就自动开扫，不需要再点第二次。 */
 document.querySelectorAll("#viewNav button").forEach(b => b.addEventListener("click", async () => {

@@ -1708,6 +1708,22 @@ def phase7_scoping_and_accel() -> None:
         check("WizTree 路径下报告可任意层下钻", ov.get("subdir_ready") is True)
         check("占用树的节点带体积可读格式",
               all(n.get("size_h") for n in ov["nodes"]))
+
+        # ---- 快速模式（depth=2）：给没装 WizTree 的慢机器用 ----
+        # 界面工具栏可选「快速（2 层）」，请求带 &depth=2。树只展开 2 层，
+        # 更深的目录由前端下钻时的 list_subdirs 现场补齐。
+        ovq = app.scan_disk_overview(letter, 2)
+        check("快速扫描正常返回",
+              not ovq.get("error") and ovq.get("node_count", 0) > 0,
+              f"{ovq.get('node_count')} 个节点 / 引擎={ovq.get('engine')}")
+        check("快速扫描响应如实带深度标记",
+              ovq.get("max_depth") == 2, str(ovq.get("max_depth")))
+        check("快速扫描节点不超过 2 层深",
+              all(int(n.get("depth") or 0) <= 2 for n in ovq.get("nodes", [])),
+              f"最深 {max((int(n.get('depth') or 0)) for n in ovq.get('nodes', []))}")
+        check("快速扫描节点数不多于深扫",
+              ovq["node_count"] <= len(ov["nodes"]),
+              f"快速 {ovq['node_count']} vs 深扫 {len(ov['nodes'])}")
         # 二级拆分：查表必须秒回
         dirs = [n for n in ov["nodes"] if n["type"] == "dir" and n["can_drill"]]
         if dirs:
