@@ -1248,6 +1248,13 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
                 item["custom"] = True
             if ov.get("pin"):
                 item["pinned"] = True
+            # 标签样式/颜色（2026-10-14）：纯显示覆盖，换徽章样式与柱条颜色
+            if ov.get("label_kind") in ("clean", "unk", "keep"):
+                item["label_kind"] = ov["label_kind"]
+                item["custom"] = True
+            if isinstance(ov.get("color"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", ov["color"]):
+                item["custom_color"] = ov["color"]
+                item["custom"] = True
         return item
 
     root_key = str(r.get("root") or root).lower()
@@ -1761,6 +1768,12 @@ def load_overrides() -> dict:
             entry["cleanable"] = v["cleanable"]
         if isinstance(v.get("pin"), bool):
             entry["pin"] = v["pin"]          # 自定义提级（2026-10-13）
+        # 标签样式与颜色（2026-10-14）：label_kind 只换徽章样式与颜色，
+        # 不参与清理判定；color 同时用于徽章与占用柱条。
+        if v.get("label_kind") in ("clean", "unk", "keep"):
+            entry["label_kind"] = v["label_kind"]
+        if isinstance(v.get("color"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v["color"]):
+            entry["color"] = v["color"].lower()
         if entry:
             out[str(k)] = entry
     return {"targets": out}
@@ -5568,6 +5581,10 @@ class Handler(BaseHTTPRequestHandler):
                 entry["cleanable"] = body["cleanable"]
             if isinstance(body.get("pin"), bool):
                 entry["pin"] = body["pin"]
+            if body.get("label_kind") in ("clean", "unk", "keep"):
+                entry["label_kind"] = body["label_kind"]
+            if isinstance(body.get("color"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", body["color"]):
+                entry["color"] = body["color"].lower()
             data = load_overrides()
             if entry:
                 data["targets"][oid] = entry
@@ -5664,6 +5681,10 @@ class Handler(BaseHTTPRequestHandler):
                         entry["cleanable"] = v["cleanable"]
                     if isinstance(v.get("pin"), bool):
                         entry["pin"] = v["pin"]
+                    if v.get("label_kind") in ("clean", "unk", "keep"):
+                        entry["label_kind"] = v["label_kind"]
+                    if isinstance(v.get("color"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v["color"]):
+                        entry["color"] = v["color"].lower()
                     if not entry:
                         entry = None
                 if entry is None:

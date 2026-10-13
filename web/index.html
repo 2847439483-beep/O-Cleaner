@@ -942,7 +942,11 @@ const fmt = n => {
 };
 const riskCls = r => ({"无":"b-none","低":"b-low","中":"b-mid","高":"b-high"}[r] || "b-none");
 let STATE = null, SCAN = {}, selected = new Set(), subSel = {},
-    busy = false, drive = "C", customPath = "", convOnly = null,
+    busy = false, drive = "C", customPath = "",
+    /* 换算单位选定一次后记住（含「看全部」），刷新与重渲染都不再弹回 */
+    convOnly = (() => { try { const v = localStorage.getItem("oc-conv-only"); return v === null ? null : v; } catch (e) { return null; }})(),
+    /* 明细图表 details 的展开状态跨重渲染保留：用户收起后就不再自动展开 */
+    CUM_SUB_OPEN = false,
     scope = "all", toastTimer = null;
 // 占用排行行内勾选的「按路径清理」集合：行没有对应清理目标（target_id）
 // 时走这里，清理请求带 paths 由服务端逐条重新识别校验。
@@ -1588,6 +1592,9 @@ function renderCumulative() {
   const topRows = (s.top_targets || []).filter(t => t.freed > 0);
   const topMax = topRows.length ? topRows[0].freed : 1;
 
+  const subEl = $("cumulative").querySelector("details.sub");
+  const subOpen = subEl ? subEl.open : CUM_SUB_OPEN;
+  CUM_SUB_OPEN = subOpen;
   $("cumulative").innerHTML = `
     <div class="cumhead">
       <div>
@@ -1600,7 +1607,7 @@ function renderCumulative() {
       </div>
     </div>
     <div class="conv">${convHtml}</div>
-    <details class="sub">
+    <details class="sub"${CUM_SUB_OPEN ? " open" : ""}>
       <summary>查看明细图表（趋势 / 分类 / 各盘 / 项目）</summary>
       <div style="margin-top:12px">
         ${drvRows.length ? `<div style="color:var(--dim2);font-size:11.5px">各盘分布</div>
@@ -1629,6 +1636,11 @@ function renderCumulative() {
           </div>`).join("")}` : ""}
       </div>
     </details>`;
+  const _sub = $("cumulative").querySelector("details.sub");
+  if (_sub) {
+    _sub.open = CUM_SUB_OPEN;
+    _sub.addEventListener("toggle", () => { CUM_SUB_OPEN = _sub.open; });
+  }
   renderConvToggle();
 }
 
@@ -1640,7 +1652,11 @@ function renderConvToggle() {
     units.map(u => `<span class="tgl${convOnly === u.id ? " on" : ""}"
                           data-id="${esc(u.id)}">${esc(u.label)}</span>`).join("");
   $("convToggle").querySelectorAll(".tgl").forEach(t =>
-    t.addEventListener("click", () => { convOnly = t.dataset.id || null; renderCumulative(); }));
+    t.addEventListener("click", () => {
+      convOnly = t.dataset.id || null;
+      try { localStorage.setItem("oc-conv-only", convOnly || ""); } catch (e) {}
+      renderCumulative();
+    }));
 }
 
 function renderUnits() {
@@ -2859,9 +2875,13 @@ function renderChart() {
   $("fsChart").innerHTML = rows.map((it, idx) => {
     const cls = !it.recognized ? "c-unknown" : (it.cleanable ? "c-clean" : "c-keep");
     // 徽章文字可被用户右键覆盖（badge_label）；类别色仍按真实判定走
+    // 标签样式（2026-10-14）：用户可选 clean/unk/keep 三档底色；没选就跟随识别结果
+    const kind = it.label_kind || (!it.recognized ? "unk" : (it.cleanable ? "clean" : "keep"));
     const badgeText = it.badge_label
       || (!it.recognized ? "未识别" : (it.cleanable ? "可清理" : "建议保留"));
-    const badge = `<span class="vbadge ${!it.recognized ? "unk" : (it.cleanable ? "clean" : "keep")}">${esc(badgeText)}</span>`;
+    const badge = `<span class="vbadge ${kind}"${it.custom_color
+      ? ` style="background:${esc(it.custom_color)};border-color:${esc(it.custom_color)};color:#fff"`
+      : ""}>${esc(badgeText)}</span>`;
     const pinBadge = it.pinned
       ? `<span class="vbadge clean" title="已提级：固定显示在排行顶层，右键可取消">已提级</span>` : "";
     const w = Math.max(2, (it.size / maxSize * 100)).toFixed(1);
@@ -2885,6 +2905,10 @@ function renderChart() {
     // 行名完全忠实于磁盘上的原始目录名；识别出的中文名（若有）放到下方说明行
     const zhHint = it.display_name && it.display_name !== it.name
       ? `显示名「${esc(it.display_name)}」 · ` : "";
+    // 2026-10-14 去重：说明文字与显示名相同时不再重复一遍
+    // （此前 Steam 库目录会显示「显示名「X」 · X · 游戏 · …」）
+    const titleDup = it.title && it.title === it.display_name;
+    const titlePart = it.title && !titleDup ? esc(it.title) : "";
     return `
     <div class="vrow-wrap" data-path="${esc(it.path)}">
       <div class="vrow ${cls}" data-i="${idx}" data-can-drill="${drillable ? 1 : 0}">
@@ -2896,9 +2920,9 @@ function renderChart() {
           <button class="tiny ghost rowinfo" data-info="${idx}">详情</button>
           <span class="fsize">${fmt(it.size)}</span>
         </div>
-        <div class="vtrack"><i class="vfill" style="width:${w}%"></i></div>
+        <div class="vtrack"><i class="vfill" style="width:${w}%${it.custom_color ? `;background:${esc(it.custom_color)}` : ""}"></i></div>
         <div class="vtop" style="margin:5px 0 0">
-          <span class="vcat">${zhHint}${esc(it.title || "")}${it.category ? " · " + esc(it.category) : ""}${
+          <span class="vcat">${zhHint}${titlePart}${!titleDup && it.title && it.category ? " · " : ""}${it.category ? esc(it.category) : ""}${
             it.steam_game ? " · Steam 游戏" : ""}${
             it.steam_library ? " · Steam 库" : ""}${
             it.game_platform === "epic" ? " · Epic 游戏" : ""}${
@@ -2976,6 +3000,25 @@ async function openRowOverride(node) {
       <label style="display:block;font-size:13px;margin:8px 0 4px">徽章文字（留空恢复默认「可清理 / 建议保留 / 未识别」）</label>
       <input id="ovLabel" style="width:100%" maxlength="200" value="${esc(cur.label || "")}"
              placeholder="例如：我的下载，先留着">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+        <div>
+          <label style="display:block;font-size:13px;margin:0 0 4px">标签样式（决定徽章底色）</label>
+          <select id="ovKind" style="width:auto">
+            <option value="">跟随识别结果</option>
+            <option value="clean"${cur.label_kind === "clean" ? " selected" : ""}>可清理（绿）</option>
+            <option value="unk"${cur.label_kind === "unk" ? " selected" : ""}>未识别（灰）</option>
+            <option value="keep"${cur.label_kind === "keep" ? " selected" : ""}>建议保留（黄）</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-size:13px;margin:0 0 4px">徽章/柱条颜色</label>
+          <input type="color" id="ovColor" value="${esc(cur.color || "#60a5fa")}"
+                 style="width:52px;height:28px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer">
+          <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dim2);margin-left:6px;cursor:pointer">
+            <input type="checkbox" id="ovColorOn"${cur.color ? " checked" : ""}> 自定义颜色
+          </label>
+        </div>
+      </div>
       <label style="display:block;font-size:13px;margin:12px 0 4px">下方说明（留空恢复识别出的说明）</label>
       <textarea id="ovNote" rows="3" style="width:100%" maxlength="200"
                 placeholder="写在这里会替换行下方的说明文字">${esc(cur.note || "")}</textarea>
@@ -2986,8 +3029,8 @@ async function openRowOverride(node) {
           取消勾选即恢复。标记保存在本机自定义数据里，随迁移数据一起走）</span></span>
       </label>
       <div style="color:var(--dim2);font-size:12px;margin-top:8px">
-        注意：这些只是你给自己看的显示偏好，不改变工具对这个目录的风险判定，
-        也不会把「建议保留」变成「可清理」。</div>
+        注意：标签样式与颜色只是你给自己看的显示偏好，不改变工具对这个目录的
+        风险判定，也不会把「建议保留」变成「可清理」的自动勾选行为。</div>
     </div>
     <div class="mfoot">
       <button id="ovDel" class="ghost">恢复默认</button>
@@ -3004,6 +3047,8 @@ async function openRowOverride(node) {
     } catch (_) {}
     delete node.badge_label;
     if (node.note_override) { delete node.note_override; }
+    delete node.label_kind;
+    delete node.custom_color;
     if (node.pinned) {
       delete node.pinned;
       if (typeof FS !== "undefined" && FS && FS.nodes) {
@@ -3018,17 +3063,21 @@ async function openRowOverride(node) {
     const label = $("ovLabel").value.trim();
     const note = $("ovNote").value.trim();
     const pin = $("ovPin").checked;
+    const label_kind = $("ovKind").value;
+    const color = $("ovColorOn").checked ? $("ovColor").value : "";
     try {
       const res = await fetch(`${API}/__oc__/overrides/set`, { method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: key, label, note, pin }) });
+        body: JSON.stringify({ id: key, label, note, pin, label_kind, color }) });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       if (label) node.badge_label = label; else delete node.badge_label;
+      if (label_kind) node.label_kind = label_kind; else delete node.label_kind;
+      if (color) node.custom_color = color; else delete node.custom_color;
       if (note) { node.title = note; node.note_override = true; }
       else if (node.note_override) { delete node.note_override; }
       // 提级本地即时生效，不必重扫：
-      //   勾上 → 若树里还没有这个目录（快速扫描只列第 1 层），复制当前行
+      //   勾上 → 若树里还没有这个目录（浅层扫描没展开到），复制当前行
       //          的展示字段造一个顶层节点挂到盘根下；取消 → 从顶层移除。
       //   下次全盘扫描时后端会按 pin 标记自己注入，两边一致。
       const wasPinned = !!node.pinned;
