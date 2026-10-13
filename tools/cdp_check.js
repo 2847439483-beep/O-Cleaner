@@ -1278,6 +1278,30 @@ class CDP {
     skip("数据盘默认清理范围", "探测失败：" + e.message);
   }
 
+  // 一键清空「所选项」的回收站（2026-10-13）：清理结果弹窗在有项移入
+  // 回收站时提供入口。只验证「按钮出现 + 第一段确认生效」，绝不真正
+  // 清空 —— 第二段才是执行。模拟路径用 Q: 盘，本机不存在该盘的条目。
+  const ebc = await evaluate(`(() => {
+    try {
+      showCleanResult({ freed_h: "0 B", results: [
+        { label: "CDP 模拟项", freed: 0, deleted: 1, failed: 0,
+          skipped: [], trashed: 1, drive: "Q", error: null,
+          trash_paths: ["Q:\\\\cdp-mock\\\\item.txt"] }] },
+        (typeof STATE !== "undefined" && STATE && STATE.stats) || null,
+        Date.now(), "CDP 模拟结果");
+      const b = document.querySelector("#btnEmptyBin");
+      if (!b) return { ok: false, why: "no btnEmptyBin" };
+      const label0 = b.textContent;
+      b.click();
+      const armed = b.textContent !== label0;
+      return { ok: true, armed, label0 };
+    } finally {
+      if (typeof closeModal === "function") closeModal();
+    }
+  })()`);
+  check("清理结果弹窗提供一键清空回收站入口（两段式确认第一段）",
+        ebc.ok && ebc.armed, JSON.stringify(ebc));
+
   // ---------- 小视口响应式 ----------
   // 浏览器窗口缩到 ~800×600 后界面必须仍完整可用：不允许出现横向滚动条，
   // 占用排行与侧栏面板都还看得到。用 Emulation 改视口，量完恢复。

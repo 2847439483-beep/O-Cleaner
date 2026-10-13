@@ -2246,6 +2246,40 @@ def phase8_identify_correctness() -> None:
         app.save_overrides(data)
         check("行级覆盖删除后不再出现",
               key not in app.load_overrides()["targets"])
+
+        # ⑩ 回收站 $I 元数据解析（2026-10-13 回归）：v2 真实布局是
+        # ver(8) + size(8) + 删除时间(8) + 名称长度(4) + 名称(UTF-16LE)。
+        # 曾把 offset 16 的删除时间当成名称长度 → 真机 1979 条全部解析失败。
+        # 用合成字节固定这个布局，不再依赖真机回收站里恰好有什么。
+        import struct as _struct
+        ipath = os.path.join(tmp, "$Imock")
+        name2 = r"C:\some\removed\item.txt"
+        blob2 = (_struct.pack("<qq", 2, 4096)
+                 + _struct.pack("<q", 133000000000000000)
+                 + _struct.pack("<i", len(name2))
+                 + name2.encode("utf-16le"))
+        with open(ipath, "wb") as f:
+            f.write(blob2)
+        got = app._parse_i_file(ipath)
+        check("$I v2 解析出原始路径", got is not None and got[0] == name2, str(got))
+        check("$I v2 解析出字节数", got is not None and got[1] == 4096)
+        check("$I v2 配对 $R 路径正确",
+              got is not None and os.path.basename(got[2]) == "$Rmock")
+        # v1：24 字节定长名称字段
+        name1 = r"C:\old\item.bin"
+        blob1 = _struct.pack("<qq", 1, 512) + _struct.pack("<q", 0) \
+            + name1.encode("utf-16le").ljust(520, b"\x00")
+        with open(ipath, "wb") as f:
+            f.write(blob1)
+        got1 = app._parse_i_file(ipath)
+        check("$I v1 解析出原始路径", got1 is not None and got1[0] == name1, str(got1))
+        # 未知版本 / 截断 → 如实返回 None，调用方跳过
+        with open(ipath, "wb") as f:
+            f.write(_struct.pack("<q", 9) + b"\x00" * 40)
+        check("未知版本 $I 返回 None", app._parse_i_file(ipath) is None)
+        with open(ipath, "wb") as f:
+            f.write(b"\x02\x00")
+        check("截断 $I 返回 None", app._parse_i_file(ipath) is None)
     finally:
         app.OVERRIDES_PATH = real_ov
         shutil.rmtree(tmp, ignore_errors=True)

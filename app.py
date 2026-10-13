@@ -3244,6 +3244,116 @@ def rm_trash(path: str) -> tuple[bool, str]:
     return False, f"系统回收站操作失败（错误码 {code}）"
 
 
+# ---- 按原始路径精确清除回收站条目（2026-10-13）----
+# 需求：清理完成后「只清空所选项的回收站」，而不是清空整盘回收站——
+# 用户自己删的其它文件必须原样保留。Windows 的回收站条目是一对文件：
+#   $I<随机>.ext  元数据（内含**原始完整路径**、字节数、删除时间）
+#   $R<随机>.ext  实际数据
+# SHFileOperation 不回报目标名，所以要找回「我们刚删的那几项」，只能
+# 反着来：解析盘上现存 $I 的原始路径，与本次清理的目标路径精确匹配。
+# $I 格式（版本 2，Win10+）：8B 版本号 + 8B 字节数 + 8B 删除时间(FILETIME)
+#   + 4B 名称长度(字符) + UTF-16LE 名称；版本 1 为 24B 定长名称字段。
+
+def _parse_i_file(ipath: str):
+    """解析一个 $I 元数据文件 → (原始路径, 字节数, 配对的 $R 路径)。
+    解析不了（损坏/未知版本）返回 None，调用方跳过。"""
+    import struct
+    try:
+        with open(ipath, "rb") as f:
+            data = f.read(2048)
+    except OSError:
+        return None
+    if len(data) < 24:
+        return None
+    try:
+        ver = struct.unpack_from("<q", data, 0)[0]
+        size = struct.unpack_from("<q", data, 8)[0]
+    except struct.error:
+        return None
+    if ver == 2:
+        # v2 布局：ver(8) + size(8) + 删除时间 FILETIME(8) + 名称长度(4) + 名称
+        if len(data) < 28:
+            return None
+        try:
+            (nlen,) = struct.unpack_from("<i", data, 24)
+        except struct.error:
+            return None
+        if nlen <= 0 or nlen > 2048:
+            return None
+        name = data[28:28 + nlen * 2].decode("utf-16le", "ignore").rstrip("\x00")
+    elif ver == 1:
+        name = data[24:24 + 520].decode("utf-16le", "ignore").split("\x00")[0]
+    else:
+        return None
+    if not name:
+        return None
+    rpath = os.path.join(os.path.dirname(ipath), "$R" + os.path.basename(ipath)[2:])
+    return name, max(0, size), rpath
+
+
+def _recycle_entries(letter: str) -> list:
+    """枚举某盘回收站里全部条目（所有 SID 目录），解析 $I 元数据。"""
+    root = os.path.join(f"{letter.upper()}:\\", "$Recycle.Bin")
+    out = []
+    if not os.path.isdir(root):
+        return out
+    for sid in os.listdir(root):
+        siddir = os.path.join(root, sid)
+        if not os.path.isdir(siddir):
+            continue
+        try:
+            names = os.listdir(siddir)
+        except OSError:
+            continue
+        for name in names:
+            if not name.upper().startswith("$I"):
+                continue
+            ipath = os.path.join(siddir, name)
+            info = _parse_i_file(ipath)
+            if info:
+                orig, size, rpath = info
+                out.append({"i": ipath, "r": rpath,
+                            "orig": os.path.normpath(orig).lower(), "size": size})
+    return out
+
+
+def purge_recycle_paths(paths: list) -> dict:
+    """把给定原始路径从回收站里精确移除（只动配对的 $I/$R，不动其它条目）。
+    返回逐项结果与合计释放量。真实的删除永远只发生在 $Recycle.Bin 内部——
+    请求里的路径只用于匹配，绝不会被直接删除。"""
+    wanted = []
+    for p in paths or []:
+        if not isinstance(p, str) or not os.path.isabs(p):
+            continue
+        wanted.append(os.path.normpath(p).lower())
+    wanted = list(dict.fromkeys(wanted))[:200]
+    results, freed_total, matched_total = [], 0, 0
+    for w in wanted:
+        letter = w[:1].upper()
+        entries = _recycle_entries(letter)
+        hits = [e for e in entries if e["orig"] == w]
+        freed = 0
+        for e in hits:
+            sz = e["size"] or _size_of(e["r"])
+            ok_i = rm(e["i"])
+            ok_r = True
+            if os.path.exists(e["r"]):
+                ok_r = rm(e["r"])
+            if ok_i and ok_r:
+                freed += sz
+                matched_total += 1
+            # 失败项不计量、如实跳过：$I/$R 任一删除失败都不会计入释放量
+        if not hits:
+            results.append({"path": w, "matched": 0,
+                            "note": "回收站里没有这个路径的条目（可能已被清空）"})
+        else:
+            freed_total += freed
+            results.append({"path": w, "matched": len(hits), "freed": freed})
+    return {"results": results, "freed": freed_total,
+            "matched": matched_total,
+            "freed_h": human(freed_total)}
+
+
 def _size_of(path: str) -> int:
     try:
         if os.path.isfile(path) and not os.path.islink(path):
@@ -3410,9 +3520,12 @@ def clean_target(t: dict, only_paths: list | None = None,
                  drive: str | None = None, trash: bool = False) -> dict:
     """删除一个目标的文件。only_paths 非空时只删这些子项。
 
-    trash=True 时把**风险为「高」**的项改删进回收站（可恢复）。两个要点：
+    trash=True 时把**风险为「高」**的项改删进回收站（可恢复）。三个要点：
       * 回收站删除不释放空间（同卷只是改名），所以这类项 freed 如实报 0，
         计入 result["trashed"]，由前端说明「清空回收站后才真正释放」；
+      * 每个确切被移入的路径记进 result["trash_paths"]（上限 400 条），
+        供「清空所选项的回收站」按原始路径**精确**匹配，绝不动回收站
+        里其它内容；
       * 中/低风险项不受影响——缓存类东西进回收站只会白白占地方。
     """
     t0 = time.time()
@@ -3428,7 +3541,7 @@ def clean_target(t: dict, only_paths: list | None = None,
         "path": path, "drive": letter,
         "before": 0, "after": 0, "freed": 0,
         "deleted": 0, "failed": 0, "skipped": [], "error": None,
-        "seconds": 0.0, "trashed": 0, "trash_errors": [],
+        "seconds": 0.0, "trashed": 0, "trash_errors": [], "trash_paths": [],
         "partial": 0, "partial_notes": [],
     }
 
@@ -3520,6 +3633,9 @@ def clean_target(t: dict, only_paths: list | None = None,
             if ok:
                 result["deleted"] += 1
                 result["trashed"] += 1     # 空间没释放，不计入 freed
+                if len(result["trash_paths"]) < 400:
+                    result["trash_paths"].append(
+                        os.path.normpath(os.path.abspath(str(item))))
             else:
                 result["failed"] += 1
                 result["trash_errors"].append(f"{os.path.basename(item)}：{why}")
@@ -5198,6 +5314,33 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(paths, list):
                 return self._json({"error": "paths 必须是路径数组"}, 400)
             return self._json(find_lock_holders(paths))
+
+        # ---- 一键清空「所选项」的回收站 ----
+        # 按原始路径精确匹配回收站条目，只删配对的 $I/$R 文件，不动回收站
+        # 里的其它内容（用户自己删的文件原样保留）。请求里的路径只用于
+        # 匹配，真实删除永远发生在 $Recycle.Bin 内部。
+        if route == "/__oc__/recycle-purge":
+            paths = body.get("paths")
+            if not isinstance(paths, list) or not paths:
+                return self._json({"error": "paths 必须是非空路径数组"}, 400)
+            if len(paths) > 200:
+                return self._json({"error": "一次最多 200 个路径"}, 400)
+            if getattr(self.server, "busy", False):
+                return self._json({"error": "已有清理任务在执行，请等待完成"}, 409)
+            self.server.busy = True
+            try:
+                out = purge_recycle_paths(paths)
+            finally:
+                self.server.busy = False
+            # 释放量如实入账：与常规清理同一统计通道
+            entry = {"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                     "trigger": "清空所选项的回收站",
+                     "results": out["results"], "freed": out["freed"],
+                     "failed": 0, "targets": len(paths),
+                     "freed_h": out["freed_h"]}
+            append_history(entry)
+            out["stats"] = history_stats()
+            return self._json(out)
 
         # ---- 删除游戏前的存档查询（只读）----
         # 在「游戏最爱放存档」的几个位置找名字与这款游戏相关的目录。
