@@ -647,17 +647,17 @@ def phase3_http() -> None:
               "getPropertyValue" in html and "hexToRgba" in html)
         check("预设样式已修复溢出",
               "white-space:normal" in html and "overflow-wrap:anywhere" in html)
-        # 布局回归：工具栏占位后，section / aside 必须显式指定位置，
-        # 否则 grid 的 auto-placement 会把卡片区挤进 392px 的侧栏列（"挤在左上侧"的根因）。
-        # 现在改用 grid-template-areas 命名每一格，同样是"显式定位"，
-        # 所以断言检查的是"两栏都被命名区域覆盖"，而不是某一处 grid-column 写法。
+        # 布局回归：section / aside 必须显式指定位置，否则 grid 的 auto-placement
+        # 会把卡片区挤进 392px 的侧栏列（"挤在左上侧"的根因）。2026-10-14 起
+        # 左列收敛为单个滚动容器 #leftcol（工具栏、磁盘概览、当前视图都在其中），
+        # 断言检查"两栏都被命名区域覆盖"。
         _css = html.replace(" ", "")
-        check("卡片区与侧栏显式指定了网格位置",
-              ('main>section{grid-area:view' in _css and 'aside{grid-area:side' in _css)
+        check("左列容器与侧栏显式指定了网格位置",
+              ('#leftcol{grid-area:left' in _css and 'aside{grid-area:side' in _css)
               or "main > section{grid-column:1" in html)
-        check("网格用命名区域覆盖左列四行与右列整列",
+        check("网格用命名区域覆盖左列与右列整列",
               'grid-template-areas:' in _css
-              and '"tool1side"' in _css and '"viewside"' in _css)
+              and '"leftside"' in _css)
         # v2.3 UI：右侧堆叠折叠、磁盘概览并入左栏、两栏独立滚动、Esc 返回
         check("右侧面板改为可折叠堆叠",
               'class="panel acc' in html and "data-acc=" in html
@@ -670,8 +670,9 @@ def phase3_http() -> None:
         check("左右两栏各自独立滚动",
               "body{display:flex;flex-direction:column;height:100vh;overflow:hidden}" in _css
               # 唯一一行必须钉死在容器高度上，否则网格隐式行会被内容撑高、无法内滚动
-              and "grid-template-rows:autoautoautominmax(0,1fr)" in _css
-              and "main>section{grid-area:view;min-width:0;min-height:0;overflow-y:auto" in _css)
+              and "grid-template-rows:minmax(0,1fr)" in _css
+              and "#leftcol{grid-area:left;min-width:0;min-height:0;overflow-y:auto" in _css
+              and "aside{grid-area:side;min-width:0;min-height:0;overflow-y:auto" in _css)
         # aside 成了「定高滚动容器」后，子面板带 overflow:hidden → 自动最小高度按 0 算，
         # 叠加 flex 默认的 flex-shrink:1，11 个面板会被整体压扁去适应容器高度，而不是
         # 溢出后交给 aside 滚动：标题只剩 24px（需要 45px）、展开的正文整块看不见。
