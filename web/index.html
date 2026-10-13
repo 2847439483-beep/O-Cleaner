@@ -164,6 +164,16 @@
     main > section,aside{overflow:visible;padding-right:0}
     #paneDisk,main > section,aside{margin-top:14px}
   }
+  /* 更小的窗口（≤760px，如半屏/贴边窗口）：收窄留白，确保内容完整显示不溢出 */
+  @media(max-width:760px){
+    main{padding:10px 10px 20px}
+    .panel{padding:10px}
+    header{padding-left:12px;padding-right:12px}
+    .vrow .vtop{flex-wrap:wrap}
+    .vrow .fsize{margin-left:auto}
+    table{font-size:12px}
+    th,td{padding:6px 4px}
+  }
 
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .list{display:flex;flex-direction:column;gap:8px}
@@ -1392,6 +1402,14 @@ function drawDiskTrend() {
     `近 ${pts.length} 天可用空间：最高 ${fmt(hi)} · 最低 ${fmt(lo)} · 最新 ${fmt(vals[vals.length - 1])}`;
 }
 
+// 窗口尺寸变化（拖小浏览器窗口、分屏、收起侧栏）时重绘趋势画布：
+// 画布宽度来自 clientWidth，不重绘会拉伸模糊或留白。
+let _rzTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(_rzTimer);
+  _rzTimer = setTimeout(() => { try { drawDiskTrend(); } catch (_) {} }, 150);
+});
+
 /* 卡片（常规清理列表）已移除：可清理项直接在占用排行行内勾选，
    按 id（行上有 target_id 时）或按路径（服务端重校验）接入清理。 */
 /* ==================== 预设 ==================== */
@@ -2105,14 +2123,18 @@ function confirmDialog() {
     return { id, label: t.label, risk: t.risk, size, files, note,
              path: t.path, admin: t.needs_admin };
   });
-  // 占用排行里按路径勾选的行：体积取树节点，最终以服务端重新识别为准
+  // 占用排行里按路径勾选的行：体积取树节点，最终以服务端重新识别为准。
+  // 建议保留 / 未识别行也可勾选（2026-10-13），如实标注并集中警告。
   const nodes = FS?.nodes || [];
   for (const p of selPaths) {
     const n = nodes.find(x => x.path === p);
-    rows.push({ id: "path:" + p, label: (n && (n.display_name || n.name)) || p,
+    rows.push({ id: "path:" + p, label: (n && n.name) || p,
                 risk: (n && n.risk) || "中", size: (n && n.size) || 0,
-                files: 0, note: "清空目录内容（服务端会重新识别校验）",
-                path: p, admin: false });
+                files: 0,
+                note: (n && !n.cleanable)
+                  ? "非工具推荐项（建议保留/未识别）：你已明确勾选，服务端将按系统目录保护执行"
+                  : "清空目录内容（服务端会重新识别校验）",
+                path: p, admin: false, nonClean: !!(n && !n.cleanable) });
   }
   rows.sort((a, b) => b.size - a.size);
 
@@ -2120,12 +2142,19 @@ function confirmDialog() {
   const risky = rows.filter(r => r.risk === "高" || r.risk === "中");
   const trashable = rows.some(r => r.risk === "高" && !r.id.startsWith("recycle-bin"));
   const admin = rows.filter(r => r.admin);
+  const nonClean = rows.filter(r => r.nonClean);
+  window._hasNonCleanSel = nonClean.length > 0;
   const riskyNote = r => r.id.startsWith("recycle-bin")
     ? "清空后无法恢复" : "删除后历史诊断线索丢失";
 
   $("modal").innerHTML = `
     <h2>确认清理 —— ${esc(drive)}: 盘 · 执行后无法恢复</h2>
     <div class="mbody">
+      ${nonClean.length ? `<div class="warnpane"><b>包含 ${nonClean.length} 项「建议保留 / 未识别」—— 工具不推荐删除：</b>
+        这些不是缓存，可能是软件本体、个人文件或无法判定用途的目录；
+        删除后可能无法恢复。请确认你已亲自打开看过内容。<ul>${
+        nonClean.slice(0, 8).map(r => `<li>${esc(r.label)} —— ${esc(r.path)}</li>`).join("")
+        }${nonClean.length > 8 ? `<li>…等 ${nonClean.length} 项</li>` : ""}</ul></div>` : ""}
       ${risky.length ? `<div class="warnpane"><b>包含不可逆或会影响排查的项：</b><ul>${
         risky.map(r => `<li>${esc(r.label)}（风险 ${esc(r.risk)}）—— ${esc(riskyNote(r))}</li>`).join("")
       }</ul></div>` : ""}
@@ -2152,7 +2181,7 @@ function confirmDialog() {
       <div class="left">共 ${rows.length} 项，预计释放
         <b style="color:var(--ok)">${fmt(total)}</b></div>
       <button id="mCancel" class="ghost">取消</button>
-      <button id="mGo" class="go">确认删除</button>
+      <button id="mGo" class="go">${nonClean.length ? `仍要删除（含 ${nonClean.length} 项非推荐项）` : "确认删除"}</button>
     </div>`;
   $("mask").classList.add("on");
   $("mCancel").addEventListener("click", closeModal);
@@ -2176,6 +2205,7 @@ async function doClean() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: [...selected], paths: [...selPaths],
                              only_paths: only,
+                             allow_non_cleanable: !!window._hasNonCleanSel,
                              drive, custom_path: customPath,
                              trash: !!(trashBox && trashBox.checked) })
     });
@@ -2727,16 +2757,16 @@ function renderChart() {
   FS.rows = rows;          // 供渲染断言/调试读取当前层的实际行
   $("fsChart").innerHTML = rows.map((it, idx) => {
     const cls = !it.recognized ? "c-unknown" : (it.cleanable ? "c-clean" : "c-keep");
-    const badge = !it.recognized
-      ? '<span class="vbadge unk">未识别</span>'
-      : (it.cleanable ? '<span class="vbadge clean">可清理</span>'
-                      : '<span class="vbadge keep">建议保留</span>');
+    // 徽章文字可被用户右键覆盖（badge_label）；类别色仍按真实判定走
+    const badgeText = it.badge_label
+      || (!it.recognized ? "未识别" : (it.cleanable ? "可清理" : "建议保留"));
+    const badge = `<span class="vbadge ${!it.recognized ? "unk" : (it.cleanable ? "clean" : "keep")}">${esc(badgeText)}</span>`;
     const w = Math.max(2, (it.size / maxSize * 100)).toFixed(1);
     const drillable = !!it.can_drill;
-    // 可清理行内直接勾选（可清理项不再单独列出）：行若对应某个清理目标
-    // （扫描时后端已标注 target_id）优先按 id 勾选 —— 保留回收站等特殊
-    // 目标的清理语义；对不上的走按路径清理（服务端会重新识别校验）。
-    const canCheck = !!it.cleanable;
+    // 2026-10-13：**所有行都可勾选** —— 「建议保留 / 未识别」不再是勾选禁区。
+    // 用户看过内容、明确要删的目录不该被工具拦死；对应的安全约束转移到
+    // 确认弹窗（明确提示包含非推荐项）与服务端（系统目录保护、占用预检照常）。
+    const canCheck = true;
     const rowChecked = canCheck &&
       (it.target_id ? selected.has(it.target_id) : selPaths.has(it.path));
     // 全盘视图里必须显示它在哪里，否则只看到一个名字不知道归属
@@ -2749,20 +2779,23 @@ function renderChart() {
     // 所以详情必须是显式按钮，不能只靠「点不动」这个副作用。
     // 每一行都支持：如果点击「就地展开」小按钮（或带有可展开能力），
     // 就在本行下方无感内联展示子项树，无需生硬跳转切页，也可以无限层级层层往下就地展开！
+    // 行名完全忠实于磁盘上的原始目录名；识别出的中文名（若有）放到下方说明行
+    const zhHint = it.display_name && it.display_name !== it.name
+      ? `显示名「${esc(it.display_name)}」 · ` : "";
     return `
     <div class="vrow-wrap" data-path="${esc(it.path)}">
       <div class="vrow ${cls}" data-i="${idx}" data-can-drill="${drillable ? 1 : 0}">
         <div class="vtop">
           ${canCheck ? `<input type="checkbox" class="rowsel" data-path="${esc(it.path)}"${it.target_id ? ` data-tid="${esc(it.target_id)}"` : ""}${rowChecked ? " checked" : ""} title="勾选这项参与清理">` : ""}
           ${drillable ? `<button class="tiny ghost expinline" data-tree="${idx}" title="就地展开查看子目录">展开 ▾</button>` : ""}
-          <span class="fname">${esc(it.display_name || it.name)}${badge}${
+          <span class="fname">${esc(it.name)}${badge}${
             drillable ? '<span class="vgo">点开看子项 ›</span>' : ""}</span>
           <button class="tiny ghost rowinfo" data-info="${idx}">详情</button>
           <span class="fsize">${fmt(it.size)}</span>
         </div>
         <div class="vtrack"><i class="vfill" style="width:${w}%"></i></div>
         <div class="vtop" style="margin:5px 0 0">
-          <span class="vcat">${esc(it.title || "")}${it.category ? " · " + esc(it.category) : ""}${
+          <span class="vcat">${zhHint}${esc(it.title || "")}${it.category ? " · " + esc(it.category) : ""}${
             it.steam_game ? " · Steam 游戏" : ""}${
             it.steam_library ? " · Steam 库" : ""}${
             it.game_platform === "epic" ? " · Epic 游戏" : ""}${
@@ -2803,6 +2836,82 @@ function renderChart() {
       ev.stopPropagation();
       showDetail(rows[+b.dataset.info]);
     }));
+  // 右键行：自定义徽章文字与下方说明（保存为用户覆盖，跨会话生效）
+  $("fsChart").querySelectorAll(".vrow-wrap").forEach(wrap =>
+    wrap.addEventListener("contextmenu", ev => {
+      ev.preventDefault();
+      const vrow = wrap.querySelector(".vrow");
+      if (!vrow) return;
+      const it = rows[+vrow.dataset.i];
+      if (it) openRowOverride(it);
+    }));
+}
+
+/* ============ 行右键：自定义徽章文字与下方说明（用户覆盖，持久化） ============
+   2026-10-13 用户需求：「建议保留和未识别以及下方的说明要可自定义更改
+   （可以右键更改），且要保存自定义更改」。
+   覆盖键用归一化小写路径 —— 扫描行的「身份」就是那个目录本身；
+   徽章文字进 badge_label、说明进 note，后端 mk() 用同一套键在扫描时套用，
+   本地同步改节点对象让显示立即生效（不必重扫）。这只是你自己看的显示文字：
+   不改变工具的风险判定，更不会把「建议保留」变成「可清理」。 */
+function normOvKey(p) {
+  return String(p || "").replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+}
+async function openRowOverride(node) {
+  if (!node || !node.path) return;
+  const key = normOvKey(node.path);
+  let cur = {};
+  try {
+    const res = await fetch(`${API}/__oc__/overrides`);
+    const data = await res.json();
+    cur = (data.targets || {})[key] || {};
+  } catch (_) { /* 读不到就当没有覆盖 */ }
+  $("modal").innerHTML = `
+    <h2>自定义显示 —— ${esc(node.name)}</h2>
+    <div class="mbody">
+      <div style="color:var(--dim2);font-size:12px;margin-bottom:10px;overflow-wrap:anywhere">${esc(node.path)}</div>
+      <label style="display:block;font-size:13px;margin:8px 0 4px">徽章文字（留空恢复默认「可清理 / 建议保留 / 未识别」）</label>
+      <input id="ovLabel" style="width:100%" maxlength="200" value="${esc(cur.label || "")}"
+             placeholder="例如：我的下载，先留着">
+      <label style="display:block;font-size:13px;margin:12px 0 4px">下方说明（留空恢复识别出的说明）</label>
+      <textarea id="ovNote" rows="3" style="width:100%" maxlength="200"
+                placeholder="写在这里会替换行下方的说明文字">${esc(cur.note || "")}</textarea>
+      <div style="color:var(--dim2);font-size:12px;margin-top:8px">
+        注意：这只是你给自己看的显示文字，不改变工具对这个目录的风险判定，
+        也不会把「建议保留」变成「可清理」。</div>
+    </div>
+    <div class="mfoot">
+      <button id="ovDel" class="ghost">恢复默认</button>
+      <button id="ovCancel" class="ghost">取消</button>
+      <button id="ovSave" class="primary">保存</button>
+    </div>`;
+  $("mask").classList.add("on");
+  $("ovCancel").addEventListener("click", closeModal);
+  $("ovDel").addEventListener("click", async () => {
+    try {
+      await fetch(`${API}/__oc__/overrides/delete`, { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: key }) });
+    } catch (_) {}
+    delete node.badge_label;
+    if (node.note_override) { delete node.note_override; }
+    closeModal(); renderChart(); toast("已恢复默认显示");
+  });
+  $("ovSave").addEventListener("click", async () => {
+    const label = $("ovLabel").value.trim();
+    const note = $("ovNote").value.trim();
+    try {
+      const res = await fetch(`${API}/__oc__/overrides/set`, { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: key, label, note }) });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (label) node.badge_label = label; else delete node.badge_label;
+      if (note) { node.title = note; node.note_override = true; }
+      else if (node.note_override) { delete node.note_override; }
+      closeModal(); renderChart(); toast("自定义显示已保存");
+    } catch (e) { toast("保存失败：" + e.message); }
+  });
 }
 
 /** 树形无限就地懒加载展开：点击某一项即在当前行正下方按需扫描并展开子项，完全不必跳出上下文 */
@@ -3059,8 +3168,17 @@ function showDetail(it) {
   const ovBtn = $("dOv");
   if (ovBtn) {
     // 卡片移除后「自定义释义」改从详情进：行上有 target_id 才显示，
-    // 用对应目标的 ovkey（普通项 = base_id），与原卡片入口完全同键
-    const ovT = STATE?.targets?.find(t => t.id === it.target_id);
+    // 用对应目标的 ovkey（普通项 = base_id），与原卡片入口完全同键。
+    // 自动发现项（id 形如 auto-*）不在 STATE.targets 里：后端 _override_key
+    // 对 base_id=auto 的目标用归一化路径做覆盖键，这里构造同口径的伪目标，
+    // 否则按钮是死的（点了没反应，这正是详情弹窗 silent 失效的形态）。
+    const ovT = STATE?.targets?.find(t => t.id === it.target_id)
+      || (it.target_id && it.path
+        ? { id: it.target_id, base_id: "auto",
+            ovkey: it.path.replace(/[\\/]+$/, "").toLowerCase(),
+            label: it.display_name || it.name,
+            what: it.title || "" }
+        : null);
     if (ovT) ovBtn.addEventListener("click", () => editOverride(ovT));
   }
   $("dReveal").addEventListener("click", () => revealPath(it.path));
