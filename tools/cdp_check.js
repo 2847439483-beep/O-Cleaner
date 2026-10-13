@@ -1105,11 +1105,11 @@ class CDP {
         maxDepth: (typeof FS !== 'undefined' && FS) ? FS.max_depth : null,
         rows: document.querySelectorAll('#fsChart .vrow').length,
       }))()`);
-      // max_depth 是「2 层树 + 注入的游戏本体节点」：游戏库嵌套深时本体节点
-      // 会把最大深度顶到 3，属于设计行为而非退化。
+      // max_depth 是「1 层树 + 注入的游戏本体/提级节点」：游戏库嵌套深时
+      // 本体节点会把最大深度顶到 2~3，属于设计行为而非退化。
       check("快速扫描完成并渲染出排行",
-            qInfo.rows > 0 && qInfo.maxDepth >= 2 && qInfo.maxDepth <= 4,
-            `${qSec} 秒 / max_depth=${qInfo.maxDepth}（2 层树 + 游戏本体注入）`);
+            qInfo.rows > 0 && qInfo.maxDepth >= 1 && qInfo.maxDepth <= 3,
+            `${qSec} 秒 / max_depth=${qInfo.maxDepth}（1 层树 + 游戏本体注入）`);
       check("快速扫描在面板上如实标注",
             /快速/.test(qInfo.hint), qInfo.hint);
       const g = await evaluate(`(() => {

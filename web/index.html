@@ -651,9 +651,9 @@
     <button id="btnScan" class="primary">重新扫描</button>
     <button id="btnFullScan">全盘扫描本盘</button>
     <select id="fsDepthSel" style="width:auto"
-            title="全盘扫描的展开深度。快速模式只展开 2 层，先定位占地大头；游戏本体始终会出现在排行里（不受深度限制），深层目录也可点击下钻（现场扫描）">
-      <option value="quick">快速（默认，2 层）</option>
-      <option value="deep">深扫（更细，较慢）</option>
+            title="全盘扫描的展开深度。快速模式只列盘根的直接子目录（父级不再拆成子级），深层目录点击下钻查看（按占用/名称排序）；游戏本体与已提级的目录始终会出现在排行里">
+      <option value="quick">快速（默认，1 层）</option>
+      <option value="deep">深扫（2 层，较慢）</option>
     </select>
     <button id="btnSteam">Steam 游戏库</button>
     <button id="btnAll">全选</button>
@@ -721,6 +721,7 @@
     <div class="panel">
       <h3>占用排行 <span class="hint" id="fsChartHint">点击任意一条下钻查看子项</span></h3>
       <div class="segbtns" id="fsModes"></div>
+      <div class="segbtns" id="fsSort" style="margin-top:6px"></div>
       <div style="margin-top:12px"><div class="vchart" id="fsChart"></div></div>
     </div>
   </section>
@@ -2416,6 +2417,11 @@ async function findLockHolders(bad, btn) {
 
 /* ============ 磁盘概览：可逐层下钻的占用树 ============ */
 let FS = null, fsMode = "dirs", view = "full";
+// 排行排序方式：size（占用降序，默认）| name（名称升序）。记住上次选择。
+let FS_SORT = (() => {
+  try { return localStorage.getItem("oc_fs_sort") === "name" ? "name" : "size"; }
+  catch (_) { return "size"; }
+})();
 // 下钻路径栈：元素 { path, name, size }
 let fsStack = [];
 // 在途全盘扫描属于哪个盘、用什么作废。换盘时旧盘的扫描必须作废重开：
@@ -2528,10 +2534,9 @@ async function startFullScan() {
       </div>
       <div class="scanfacts">
         ${quick
-          ? "快速模式：只展开 2 层，先看清占地大头；"
-            + "更深的目录在结果里仍可点击下钻（现场扫描，稍慢）。"
-          : "会逐层展开大目录（最深 5 层），这样才能挖到"
-            + " <code>E:\\SteamLibrary\\steamapps\\common\\游戏名</code> 这类深层大项。"}
+          ? "快速模式：只列盘根的直接子目录（父级不拆子级）；"
+            + "点任意目录下钻看子项（可按占用/名称排序）。"
+          : "展开到第 2 层，能多看到一层目录；更深处同样点击下钻。"}
         <b>请保持本窗口与命令行窗口开启。</b>
         ${STATE?.wiztree?.found ? "（已启用 WizTree 加速）"
                                 : "（未装 WizTree，逐目录递归会慢一些）"}
@@ -2561,7 +2566,7 @@ async function startFullScan() {
   const timer = setInterval(poll, 500);
   try {
     const r = await (await fetch(`${API}/__oc__/overview?drive=${drive}`
-                                 + (quick ? "&depth=2" : ""),
+                                 + (quick ? "&depth=1" : "&depth=2"),
                                  { signal: ac.signal })).json();
     if (r.error) throw new Error(r.error);
     FS = r;
@@ -2633,7 +2638,7 @@ function renderOverview() {
 
   $("fsHint").textContent =
     `${FS.drive}: 盘 · ${FS.node_count} 个节点 · 已识别 ${FS.explained} 个`
-    + (FS.max_depth <= 2 ? " · 快速（2 层）" : "")
+    + (FS.max_depth <= 2 ? " · 快速（1~2 层）" : "")
     + (FS.engine === "wiztree" ? " · WizTree MFT 加速" : "");
 
   $("fsOverview").innerHTML = `
@@ -2781,8 +2786,13 @@ function renderChart() {
       && !containers.has(n.name.toLowerCase()) && !n.in_game_body);
   }
   else rows = here;
-  // 全部视图都按体积降序取前 30
-  rows = rows.filter(n => n.size > 0).sort((a, b) => b.size - a.size).slice(0, 30);
+  // 排序方式可选：默认按占用降序；「按名称」用中文locale排序（2026-10-13
+  // 用户要求下钻后支持其他排序方式）。全部视图取前 30。
+  rows = rows.filter(n => n.size > 0)
+    .sort(FS_SORT === "name"
+      ? (a, b) => String(a.name).localeCompare(String(b.name), "zh-Hans-CN")
+      : (a, b) => b.size - a.size)
+    .slice(0, 30);
 
   const modes = [
     ["dirs", fsStack.length ? `本层（${here.length}）` : `顶层（${here.length}）`],
@@ -2794,6 +2804,17 @@ function renderChart() {
     `<span class="seg${fsMode === k ? " on" : ""}" data-m="${k}">${esc(label)}</span>`).join("");
   $("fsModes").querySelectorAll(".seg").forEach(s =>
     s.addEventListener("click", () => { fsMode = s.dataset.m; renderChart(); }));
+  // 排序方式切换（持久到 localStorage，跨会话记住偏好）
+  $("fsSort").innerHTML = [
+    ["size", "按占用"], ["name", "按名称"],
+  ].map(([k, label]) =>
+    `<span class="seg${FS_SORT === k ? " on" : ""}" data-s="${k}">${esc(label)}↓</span>`).join("");
+  $("fsSort").querySelectorAll(".seg").forEach(s =>
+    s.addEventListener("click", () => {
+      FS_SORT = s.dataset.s;
+      try { localStorage.setItem("oc_fs_sort", FS_SORT); } catch (_) {}
+      renderChart();
+    }));
 
   $("fsChartHint").textContent =
     fsMode === "biggest" ? "跨全部层级按体积排序的大项（已剔除中间容器目录）"
