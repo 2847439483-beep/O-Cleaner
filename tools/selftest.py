@@ -691,6 +691,14 @@ def phase3_http() -> None:
         check("分发包构建清单含释义增强包",
               "packs/explanations.json"
               in (TOOLS_DIR / "make_package.py").read_text(encoding="utf-8"))
+        exe_src = (TOOLS_DIR / "make_exe.py").read_text(encoding="utf-8")
+        check("免安装版构建工具复用分发清单（清单唯一真相源）",
+              "from make_package import" in exe_src
+              and "INCLUDE" in exe_src)
+        check("免安装版内嵌官方 embeddable 运行时（版本写死、不用 PyInstaller）",
+              "python.org/ftp/python/" in exe_src
+              and 'EMBED_VERSION = "' in exe_src
+              and "pyinstaller" not in exe_src.lower())
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检已移除兼容性分析（面板只留环境与权限）",

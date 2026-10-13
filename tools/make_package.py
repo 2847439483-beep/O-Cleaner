@@ -68,6 +68,7 @@ INCLUDE = [
     "tools/cdp_check.js",
     "tools/fix-encoding.ps1",
     "tools/make_package.py",
+    "tools/make_exe.py",
     "tools/sync_packs.py",
 ]
 

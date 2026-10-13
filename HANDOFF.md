@@ -958,6 +958,29 @@ target_id 一致性回归断言。
 
 本批次验证：功能探针 28 项全过；本机 CDP 76 通过 / 0 失败 / 6 环境跳过。
 
+### 29. 免安装版分发：内嵌官方 embeddable 运行时（2026-10-13）
+
+`tools/make_exe.py` 落地「exe / 免 Python 分发」方向（§八.9 暂缓项之一，
+2026-10-13 评估的路线）。**不用 PyInstaller**（杀软误报率高、引入第三方
+依赖链，与零依赖取向相悖），改为：
+
+- **运行时**：python.org 官方 `python-3.13.7-embed-amd64.zip`（版本写死在
+  `EMBED_VERSION`），解包进包内 `O-Cleaner/python/`；给 `._pth` 追加一行
+  `..` 把项目根挂进 sys.path——这是「运行时在子目录、项目在上一层」布局
+  的关键。运行时 zip 下载一次后缓存在 gitignored 的 `build/`。
+- **清单复用**：`from make_package import INCLUDE`，分发清单唯一真相源；
+  唯二差异：启动器换成免检测版（直接 `python\python.exe app.py`，纯 ASCII
+  + CRLF 符合 .bat 契约）、新增 `README-RUN.txt`（便携说明 + SmartScreen
+  提示 + 卸载说明）。
+- **可复现**：条目时间戳沿用 make_package 的固定戳，写完逐条 sha256 自校验
+  （项目文件对源码、运行时对官方包）。
+- **实测**：解包后内嵌 `python.exe --version` 正常；`app.py --no-browser`
+  用内嵌运行时起服务——顺带验证了 pick_port 在 8770 被占时正确顺延到
+  8771，`/__oc__/state` 正常返回 v2.3，配置写在便携目录内。
+- **如实说明**：未做代码签名，SmartScreen 首次运行会提示；产品形态是
+  「免安装绿色目录」而非单文件 exe。selftest 阶段四加静态断言（清单复用、
+  官方 URL、不含 PyInstaller）。
+
 ---
 
 ## 七、文件资产与代码清单
@@ -983,6 +1006,7 @@ target_id 一致性回归断言。
 | `tools/doctor.py` | ~6.6 KB | 新设备 27 项环境自检排查脚本 |
 | `tools/fix-encoding.ps1`| ~4.9 KB | 编码与换行契约的唯一规范化工具（CI 的 `lint` 第一步） |
 | `tools/make_package.py` | ~7.7 KB | 分发包构建工具（分发清单含 `packs/`；打包前跑编码契约预检，包后逐条 sha256 自校验，内存打包无暂存目录） |
+| `tools/make_exe.py` | ~6.5 KB | 免安装版构建工具：内嵌 python.org 官方 embeddable 运行时（版本写死、不用 PyInstaller），复用 `make_package.INCLUDE` 清单，`._pth` 加 `..` 挂项目根，运行时 zip 缓存在 gitignored 的 `build/` |
 | `.github/workflows/ci.yml`| ~6.8 KB | GitHub Actions 持续集成配置（Windows 平台，快慢两级：每次推送跑 lint，自测与界面检查按定时/手动/`[ci]` 触发） |
 | `.gitattributes` | ~1.4 KB | 换行与编码契约的声明（`eol=crlf` 写死，CI 依此校验） |
 | `tools/local-cases.json.example`| ~0.6 KB | `local-cases.json` 的模板（真实用例在 gitignore 中隔离） |
@@ -993,7 +1017,7 @@ target_id 一致性回归断言。
 | `CONTRIBUTING.md` | ~9.0 KB | 贡献指南与提交前自查清单（含资源包提交流程、CI 快慢两级说明） |
 | `HANDOFF.md` | ~88 KB | 本文档：需求追溯、架构规格、踩坑记录与接手注意事项 |
 | `_legacy/` | ~180 KB | 前身版本归档（已 gitignore，不属于本仓库） |
-| `dist/O-Cleaner-v2.3.zip`| ~330 KB | 便携分发包：30 个文件（含 6 个内置资源包与 docs/CUSTOMIZE.md，explanations.json 曾漏入包、§22 修复），由 `tools/make_package.py` 生成 |
+| `dist/` | ~11.2 MB | 当前版本的两个分发产物：`O-Cleaner-v2.3.zip`（便携版，需系统已装 Python，由 `tools/make_package.py` 生成）与 `O-Cleaner-v2.3-win64-embed.zip`（免安装版，内嵌官方运行时，由 `tools/make_exe.py` 生成）；`dist/` 与 `build/`（运行时下载缓存）均已 gitignore |
 
 ---
 
@@ -1044,7 +1068,7 @@ target_id 一致性回归断言。
 
 ### 9. 曾经暂缓的方向（2026-10-13 起重新纳入规划，非永久否决）
 - 以下三项**当时**明确暂缓，用户已澄清「只是当时不做」；重启前与用户确认优先级即可，不要再当成永久禁项：
-  - **exe / 免 Python 分发**：2026-10-13 重新评估过路线——推荐「内嵌 Python embeddable 包 + 项目目录 + 启动器」而非 PyInstaller（后者杀软误报率高、引入第三方依赖链，与本仓库零依赖取向相悖）；无代码签名会有 SmartScreen 提示，需向用户如实说明。
+  - **exe / 免 Python 分发**：**（2026-10-13 已实现，见 §29：`tools/make_exe.py` 内嵌官方 embeddable 运行时，`dist/O-Cleaner-v<版本>-win64-embed.zip`；未做代码签名，SmartScreen 提示已在 README-RUN.txt 与文档如实说明。）**
   - **英文规则 / i18n**：界面与知识库文案均为中文硬编码，重构面最广；牵动 selftest/CDP 中大量中文字面量断言，动手前需先做断言与语言的解耦或固定测试语言。
   - **快速模式（2 层浅扫）**：WizTree 加速后全盘已到 14–90 秒，浅扫主要惠及「无 WizTree + 慢机器」场景，成本较低，可做成 scope 选项。**（2026-10-13 已实现，见 §25：档位下拉 + depth=2，语义边界是「少下探」而非秒级速览。）**
 - 仍然有效的约束：不引入安装型依赖（playwright / pip / npm 包）。CDP 测试使用系统自带 Edge + Node 原生 WebSocket 是刻意设计，不要替换为 Puppeteer/Playwright。
