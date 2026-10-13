@@ -124,21 +124,19 @@
   header{flex:none}
   /* 用 grid-template-areas 显式命名每个格子，左列自上而下是
      工具栏 → 自定义目录栏 → 磁盘概览 → 当前视图；右列 sidebar 跨满整列。 */
-  main{display:grid;gap:12px 18px;
+  main{display:grid;gap:0 18px;
        grid-template-columns:minmax(0,1fr) 392px;
-       grid-template-rows:auto auto auto minmax(0,1fr);
+       grid-template-rows:minmax(0,1fr);
        grid-template-areas:
-         "tool1 side"
-         "tool2 side"
-         "disk  side"
-         "view  side";
+         "left side";
        flex:1 1 auto;min-height:0;overflow:hidden;
        padding:16px 20px;max-width:1560px;margin:0 auto;width:100%}
-  .toolbar{grid-area:tool1}
-  .toolbar.t2{grid-area:tool2}
-  #paneDisk{grid-area:disk}
-  main > section{grid-area:view;min-width:0;min-height:0;overflow-y:auto;
-                 padding-right:4px;padding-bottom:4px}
+  /* 左列整体一个滚动容器（2026-10-14 起）：工具栏、磁盘概览、当前视图
+     全部在里面随滚动走，磁盘概览不再钉在滚动区外。 */
+  #leftcol{grid-area:left;min-width:0;min-height:0;overflow-y:auto;
+           display:flex;flex-direction:column;gap:12px;
+           padding-right:4px;padding-bottom:4px}
+  main > section{min-width:0;min-height:0}
   aside{grid-area:side;min-width:0;min-height:0;overflow-y:auto;
         display:flex;flex-direction:column;gap:12px;padding-right:4px;
         padding-bottom:4px}
@@ -149,13 +147,13 @@
      看起来像面板互相遮挡。必须显式禁止收缩，让面板保持自然高度、由 aside 滚。 */
   aside > .panel{flex:0 0 auto}
   /* 滚动条常驻可见，避免「内容被裁掉却看不出能滚」 */
-  main > section,aside{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
-  main > section::-webkit-scrollbar,aside::-webkit-scrollbar{width:10px}
-  main > section::-webkit-scrollbar-track,aside::-webkit-scrollbar-track{background:transparent}
-  main > section::-webkit-scrollbar-thumb,aside::-webkit-scrollbar-thumb{
+  #leftcol,aside{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+  #leftcol::-webkit-scrollbar,aside::-webkit-scrollbar{width:10px}
+  #leftcol::-webkit-scrollbar-track,aside::-webkit-scrollbar-track{background:transparent}
+  #leftcol::-webkit-scrollbar-thumb,aside::-webkit-scrollbar-thumb{
         background:var(--line2);border-radius:6px;border:2px solid transparent;
         background-clip:content-box}
-  main > section::-webkit-scrollbar-thumb:hover,aside::-webkit-scrollbar-thumb:hover{
+  #leftcol::-webkit-scrollbar-thumb:hover,aside::-webkit-scrollbar-thumb:hover{
         background:var(--scrollbar);background-clip:content-box}
   /* 窄窗口（≤1100px）保持左右两栏，按宽度分级等比缩小（用户明确要求
      不要上下堆叠——两栏各自独立滚动是本界面的核心操作模型，堆叠后
@@ -647,6 +645,7 @@
 </header>
 
 <main>
+  <div id="leftcol">
   <div class="toolbar">
     <button id="btnScan" class="primary">重新扫描</button>
     <button id="btnFullScan">全盘扫描本盘</button>
@@ -725,6 +724,8 @@
       <div style="margin-top:12px"><div class="vchart" id="fsChart"></div></div>
     </div>
   </section>
+
+  </div>
 
   <aside>
     <nav class="pnav" id="panelNav" aria-label="侧栏面板导航"></nav>
@@ -1340,7 +1341,7 @@ function renderDisk(d) {
         <i style="display:block;height:100%;width:${usedRatio.toFixed(1)}%;background:${color}"></i>
       </div>
     </div>
-    <canvas id="trendCv" style="width:100%;height:56px;margin-top:8px;display:block"></canvas>
+    <canvas id="trendCv" style="width:100%;height:64px;margin-top:8px;display:block"></canvas>
     <div id="trendLbl" style="color:var(--dim2);font-size:11.5px;margin-top:3px"></div>`;
   drawDiskTrend();
 }
@@ -1361,50 +1362,73 @@ function hexToRgba(hex, alpha) {
 let DISK_TREND = null;
 async function loadDiskTrend() {
   try {
-    const d = await (await fetch(`${API}/__oc__/disk-trend`)).json();
+    const d = await (await fetch(`${API}/__oc__/history`)).json();
     DISK_TREND = Array.isArray(d) ? d : [];
   } catch { DISK_TREND = []; }
   drawDiskTrend();
 }
+/* ---- 磁盘空间趋势（2026-10-14 改版）：阶梯折线，转折点 = 每次清理行为 ----
+   数据来自清理历史（/history），按「当前可用空间 - 之后历次清理释放量」
+   反推每个时点的可用空间。形状：两端水平 —— 首个清理事件之前与最后一个
+   事件之后都是平线，只有清理发生时才抬升（释放空间 → 可用空间跳高）。 */
 function drawDiskTrend() {
   const cv = $("trendCv"), lbl = $("trendLbl");
   if (!cv) return;
-  const letter = (STATE.disk && STATE.disk.letter) || "C";
-  const pts = (DISK_TREND || []).filter(x => x.u && x.u[letter]).slice(-30);
+  const freeNow = STATE.disk && STATE.disk.free;
   const dpr = window.devicePixelRatio || 1;
   cv.width = Math.max(120, cv.clientWidth) * dpr;
-  cv.height = 56 * dpr;
+  cv.height = 64 * dpr;
   const ctx = cv.getContext("2d");
   ctx.scale(dpr, dpr);
   const W = cv.width / dpr, H = cv.height / dpr;
   ctx.clearRect(0, 0, W, H);
-  if (pts.length < 2) {
-    ctx.fillStyle = cssVar("--dim", "#8b93a7");
-    ctx.font = "11.5px system-ui";
-    ctx.fillText("空间趋势积累中：每天记一次，至少需要两天的数据", 4, H / 2 + 4);
+  if (!freeNow) {
     if (lbl) lbl.textContent = "";
     return;
   }
-  const vals = pts.map(p => p.u[letter].free);
-  const lo = Math.min(...vals), hi = Math.max(...vals);
+  // 清理事件（旧 → 新），只保留近 30 天、释放量 > 0 的
+  const now = Date.now(), CUT = 30 * 86400e3;
+  const evs = (DISK_TREND || [])
+    .map(e => ({ t: Date.parse((e.time || "").replace(" ", "T")), freed: +e.freed || 0 }))
+    .filter(e => e.freed > 0 && isFinite(e.t) && now - e.t <= CUT)
+    .sort((a, b) => a.t - b.t);
+  // 反推事件后的可用空间：从当前值往回减
+  let acc = freeNow;
+  for (let i = evs.length - 1; i >= 0; i--) {
+    evs[i].after = acc;
+    acc -= evs[i].freed;
+    evs[i].before = acc;
+  }
+  const free0 = evs.length ? evs[0].before : freeNow;
+  const lo = Math.min(free0, freeNow, ...evs.map(e => e.after)) || 0;
+  const hi = Math.max(free0, freeNow, ...evs.map(e => e.after)) || 1;
   const span = (hi - lo) || 1, pad = 6;
-  const X = i => 2 + i * ((W - 8) / (pts.length - 1));
+  const t0 = evs.length ? Math.min(evs[0].t, now - CUT) : now - CUT;
+  const X = t => 2 + (t - t0) / (now - t0) * (W - 8);
   const Y = v => pad + (H - pad * 2) * (1 - (v - lo) / span);
-  // 填充 + 折线：可用空间走高是好事，用蓝色系（涨红跌绿是行情的规矩，不是磁盘的）
+  // 阶梯折线：左端水平 → 每个事件处竖直抬升 → 右端水平到画布边缘
+  const accent = cssVar("--accent", "#60a5fa");
   ctx.beginPath();
-  pts.forEach((p, i) => i ? ctx.lineTo(X(i), Y(vals[i])) : ctx.moveTo(X(i), Y(vals[i])));
-  ctx.strokeStyle = cssVar("--accent", "#60a5fa");
+  ctx.moveTo(2, Y(free0));
+  evs.forEach(e => { ctx.lineTo(X(e.t), Y(e.before)); ctx.lineTo(X(e.t), Y(e.after)); });
+  ctx.lineTo(W - 2, Y(freeNow));
+  ctx.strokeStyle = accent;
   ctx.lineWidth = 1.6;
   ctx.stroke();
-  ctx.lineTo(X(pts.length - 1), H); ctx.lineTo(X(0), H); ctx.closePath();
-  ctx.fillStyle = hexToRgba(cssVar("--accent", "#60a5fa"), 0.12);
+  // 轻量填充衬托趋势
+  ctx.lineTo(W - 2, H); ctx.lineTo(2, H); ctx.closePath();
+  ctx.fillStyle = hexToRgba(accent, 0.10);
   ctx.fill();
-  ctx.beginPath();
-  ctx.arc(X(pts.length - 1), Y(vals[pts.length - 1]), 2.4, 0, Math.PI * 2);
-  ctx.fillStyle = cssVar("--accent", "#60a5fa");
-  ctx.fill();
-  if (lbl) lbl.textContent =
-    `近 ${pts.length} 天可用空间：最高 ${fmt(hi)} · 最低 ${fmt(lo)} · 最新 ${fmt(vals[vals.length - 1])}`;
+  // 转折点圆点 + 最新值圆点
+  ctx.fillStyle = accent;
+  evs.forEach(e => {
+    ctx.beginPath(); ctx.arc(X(e.t), Y(e.after), 2.2, 0, Math.PI * 2); ctx.fill();
+  });
+  if (lbl) {
+    lbl.textContent = evs.length
+      ? `近 30 天 ${evs.length} 次清理 · 可用 ${fmt(free0)} → ${fmt(freeNow)}（+${fmt(freeNow - free0)}），转折点即清理行为`
+      : `近 30 天暂无清理记录（可用 ${fmt(freeNow)}）；执行清理后这里会出现转折点`;
+  }
 }
 
 // 窗口尺寸变化（拖小浏览器窗口、分屏、收起侧栏）时重绘趋势画布：
