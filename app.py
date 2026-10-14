@@ -1699,7 +1699,15 @@ def game_display_name(appid, name: str, installdir: str = "") -> tuple[str, str]
                 m = str(m).lower()
                 if not m:
                     continue
-                if m == low or m == low_dir or (len(m) >= 5 and m in low):
+                if m == low or m == low_dir:
+                    entry = e
+                    break
+                # 模糊匹配必须带词边界：否则「civilization v」会把
+                # 「civilization vi」也命中（v 是 vi 的前缀），显示名张冠李戴
+                # （2026-10-14 实例：文明 VI 的目录被标成 显示名「文明 5」）。
+                # 前后不能是字母数字，保证按「完整单词」命中。
+                if len(m) >= 5 and re.search(
+                        r"(?<![a-z0-9])" + re.escape(m) + r"(?![a-z0-9])", low):
                     entry = e
                     break
             if entry:

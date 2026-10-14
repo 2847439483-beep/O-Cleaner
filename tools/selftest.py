@@ -653,6 +653,17 @@ def phase3_http() -> None:
         check("i18n 字典键覆盖所有 data-i18n 引用",
               not _i18n_missing, "缺键: " + ", ".join(_i18n_missing))
         check("前端含自定义换算单位表单", "btnUnitAdd" in html and "btnUnitExample" in html)
+        # 行显示类别统一（2026-10-14）：徽章文字/底色/柱条颜色三者由同一个
+        # rowKind 决定；编辑弹窗用可选标签（chip）选样式，说明预填当前值，
+        # 可编辑字段限长防溢出。
+        check("行类别统一：rowKind 与编辑弹窗标签 chip",
+              "function rowKind" in html and 'id="ovKindChips"' in html
+              and 'data-k="keep"' in html and 'id="ovColorRow"' in html)
+        check("自定义字段限长：徽章 16 字 / 说明 120 字",
+              'id="ovLabel" style="width:100%" maxlength="16"' in html
+              and 'id="ovNote" rows="3" style="width:100%" maxlength="120"' in html)
+        check("徽章超长防溢出：省略号截断",
+              "text-overflow:ellipsis" in html)
         check("主题系统：三态切换与浅色变量组",
               '[data-theme="light"]' in html and "themeSeg" in html
               and "oc-theme" in html and "prefers-color-scheme" in html)
