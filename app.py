@@ -3196,6 +3196,13 @@ def check_deletable(path: str, kind: str = "tree") -> tuple[bool, str]:
     if not parts:
         return False, "拒绝：不允许清理盘符根目录"
 
+    # 回收站目标（kind="recyclebin"）只允许精确指向「盘根的 $Recycle.Bin」——
+    # 这是应用自己的「清空回收站」清理项，勾选后走 Clear-RecycleBin。
+    # 它本来会被下面的 $Recycle.Bin 保护规则拦死，导致这条链路不可达
+    # （2026-10-15 端到端实测发现）。其余任何路径照常走保护链，不受影响。
+    if kind == "recyclebin" and len(parts) == 1 and parts[0].lower() == "$recycle.bin":
+        return True, ""
+
     if len(parts) == 1 and parts[0].lower() in PROTECTED_AT_DRIVE_ROOT:
         return False, f"拒绝：{parts[0]} 属于受保护的系统目录"
 
@@ -3705,7 +3712,13 @@ def clean_target(t: dict, only_paths: list | None = None,
         return result
 
     if kind == "recyclebin":
-        before = measure_target(t, drive).get("size", 0)
+        # 统计在普通权限下可能被拒（读 $Recycle.Bin 需要管理员），但
+        # Clear-RecycleBin 清当前用户回收站不需要 —— 清空照常执行，
+        # 统计失败要如实告诉用户「释放量未知」，不能静默当 0。
+        m = measure_target(t, drive)
+        before = m.get("size", 0)
+        if m.get("error"):
+            result["partial_notes"] = [m["error"]]
         if only_paths:
             for p in only_paths:
                 sz = _size_of(p)

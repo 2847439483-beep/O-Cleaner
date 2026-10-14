@@ -275,6 +275,13 @@ def phase1() -> None:
             continue
         ok, why = app.check_deletable(good)
         check(f"允许 {good}", ok, why)
+    # 回收站目标（kind="recyclebin"）精确放行盘根 $Recycle.Bin：这是应用自己的
+    # 「清空回收站」链路（端到端实测发现被保护规则误拦，clean 永远失败）。
+    # 其余 kind 与 $Recycle.Bin 的子路径照常拒绝。
+    check("recyclebin 目标精确放行盘根 $Recycle.Bin（其余 kind / 子路径仍拒）",
+          app.check_deletable(r"C:\$Recycle.Bin", "recyclebin")[0]
+          and not app.check_deletable(r"D:\$Recycle.Bin", "tree")[0]
+          and not app.check_deletable(r"C:\$Recycle.Bin\sub", "recyclebin")[0])
 
     # 回归：非绝对路径必须拒绝。
     # os.path.abspath 会把「盘符相对」路径按**当前工作目录**解析 ——
