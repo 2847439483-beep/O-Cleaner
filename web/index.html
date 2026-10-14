@@ -1088,6 +1088,10 @@ function renderGuide() {
         + (STATE.data_dir_redirected
            ? t("gd.redirected","（已重定向到这里）")
            : t("gd.dataDirNote","（默认跟程序同目录：历史记录与配置都在其中，整个文件夹拷走即完成数据迁移，U 盘携带同理）")) },
+    { ok: STATE.data_dir_writable !== false, t: t("gd.dataWrite","数据目录可写"),
+      d: STATE.data_dir_writable !== false
+         ? t("gd.dataWriteOk","实测可写，历史记录与配置能正常保存")
+         : t("gd.dataWriteNo","实测不可写！历史记录与配置将无法保存。请把整个程序移到可写目录（不要放在 Program Files 这类受保护位置），或以管理员身份运行") },
   ];
   const wzTxt = w.found
     ? `<b class="ok">${t("gd.ready","已就绪")}</b>${w.version ? " · v" + esc(w.version) : ""}
@@ -1119,12 +1123,14 @@ function renderGuide() {
         <code>${esc(w.portable_rel || "portable\\WizTree")}</code>，
         ${t("gd.portableProps","<b>不装进系统、不写注册表、不需要管理员权限</b>；连同文件夹拷贝到别的电脑即可直接生效。")}
       </div>`}
-    <div class="gnote lic">
-      <b>${t("gd.licenseHead","第三方组件说明")}</b>：${esc(w.license_note || "")}
-      ${w.homepage ? `<a href="${esc(w.homepage)}" target="_blank" rel="noopener">${t("gd.homepage","官网")}</a>` : ""}
-      ${w.dist_license_url
-        ? ` · <a href="${esc(w.dist_license_url)}" target="_blank" rel="noopener">${t("gd.distLicense","分发许可")}</a>` : ""}
-    </div>`;
+    <details class="sub" style="margin-top:12px">
+      <summary>${t("gd.licenseHead","第三方组件说明")}</summary>
+      <div class="gnote lic" style="margin-top:8px">${esc(w.license_note || "")}
+        ${w.homepage ? `<a href="${esc(w.homepage)}" target="_blank" rel="noopener">${t("gd.homepage","官网")}</a>` : ""}
+        ${w.dist_license_url
+          ? ` · <a href="${esc(w.dist_license_url)}" target="_blank" rel="noopener">${t("gd.distLicense","分发许可")}</a>` : ""}
+      </div>
+    </details>`;
   const b = $("btnWizInstall");
   if (b) b.addEventListener("click", installWizTree);
 }
@@ -4380,6 +4386,9 @@ const I18N_EN = {
   "gd.dataDir": "Data folder", "gd.unknown": "(unknown)",
   "gd.redirected": "(redirected here)",
   "gd.dataDirNote": "(next to the program by default: history and configs live inside, copy the whole folder to migrate, USB sticks included)",
+  "gd.dataWrite": "Data folder writable",
+  "gd.dataWriteOk": "Verified writable — history and configs save normally",
+  "gd.dataWriteNo": "NOT writable! History and configs cannot be saved. Move the whole program to a writable folder (not Program Files or similar protected locations), or run as administrator",
   "gd.ready": "Ready", "gd.bundled": "Bundled here", "gd.sysInstalled": "Installed on system",
   "gd.mftFast": "Full-disk scans read the MFT — much faster than recursion.",
   "gd.portableNote": "This copy lives in the O-Cleaner folder; copy it to another PC and it just works.",
@@ -4610,7 +4619,7 @@ function setLang(l) {
   // 各渲染器只碰自己的 DOM，失败静默忽略不影响其余部分
   ["renderChart", "renderDisk", "renderCumulative", "renderUnits",
    "renderRules", "renderPresets", "renderPacks", "renderSteamPage",
-   "drawDiskTrend"].forEach(fn => {
+   "renderGuide", "drawDiskTrend"].forEach(fn => {
     try { if (typeof window[fn] === "function") window[fn](); } catch (e) {}
   });
   // 后端返回的长文本（释义/建议）随请求的 lang 走：清掉旧语言的缓存

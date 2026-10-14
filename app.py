@@ -139,6 +139,22 @@ def is_admin() -> bool:
         return False
 
 
+def data_dir_writable() -> bool:
+    """实测数据存档目录的可写性（自检面板据此判断历史/配置能否落盘）。
+    只查目录存在不够 —— 目录存在但只读（如被放进 Program Files、
+    或整个目录被设了只读属性）时，写入会静默失败。写一次探针文件最可靠。"""
+    try:
+        probe = DATA_DIR / f".oc_write_probe_{os.getpid()}"
+        probe.write_bytes(b"")
+        try:
+            probe.unlink()
+        except OSError:
+            pass
+        return True
+    except OSError:
+        return False
+
+
 def human(n: float) -> str:
     n = float(n)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -5118,6 +5134,8 @@ def build_state(drive: str | None = None, custom_path: str | None = None,
         # 迁移/备份时整目录拷走即可
         "data_dir": str(DATA_DIR),
         "data_dir_redirected": DATA_DIR != BASE_DIR,
+        # 实测可写性：自检面板据此给出「历史/配置能否保存」的结论
+        "data_dir_writable": data_dir_writable(),
         # 首屏引导要用：加速是否可用、能不能自动装、许可证怎么算
         "wiztree": wiztree_status(),
         # 资源包元信息（不含逐条 entries，条目只在服务端参与识别）

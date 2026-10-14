@@ -881,6 +881,12 @@ def phase3_http() -> None:
         check("快速扫描注入游戏本体（不受 2 层深度限制）",
               "补齐游戏本体节点" in app_src
               and "_is_game_body_path" in app_src)
+        check("自检面板含数据目录可写项（后端实测写探针，前端三词条）",
+              "def data_dir_writable" in app_src
+              and "gd.dataWrite" in html and "gd.dataWriteOk" in html
+              and "gd.dataWriteNo" in html)
+        check("WizTree 许可说明已折叠（details，不再常驻展开）",
+              '<details class="sub" style="margin-top:12px">' in html)
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检已移除兼容性分析（面板只留环境与权限）",
@@ -899,6 +905,9 @@ def phase3_http() -> None:
               {"sandbox-tree", "sandbox-files"} <= sb_bases,
               f"共 {len(state.get('targets', []))} 项")
         check("state 含盘符列表", len(state.get("drives", [])) >= 1)
+        check("state.data_dir_writable 实测为 True（数据目录本机可写）",
+              state.get("data_dir_writable") is True
+              and app.data_dir_writable() is True)
 
         # 用户自定义释义 / 结论：内置 → 资源包 → 用户，用户排最上
         # （v2.3 起入口在详情弹窗：行带 target_id 才显示「自定义释义」按钮）
