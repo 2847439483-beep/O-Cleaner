@@ -3100,7 +3100,7 @@ async function openRowOverride(node) {
         ${t("ov.warn","注意：标签样式与颜色只是你给自己看的显示偏好，不改变工具对这个目录的风险判定，也不会把「建议保留」变成「可清理」的自动勾选行为。")}</div>
     </div>
     <div class="mfoot">
-      <button id="ovDel" class="ghost">${t("ov.reset","恢复默认")}</button>
+      <button id="ovDel" class="ghost">${t("ov.resetBtn","恢复默认")}</button>
       <button id="ovCancel" class="ghost">${t("ov.cancel","取消")}</button>
       <button id="ovSave" class="primary">${t("ov.save","保存")}</button>
     </div>`;
@@ -3356,7 +3356,7 @@ async function editOverride(node) {
       </div>
     </div>
     <div class="mfoot">
-      <button id="ovReset" class="ghost">${t("ov.reset","恢复默认")}</button>
+      <button id="ovReset" class="ghost">${t("ov.resetBtn","恢复默认")}</button>
       <div class="grow"></div>
       <button id="ovCancel" class="ghost">${t("ov.cancel","取消")}</button>
       <button id="ovSave" class="primary">${t("ov.save","保存")}</button>
@@ -3389,7 +3389,7 @@ async function editOverride(node) {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: key })
       });
-      closeModal(); toast(t("ov.reset","已恢复默认释义"));
+      closeModal(); toast(t("ov.resetDescDone","已恢复默认释义"));
       await loadState();
     } catch { toast(t("toast.opRetry","操作失败，请重试")); }
   });
@@ -4569,7 +4569,8 @@ const I18N_EN = {
   "eb.failToast": "Recycle-bin empty failed — see dialog",
   "ov.resetDone": "Display reset to defaults", "ov.pinnedDone": "Pinned to the top",
   "ov.savedDone": "Custom display saved", "ov.saved": "Custom description saved",
-  "ov.reset": "Description reset to defaults",
+  "ov.resetBtn": "Reset to defaults",
+  "ov.resetDescDone": "Descriptions reset to defaults",
   "unit.deleted": "Unit deleted", "unit.needName": "Enter a unit name",
   "unit.needSize": "Enter a size greater than 0",
   "unit.exampleDone": "Example filled — click \"Add unit\"",
