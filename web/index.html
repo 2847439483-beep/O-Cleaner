@@ -2567,7 +2567,10 @@ async function startFullScan() {
   setToolbars(true, true);
   $("fsHint").textContent = t("fs.driveHint","{drive}: 盘").replace("{drive}", drive);
   $("fsNav").innerHTML = "";
-  $("fsChart").innerHTML = ""; $("fsModes").innerHTML = "";
+  // 排行区先给占位：扫描期间这里一片空白会让用户以为面板坏了；
+  // 扫描完成后 renderChart() 会整体覆盖掉这段 HTML
+  $("fsChart").innerHTML = `<div class="empty" style="margin:0"><span class="spin" style="width:13px;height:13px;border-width:2px;display:inline-block;vertical-align:-2px;margin-right:7px"></span>${t("fs.chartPending","扫描完成后，这里会显示占用排行与下钻入口。")}</div>`;
+  $("fsModes").innerHTML = "";
 
   // 系统盘（小文件极多）可能要几分钟。这里必须给出**真实**进度：
   // 早期版本用 `1 - exp(-已用时/90)` 把时间换算成百分比，与扫描实际走到哪一步
@@ -4389,6 +4392,7 @@ const I18N_EN = {
   "gd.dataWrite": "Data folder writable",
   "gd.dataWriteOk": "Verified writable — history and configs save normally",
   "gd.dataWriteNo": "NOT writable! History and configs cannot be saved. Move the whole program to a writable folder (not Program Files or similar protected locations), or run as administrator",
+  "fs.chartPending": "When the scan finishes, the size ranking and drill-down will appear here.",
   "gd.ready": "Ready", "gd.bundled": "Bundled here", "gd.sysInstalled": "Installed on system",
   "gd.mftFast": "Full-disk scans read the MFT — much faster than recursion.",
   "gd.portableNote": "This copy lives in the O-Cleaner folder; copy it to another PC and it just works.",
