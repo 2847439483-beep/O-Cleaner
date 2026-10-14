@@ -887,6 +887,17 @@ def phase3_http() -> None:
               and "gd.dataWriteNo" in html)
         check("WizTree 许可说明已折叠（details，不再常驻展开）",
               '<details class="sub" style="margin-top:12px">' in html)
+        # 切语言重画的函数列表必须覆盖全部渲染函数定义；豁免集合之外的
+        # 新增渲染函数一旦漏进列表，切语言后就会停留在旧语言（曾连漏
+        # renderGuide / renderSchedule / renderHistory 等五处）。
+        _sl_m = re.search(r"\[(\"[A-Za-z]+\",\s*)+\"[A-Za-z]+\"\]\.forEach\(fn =>", html)
+        _sl_defs = set(re.findall(r"^function ((?:render|draw)\w+)", html, re.M))
+        _sl_listed = set(re.findall(r'"(\w+)"', _sl_m.group(0))) if _sl_m else set()
+        check("setLang 重画列表覆盖全部渲染函数（豁免：Steam 系、ViewNav、SubdirList）",
+              _sl_m is not None
+              and _sl_defs - _sl_listed <= {"renderSteam", "renderOtherPlatforms",
+                                            "renderViewNav", "renderSubdirList"},
+              f"未列={sorted(_sl_defs - _sl_listed)[:8]}")
         check("Esc 绑定为返回上一级子目录",
               'e.key !== "Escape"' in html and "fsStack.pop()" in html)
         check("运行环境自检已移除兼容性分析（面板只留环境与权限）",

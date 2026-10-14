@@ -4616,10 +4616,14 @@ function setLang(l) {
   applyI18n();
   initPanelNav();   // 侧栏目录条取的是面板标题文本，翻译切换后重建一次
   // 动态渲染的文案（徽章、提示、磁盘概览、统计）按新语言重画；
-  // 各渲染器只碰自己的 DOM，失败静默忽略不影响其余部分
+  // 各渲染器只碰自己的 DOM，失败静默忽略不影响其余部分。
+  // 未列出的：renderSteam/renderOtherPlatforms 由 renderSteamPage 覆盖；
+  // renderViewNav 无动态文案；renderSubdirList 需要行参数（子树弹窗内
+  // 行内文案，重开即新语言），不能无参调用。
   ["renderChart", "renderDisk", "renderCumulative", "renderUnits",
    "renderRules", "renderPresets", "renderPacks", "renderSteamPage",
-   "renderGuide", "drawDiskTrend"].forEach(fn => {
+   "renderGuide", "drawDiskTrend", "renderDrives", "renderConvToggle",
+   "renderSchedule", "renderHistory", "renderOverview", "renderAI"].forEach(fn => {
     try { if (typeof window[fn] === "function") window[fn](); } catch (e) {}
   });
   // 后端返回的长文本（释义/建议）随请求的 lang 走：清掉旧语言的缓存
