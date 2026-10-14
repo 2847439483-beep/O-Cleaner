@@ -1553,17 +1553,16 @@ function selTotal() {
     const n = nodes.find(x => x.path === p);
     entries.push([p, n ? (n.size || 0) : 0]);
   }
-  const norm = p => String(p || "").replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
-  const real = entries.map(e => norm(e[0])).filter(Boolean);
+  const real = entries.map(e => normKey(e[0])).filter(Boolean);
   // 游戏本体判定：树节点带 steam_game / game_platform 标记（与后端同一口径）
-  const nodeByPath = new Map((FS?.nodes || []).map(n => [norm(n.path), n]));
+  const nodeByPath = new Map((FS?.nodes || []).map(n => [normKey(n.path), n]));
   const isGameBody = p => {
     const n = nodeByPath.get(p);
     return !!(n && (n.steam_game || n.game_platform));
   };
   let sum = 0;
   for (const [p, size] of entries) {
-    const np = norm(p);
+    const np = normKey(p);
     if (!np) { sum += size; continue; }
     const hasInner = real.some(q => q && q !== np && q.startsWith(np + "\\"));
     if (isGameBody(np) && hasInner) {
@@ -2509,10 +2508,11 @@ const FS_CACHE_TTL = 10 * 60 * 1000;
 
 function setToolbars(visible, mode) {
   // mode: 'normal' 两个工具栏都显示；'compact' 只显示第一个
-  const bars = document.querySelectorAll("main > .toolbar");
-  bars.forEach((t, i) => {
-    t.style.display = visible && !(mode === "compact" && i === 1) ? "flex" : "none";
-  });
+  // 第二栏用 .t2 标记类定位，不依赖「第二栏恰好是 DOM 顺序第二个」
+  const first = document.querySelector("main > .toolbar");
+  const second = document.querySelector("main > .toolbar.t2");
+  if (first) first.style.display = visible ? "flex" : "none";
+  if (second) second.style.display = visible && mode !== "compact" ? "flex" : "none";
 }
 
 /** 视图导航高亮当前页。view 变化的所有路径（switchView / startFullScan 手动置值）
@@ -2681,7 +2681,16 @@ function fsChildren() {
     : fsRootKey();
   return (FS.kids && FS.kids[key]) || FS.nodes.filter(n => n.parent === key);
 }
-function normKey(p) { return p.replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase(); }
+/* 路径归一化唯一实现：统一斜杠方向 → 去掉结尾分隔符 → 小写。
+   此前有三份逐字符等价的实现（normKey / normOvKey / selTotal 内联），
+   合并成一个，避免口径漂移。normOvKey 的结果会作为键写入后端
+   overrides 存储，必须与后端 _override_key 保持同一口径。 */
+function normKey(p) {
+  return String(p || "").replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+}
+function normOvKey(p) {
+  return normKey(p);
+}
 function fsRootKey() {
   const n = (FS.nodes || []).find(x => x.depth === 1);
   return n ? n.parent : "";
