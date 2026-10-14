@@ -4092,13 +4092,14 @@ function initTheme() {
   applyTheme();
 }
 
-/* ==================== i18n：界面骨架双语（L1） ==================== */
-/* 中文是源码默认文案（直接写在 HTML 里），字典只收英文翻译 ——
-   换回中文时恢复首次扫描到的原文，字典里不必重复中文。
-   覆盖方式：data-i18n → textContent；data-i18n-ph → placeholder；
-   data-i18n-title → title。语言存 localStorage("oc-lang")：
-   auto 跟随 navigator.language（非 zh 开头一律英文），zh/en 强制指定。
-   只覆盖静态骨架；JS 动态拼接的文案（提示、徽章、结论）属 L2/L3，后续分批接入。 */
+/* ==================== i18n：界面双语（L1 骨架 + L2 动态文案） ==================== */
+/* 中文是源码默认文案（HTML 与 t() 调用处直接写中文），字典只收英文翻译 ——
+   换回中文时还原原文，字典里不必重复中文。
+   静态骨架：data-i18n → textContent、data-i18n-ph → placeholder、
+   data-i18n-title → title；动态文案：t(key, zh) 取词（支持 {n} 占位）。
+   语言存 localStorage("oc-lang")：auto 跟随系统/浏览器语言
+   （navigator.language，非 zh 开头一律英文），zh/en 强制指定。
+   切换语言后 setLang 会重画动态渲染的内容。 */
 const I18N_EN = {
   "tag": "Disk Cleanup Assistant",
   "nav.full": "Scan Overview", "nav.steam": "Steam Library",
@@ -4249,6 +4250,8 @@ function i18nLocale() {
    不会与动态渲染互相踩 —— applyI18n 只碰带 data-i18n* 的元素。 */
 function applyI18n() {
   const en = i18nLocale() === "en";
+  // 同步 <html lang>：屏幕阅读器、浏览器翻译与拼写检查都读它
+  document.documentElement.lang = en ? "en" : "zh-CN";
   document.querySelectorAll("[data-i18n],[data-i18n-ph],[data-i18n-title]").forEach(el => {
     let o = el.__i18n;
     if (!o) {
