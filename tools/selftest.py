@@ -691,6 +691,12 @@ def phase3_http() -> None:
               and 'id="ovNote" rows="3" style="width:100%" maxlength="120"' in html)
         check("徽章超长防溢出：省略号截断",
               "text-overflow:ellipsis" in html)
+        # 可读名单一化（2026-10-14）：排行行的中部说明只给一个名字 ——
+        # display_name 优先、缺省用 title，两者不并排；「显示名「X」」前缀
+        # 词条已删除，同义重复（文明 6 vs 文明 VI）从结构上消除。
+        check("可读名单一化：display_name 优先且不与 title 并排",
+              "const midName" in html and "fs.dispName" not in html
+              and "dnDup" not in html and "zhHint" not in html)
         check("主题系统：三态切换与浅色变量组",
               '[data-theme="light"]' in html and "themeSeg" in html
               and "oc-theme" in html and "prefers-color-scheme" in html)

@@ -2922,13 +2922,14 @@ function renderChart() {
     // 每一行都支持：如果点击「就地展开」小按钮（或带有可展开能力），
     // 就在本行下方无感内联展示子项树，无需生硬跳转切页，也可以无限层级层层往下就地展开！
     // 行名完全忠实于磁盘上的原始目录名；识别出的中文名（若有）放到下方说明行
-    // 2026-10-14 去重：显示名与原名或标题相同时只保留一处 —— 三者相同就
-    // 不再出现「显示名「文明 VI」 · 文明 VI」式的重复；有差异时显示名
-    // 在前、标题在后，各出现一次。
-    const dnDup = !it.display_name || it.display_name === it.name
-      || it.display_name === it.title;
-    const zhHint = dnDup ? "" : t("fs.dispName","显示名「{n}」 · ").replace("{n}", esc(it.display_name));
-    const titlePart = it.title ? esc(it.title) : "";
+    // 2026-10-14 去重升级：一行只给一个可读名 —— display_name 优先，没有再用
+    // title，两者不再并排出现。此前的精确相等判重（display_name === title）
+    // 追不完「文明 6」vs「文明 VI」这类同义但字面不等的重复，从结构上消除：
+    // 有 display_name 时 title 不显示（「Steam 游戏库」等归属信息由行尾的
+    // 「· Steam 库 / · 游戏库」后缀承担，不丢信息）。
+    const midName = (it.display_name && it.display_name !== it.name)
+      ? it.display_name
+      : (it.title && it.title !== it.name ? it.title : "");
     return `
     <div class="vrow-wrap" data-path="${esc(it.path)}">
       <div class="vrow ${cls}" data-i="${idx}" data-can-drill="${drillable ? 1 : 0}">
@@ -2942,7 +2943,7 @@ function renderChart() {
         </div>
         <div class="vtrack"><i class="vfill" style="width:${w}%${it.custom_color ? `;background:${esc(it.custom_color)}` : ""}"></i></div>
         <div class="vtop" style="margin:5px 0 0">
-          <span class="vcat">${zhHint}${titlePart}${it.title && it.category ? " · " : ""}${it.category ? esc(catLabel(it.category)) : ""}${
+          <span class="vcat">${midName ? esc(midName) + " · " : ""}${it.category ? esc(catLabel(it.category)) : ""}${
             it.steam_game ? " · Steam 游戏" : ""}${
             it.steam_library ? " · Steam 库" : ""}${
             it.game_platform === "epic" ? " · Epic 游戏" : ""}${
@@ -4224,7 +4225,6 @@ const I18N_EN = {
   "fs.emptyLayer": "Nothing above {h} at this level.",
   "fs.emptyLayerTail": "Switch views above, or go back one level.",
   "fs.pinned": "Pinned", "fs.pinnedTitle": "Pinned to the top of the ranking — right-click to unpin",
-  "fs.dispName": "Display name \"{n}\" · ",
   "fs.stale1": "Content was just deleted; the usage tree is stale. ",
   "fs.stale2": "Click \"Full-disk scan\" in the toolbar to rescan.",
   "st.gameBody": "Game install",
