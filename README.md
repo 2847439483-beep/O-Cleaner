@@ -3,6 +3,15 @@
 Windows 磁盘空间分析与清理工具。本地运行，浏览器访问 Web 界面操作；
 绿色免安装，不写注册表、不安装系统服务，整个目录复制即可在另一台计算机使用。
 
+> **English** — O-Cleaner is a portable disk-space analyzer and cleanup assistant
+> for Windows. It runs a local web UI (no installation, no registry writes, no telemetry);
+> the interface itself is bilingual (中文 / English). Full-disk ranking with drill-down,
+> a knowledge base that explains what is safe to remove, Recycle Bin handling, and an
+> optional WizTree (MFT) accelerator. Zero third-party dependencies — standard-library
+> Python only, or use the embeddable-runtime build. Copy the folder to another PC and it
+> just works. Quick start: extract to a writable folder, run `start-ocleaner.bat`,
+> the UI opens at `http://127.0.0.1:8770/`.
+
 基本约束：
 
 - **零第三方依赖**：仅使用 Python 标准库；免安装版内嵌官方 Python 运行时，无需安装 Python。
