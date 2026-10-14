@@ -178,7 +178,6 @@
   }
 
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .list{display:flex;flex-direction:column;gap:8px}
 
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
   h3{margin:0 0 11px;font-size:12px;color:var(--dim);font-weight:700;letter-spacing:.08em;
@@ -241,11 +240,6 @@
   .preset.act{border-color:var(--accent);background:var(--accent-soft)}
   .preset.act strong{color:var(--accent-soft-fg)}
   .cnum{text-align:right;min-width:112px}
-  .label{font-weight:600;font-size:15px;overflow-wrap:anywhere}
-  .desc{color:var(--dim);font-size:12.5px;margin-top:7px;line-height:1.55;
-        overflow-wrap:anywhere}
-  .path{color:var(--dim2);font-size:11px;margin-top:6px;overflow-wrap:anywhere;
-        font-family:Consolas,"Cascadia Mono",monospace;opacity:.85}
   .empty{color:var(--dim2);font-size:12px;margin-top:6px}
   .errline{color:var(--warn);font-size:12px;margin-top:6px;overflow-wrap:anywhere}
 
@@ -2886,7 +2880,6 @@ function renderChart() {
   }
 
   const maxSize = rows[0].size;
-  FS.rows = rows;          // 供渲染断言/调试读取当前层的实际行
   $("fsChart").innerHTML = rows.map((it, idx) => {
     // 徽章与柱条共用同一个「有效类别」（rowKind）：显式标签样式 > 徽章文字
     // 是三档标准文案时按文字推断 > 识别结果。用户改标签（如改成「可清理」）
