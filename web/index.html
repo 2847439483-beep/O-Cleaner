@@ -2886,12 +2886,14 @@ function renderChart() {
   const maxSize = rows[0].size;
   FS.rows = rows;          // 供渲染断言/调试读取当前层的实际行
   $("fsChart").innerHTML = rows.map((it, idx) => {
-    // 徽章类别（rowKind）只管徽章：显式标签样式 > 标准文案推断 > 识别结果，
-    // 用户改文字后徽章底色跟着走，不再出现「橙色可清理」的文字与底色错位。
-    // 柱条颜色（2026-10-14 用户明确）：始终跟随识别结果 —— 可清理绿、
-    // 未识别灰、建议保留橙红，恢复之前的配色；这是纯显示，不影响判定。
-    const cls = !it.recognized ? "c-unknown" : (it.cleanable ? "c-clean" : "c-keep");
+    // 徽章与柱条共用同一个「有效类别」（rowKind）：显式标签样式 > 徽章文字
+    // 是三档标准文案时按文字推断 > 识别结果。用户改标签（如改成「可清理」）
+    // 后，徽章底色与柱条颜色一起跟着走（2026-10-14 用户确认：柱条要跟随
+    // 标签改变）。注意两套类名不同：徽章用 clean/keep/unk，行（柱条）用
+    // c-clean/c-keep/c-unknown —— 直接把 kind 当行类会让柱条失去配色，
+    // 全部回落成默认蓝渐变（356b995 踩过的坑）。
     const kind = rowKind(it);
+    const cls = "c-" + (kind === "unk" ? "unknown" : kind);
     const badgeText = it.badge_label
       || (!it.recognized ? t("badge.unk","未识别") : (it.cleanable ? t("badge.clean","可清理") : t("badge.keep","建议保留")));
     const badge = `<span class="vbadge ${kind}"${it.custom_color
@@ -3000,10 +3002,10 @@ function renderChart() {
 function normOvKey(p) {
   return String(p || "").replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
 }
-/* 行徽章的「有效显示类别」：底色由它决定（柱条颜色始终跟随识别结果）。
+/* 行的「有效显示类别」：徽章文字、徽章底色、柱条颜色三者都由它决定。
    优先级：用户显式选的标签样式（label_kind）> 徽章文字恰好是三档标准文案
    （中文或英文，中英都收 —— 用户在中文界面填的字不会因切到英文界面失效）
-   > 识别结果（未识别/可清理/建议保留）。文字与徽章底色永远一致。 */
+   > 识别结果（未识别/可清理/建议保留）。文字、底色与柱条永远一致。 */
 function rowKind(it) {
   if (it && it.label_kind) return it.label_kind;
   const lbl = String((it && it.badge_label) || "").trim();
@@ -3031,7 +3033,7 @@ async function openRowOverride(node) {
       <label style="display:block;font-size:13px;margin:8px 0 4px">徽章文字（留空恢复默认「可清理 / 建议保留 / 未识别」，最多 16 字）</label>
       <input id="ovLabel" style="width:100%" maxlength="16" value="${esc(cur.label || "")}"
              placeholder="例如：我的下载，先留着">
-      <label style="display:block;font-size:13px;margin:12px 0 6px">标签样式（点选；决定徽章底色，柱条颜色仍跟随识别结果）</label>
+      <label style="display:block;font-size:13px;margin:12px 0 6px">标签样式（点选；徽章底色与柱条颜色一起跟随）</label>
       <div class="segbtns" id="ovKindChips">
         <button type="button" class="seg" data-k="">跟随识别结果</button>
         <button type="button" class="seg" data-k="clean">可清理</button>
@@ -3230,8 +3232,9 @@ function updateKidsMoreRow(container) {
 }
 
 function subTreeRowHTML(c) {
-  // 柱条颜色跟随识别结果（与主排行一致）；游戏平台行保持固定样式
-  const cls = c.game_platform ? "c-keep" : (!c.recognized ? "c-unknown" : (c.cleanable ? "c-clean" : "c-keep"));
+  // 与主排行一致：徽章与柱条都跟随有效类别（rowKind）；行类要带 c- 前缀
+  const kind = c.game_platform ? "keep" : rowKind(c);
+  const cls = "c-" + (kind === "unk" ? "unknown" : kind);
   const badge = c.game_platform
     ? `<span class="vbadge keep">${c.game_platform === "epic" ? "Epic" : "GOG"} 游戏本体</span>`
     : c.game_library ? '<span class="vbadge keep">游戏库</span>'
