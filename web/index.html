@@ -951,7 +951,8 @@ const fmt = n => {
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
   return (i === 0 ? Math.round(n) : n.toFixed(1)) + " " + u[i];
 };
-const riskCls = r => ({"无":"b-none","低":"b-low","中":"b-mid","高":"b-high"}[r] || "b-none");
+const riskCls = r => ({"无":"b-none","低":"b-low","中":"b-mid","高":"b-high",
+  "None":"b-none","Low":"b-low","Medium":"b-mid","High":"b-high"}[r] || "b-none");
 let STATE = null, SCAN = {}, selected = new Set(), subSel = {},
     busy = false, drive = "C", customPath = "",
     /* 换算单位选定一次后记住（含「看全部」），刷新与重渲染都不再弹回 */
@@ -1017,18 +1018,18 @@ async function loadState() {
 }
 async function scan() {
   const b = $("btnScan");
-  const old = b.textContent; b.disabled = true; b.textContent = "扫描中…";
-  $("scantime").innerHTML = '<span class="spin"></span>正在统计…';
+  const old = b.textContent; b.disabled = true; b.textContent = t("scan.running","扫描中…");
+  $("scantime").innerHTML = `<span class="spin"></span>${t("scan.tallying","正在统计…")}`;
   try {
     const data = await (await fetch(`${API}/__oc__/scan?${qs()}`)).json();
     SCAN = {};
     (data.results || []).forEach(r => SCAN[r.id] = r);
     renderDisk(data.disk);
-    $("scantime").textContent = `上次扫描 ${data.scan_time}`;
+    $("scantime").textContent = t("scan.lastTime","上次扫描 {v}").replace("{v}", data.scan_time);
     applyPreset(STATE.presets.find(p => p.id === "safe"));
     updateFooter();
   } catch (e) {
-    $("scantime").innerHTML = '<span class="res-err">扫描失败：' + esc(e.message) + "</span>";
+    $("scantime").innerHTML = '<span class="res-err">' + t("scan.fail","扫描失败：") + esc(e.message) + "</span>";
   } finally { b.disabled = false; b.textContent = old; }
 }
 
@@ -1038,11 +1039,11 @@ function renderDrives() {
   if (!STATE.drives?.length) { el.innerHTML = ""; return; }
   el.innerHTML = STATE.drives.map(d => {
     const warn = d.percent > 85 ? " warn" : "";
-    const sys = d.is_system ? '<span class="sys">系统</span>' : "";
+    const sys = d.is_system ? `<span class="sys">${t("drv.system","系统")}</span>` : "";
     return `<div class="drv${d.letter === drive ? " on" : ""}" data-l="${d.letter}"
-                 title="${d.letter}: 总计 ${d.total_h}，已用 ${d.percent}%，可用 ${d.free_h}">
+                 title="${t("drv.title","{letter}: 总计 {t}，已用 {p}%，可用 {f}").replace("{letter}", d.letter).replace("{t}", d.total_h).replace("{p}", d.percent).replace("{f}", d.free_h)}">
       <div class="dl"><span>${d.letter}:</span>${sys}</div>
-      <div class="dc">可用 ${d.free_h}</div>
+      <div class="dc">${t("drv.free","可用 {v}").replace("{v}", d.free_h)}</div>
       <div class="db${warn}"><i style="width:${d.percent}%"></i></div>
     </div>`;
   }).join("");
@@ -1085,25 +1086,24 @@ function renderGuide() {
   const admin = STATE && STATE.is_admin;
   const pythonOk = true;               // 能打开页面就说明服务在跑
   const rows = [
-    { ok: pythonOk, t: "运行环境", d: "Python 服务已启动，本机可用" },
-    { ok: admin, t: "管理员权限",
-      d: admin ? "已具备，可统计回收站与 Windows\\Temp"
-               : "未具备。回收站、Windows\\Temp 会显示「需要管理员权限」，"
-                 + "右键 start-ocleaner.bat → 以管理员身份运行可获得完整统计" },
-    { ok: true, t: "数据存档目录", d: (STATE.data_dir || "（未知）")
+    { ok: pythonOk, t: t("gd.runtime","运行环境"), d: t("gd.runtimeOk","Python 服务已启动，本机可用") },
+    { ok: admin, t: t("gd.admin","管理员权限"),
+      d: admin ? t("gd.adminOk","已具备，可统计回收站与 Windows\\Temp")
+               : t("gd.adminNo","未具备。回收站、Windows\\Temp 会显示「需要管理员权限」，右键 start-ocleaner.bat → 以管理员身份运行可获得完整统计") },
+    { ok: true, t: t("gd.dataDir","数据存档目录"), d: (STATE.data_dir || t("gd.unknown","（未知）"))
         + (STATE.data_dir_redirected
-           ? "（已重定向到这里）"
-           : "（默认跟程序同目录：历史记录与配置都在其中，整个文件夹拷走即完成数据迁移，U 盘携带同理）") },
+           ? t("gd.redirected","（已重定向到这里）")
+           : t("gd.dataDirNote","（默认跟程序同目录：历史记录与配置都在其中，整个文件夹拷走即完成数据迁移，U 盘携带同理）")) },
   ];
   const wzTxt = w.found
-    ? `<b class="ok">已就绪</b>${w.version ? " · v" + esc(w.version) : ""}
-       ${w.portable ? '<span class="vbadge clean">本目录自带</span>'
-                    : '<span class="vbadge unk">系统已安装</span>'}
-       <div class="gd">全盘扫描走 MFT，比逐目录递归快。
-         ${w.portable ? "这个副本在 O-Cleaner 文件夹里，拷到别的电脑能直接用。"
+    ? `<b class="ok">${t("gd.ready","已就绪")}</b>${w.version ? " · v" + esc(w.version) : ""}
+       ${w.portable ? `<span class="vbadge clean">${t("gd.bundled","本目录自带")}</span>`
+                    : `<span class="vbadge unk">${t("gd.sysInstalled","系统已安装")}</span>`}
+       <div class="gd">${t("gd.mftFast","全盘扫描走 MFT，比逐目录递归快。")}
+         ${w.portable ? t("gd.portableNote","这个副本在 O-Cleaner 文件夹里，拷到别的电脑能直接用。")
                       : ""}</div>`
-    : `<b class="warn">未安装</b>
-       <div class="gd">没有它也能用，只是全盘扫描要逐目录递归，耗时明显更长。</div>`;
+    : `<b class="warn">${t("gd.notInstalled","未安装")}</b>
+       <div class="gd">${t("gd.withoutNote","没有它也能用，只是全盘扫描要逐目录递归，耗时明显更长。")}</div>`;
   $("guide").innerHTML = `
     <div class="glist">
       ${rows.map(r => `<div class="gitem">
@@ -1113,24 +1113,23 @@ function renderGuide() {
       </div>`).join("")}
       <div class="gitem">
         <span class="gdot ${w.found ? "ok" : "warn"}">${w.found ? "✓" : "!"}</span>
-        <span class="gname">WizTree 加速</span>
+        <span class="gname">${t("gd.wiztree","WizTree 加速")}</span>
         <span class="gdesc">${wzTxt}</span>
       </div>
     </div>
     ${w.found ? "" : `
       <button id="btnWizInstall" class="primary" style="width:100%;margin-top:11px">
-        一键下载 WizTree 便携版（约 7.5 MB）</button>
+        ${t("gd.downloadBtn","一键下载 WizTree 便携版（约 7.5 MB）")}</button>
       <div class="gnote">
-        从官方 diskanalyzer.com 下载便携版并解压到本目录
+        ${t("gd.downloadNote","从官方 diskanalyzer.com 下载便携版并解压到本目录")}
         <code>${esc(w.portable_rel || "portable\\WizTree")}</code>，
-        <b>不装进系统、不写注册表、不需要管理员权限</b>；
-        连同文件夹拷贝到别的电脑即可直接生效。
+        ${t("gd.portableProps","<b>不装进系统、不写注册表、不需要管理员权限</b>；连同文件夹拷贝到别的电脑即可直接生效。")}
       </div>`}
     <div class="gnote lic">
-      <b>第三方组件说明</b>：${esc(w.license_note || "")}
-      ${w.homepage ? `<a href="${esc(w.homepage)}" target="_blank" rel="noopener">官网</a>` : ""}
+      <b>${t("gd.licenseHead","第三方组件说明")}</b>：${esc(w.license_note || "")}
+      ${w.homepage ? `<a href="${esc(w.homepage)}" target="_blank" rel="noopener">${t("gd.homepage","官网")}</a>` : ""}
       ${w.dist_license_url
-        ? ` · <a href="${esc(w.dist_license_url)}" target="_blank" rel="noopener">分发许可</a>` : ""}
+        ? ` · <a href="${esc(w.dist_license_url)}" target="_blank" rel="noopener">${t("gd.distLicense","分发许可")}</a>` : ""}
     </div>`;
   const b = $("btnWizInstall");
   if (b) b.addEventListener("click", installWizTree);
@@ -1139,7 +1138,7 @@ function renderGuide() {
 async function installWizTree() {
   const b = $("btnWizInstall");
   if (!b) return;
-  b.disabled = true; b.textContent = "正在下载并解压…";
+  b.disabled = true; b.textContent = t("wiz.downloading","正在下载并解压…");
   try {
     const r = await (await fetch(`${API}/__oc__/wiztree/install`,
                                  { method: "POST" })).json();
@@ -1148,10 +1147,10 @@ async function installWizTree() {
     if (r.ok) {
       toast(r.already ? t("wiz.already","WizTree 已经可用") : t("wiz.ready","WizTree 便携版已就绪，扫描会快很多"));
     } else {
-      toast(t("wiz.fail","自动安装失败：") + (r.error || "未知原因"));
+      toast(t("wiz.fail","自动安装失败：") + (r.error || t("wiz.unknown","未知原因")));
     }
   } catch (e) {
-    b.disabled = false; b.textContent = "重试下载";
+    b.disabled = false; b.textContent = t("wiz.retry","重试下载");
     toast(t("wiz.fail","自动安装失败：") + e);
   }
 }
@@ -1167,9 +1166,9 @@ function renderPacks() {
   const live = packs.filter(p => p.ok && p.enabled);
   const n = live.reduce((a, p) => a + (p.count || 0), 0);
   $("packsHint").textContent = packs.length
-    ? `${live.length}/${packs.length} 启用 · ${n} 条说明` : "";
+    ? t("packs.hint","{live}/{total} 启用 · {n} 条说明").replace("{live}", live.length).replace("{total}", packs.length).replace("{n}", n) : "";
   if (!packs.length) {
-    el.innerHTML = '<div class="empty">packs/ 目录里还没有资源包。</div>';
+    el.innerHTML = `<div class="empty">${t("packs.none","packs/ 目录里还没有资源包。")}</div>`;
     return;
   }
   el.innerHTML = packs.map(p => `
@@ -1183,12 +1182,13 @@ function renderPacks() {
       </label>
       <div class="pkmeta">${[
         p.version ? "v" + p.version : "", p.updated || "",
-        `${p.count} 条`, p.source === "user" ? "自己导入" : "内置",
+        t("packs.entries","{n} 条").replace("{n}", p.count),
+        p.source === "user" ? t("packs.userSrc","自己导入") : t("packs.builtinSrc","内置"),
       ].filter(Boolean).map(esc).join(" · ")}</div>
-      ${p.ok ? "" : `<div class="pkbad">无法启用：${esc(p.error)}</div>`}
+      ${p.ok ? "" : `<div class="pkbad">${t("packs.cantEnable","无法启用：")}${esc(p.error)}</div>`}
       ${p.description ? `<div class="pkdesc">${esc(p.description)}</div>` : ""}
       ${p.source === "user"
-        ? '<div class="pkactions"><button class="tiny ghost" data-pk-del>删除</button></div>'
+        ? `<div class="pkactions"><button class="tiny ghost" data-pk-del>${t("packs.del","删除")}</button></div>`
         : ""}
     </div>`).join("");
   el.querySelectorAll("[data-pk-toggle]").forEach(n => n.addEventListener("change", () =>
@@ -1212,18 +1212,19 @@ async function packOp(action, body) {
     if (action === "update") {
       const okN = (r.updated || []).length, badN = (r.failed || []).length;
       msg.innerHTML = r.error
-        ? `<span class="res-err">更新失败：${esc(r.error)}</span>`
-        : `更新完成：成功 ${okN} 个${badN ? `，失败 ${badN} 个` : ""}` +
+        ? `<span class="res-err">${t("packs.updateFail","更新失败：")}${esc(r.error)}</span>`
+        : t("packs.updateDone","更新完成：成功 {ok} 个{bad}").replace("{ok}", okN)
+            .replace("{bad}", badN ? t("packs.updateBad","，失败 {n} 个").replace("{n}", badN) : "") +
           (badN ? `<div style="margin-top:4px">${esc((r.failed || []).join("；"))}</div>` : "");
     } else {
       msg.innerHTML = r.ok
-        ? `<span class="res-ok">${esc(r.message || "已生效")}</span>`
-        : `<span class="res-err">${esc(r.error || "操作失败")}</span>`;
+        ? `<span class="res-ok">${esc(r.message || t("packs.applied","已生效"))}</span>`
+        : `<span class="res-err">${esc(r.error || t("packs.opFail","操作失败"))}</span>`;
     }
     // 识别结果变了，常规项要重新统计一次，否则卡片上的说明还是旧的
     await scan();
   } catch (e) {
-    msg.innerHTML = `<span class="res-err">操作失败：${esc(String(e))}</span>`;
+    msg.innerHTML = `<span class="res-err">${t("packs.opFail","操作失败：")}${esc(String(e))}</span>`;
   }
 }
 
@@ -1235,11 +1236,11 @@ function renderAI() {
   $("aiEnabled").checked = !!ai.enabled;
   $("aiKey").value = "";
   $("aiKey").placeholder = ai.has_key
-    ? `已保存（尾号 ${ai.key_tail || "****"}），留空表示不修改` : "sk-...";
-  $("aiHint").textContent = ai.ready ? "已就绪" : "可选";
+    ? t("ai.keySaved","已保存（尾号 {tail}），留空表示不修改").replace("{tail}", ai.key_tail || "****") : "sk-...";
+  $("aiHint").textContent = ai.ready ? t("ai.ready","已就绪") : t("ai.optional","可选");
   $("aiState").innerHTML = ai.has_key
-    ? `密钥已保存在本机 <code>config/ai.json</code>`
-    : "尚未填写密钥。只有你自己填的接口会收到它。";
+    ? t("ai.keyStored","密钥已保存在本机 <code>config/ai.json</code>")
+    : t("ai.noKey","尚未填写密钥。只有你自己填的接口会收到它。");
 }
 
 async function aiSave() {
@@ -1254,7 +1255,7 @@ async function aiSave() {
   if (r.ai) { STATE.ai = r.ai; renderAI(); }
   const out = $("aiOut");
   if (out) out.innerHTML = r.ok
-    ? '<span class="res-ok">已保存</span>' : '<span class="res-err">保存失败</span>';
+    ? `<span class="res-ok">${t("ai.saved","已保存")}</span>` : `<span class="res-err">${t("ai.saveFail","保存失败")}</span>`;
   return msg;
 }
 
@@ -1262,8 +1263,8 @@ async function aiRun(which, body, btn, label) {
   const out = $("aiOut");
   if (!out) return;
   const old = btn.textContent;
-  btn.disabled = true; btn.textContent = "请求中…";
-  out.innerHTML = `<div class="loading"><span class="spin"></span>正在请求…</div>`;
+  btn.disabled = true; btn.textContent = t("ai.requesting","请求中…");
+  out.innerHTML = `<div class="loading"><span class="spin"></span>${t("ai.requesting2","正在请求…")}</div>`;
   try {
     const r = await (await fetch(`${API}/__oc__/ai/${which}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1313,21 +1314,21 @@ function aiApplyPicks() {
 
 function aiTestHTML(r) {
   return r.ok
-    ? `<div class="dtip" style="margin-top:0">连接正常，模型回复：${esc(r.reply || "（空）")}</div>`
-    : `<div class="errline">连接失败：${esc(r.error || "未知原因")}</div>`;
+    ? `<div class="dtip" style="margin-top:0">${t("ai.testOk","连接正常，模型回复：")}${esc(r.reply || t("ai.empty","（空）"))}</div>`
+    : `<div class="errline">${t("ai.testFail","连接失败：")}${esc(r.error || t("ai.unknown","未知原因"))}</div>`;
 }
 
 function aiPlanHTML(r) {
-  if (!r.ok) return `<div class="errline">${esc(r.error || "生成失败")}</div>`;
+  if (!r.ok) return `<div class="errline">${esc(r.error || t("ai.genFail","生成失败"))}</div>`;
   const picks = r.picks || [];
   const note = r.candidate_count
-    ? `从 ${r.candidate_count} 个内置判定为可清理的项里挑出 ${picks.length} 个`
-    : "当前没有可清理的候选项";
+    ? t("ai.pickedFrom","从 {n} 个内置判定为可清理的项里挑出 {m} 个").replace("{n}", r.candidate_count).replace("{m}", picks.length)
+    : t("ai.noCandidates","当前没有可清理的候选项");
   return `
-    <div class="dtip" style="margin-top:0">${esc(r.summary || "（模型没有给出说明）")}</div>
+    <div class="dtip" style="margin-top:0">${esc(r.summary || t("ai.noSummary","（模型没有给出说明）"))}</div>
     <div style="color:var(--dim2);font-size:11.5px;margin:7px 0">${esc(note)}${
       (r.dropped || []).length
-        ? `；模型还提到 ${r.dropped.length} 个不在清单里的 id，已丢弃`
+        ? t("ai.dropped","；模型还提到 {n} 个不在清单里的 id，已丢弃").replace("{n}", (r.dropped || []).length)
         : ""}</div>
     ${picks.length ? `
       <div class="plist">${picks.map(p => `<div class="prow">
@@ -1335,11 +1336,11 @@ function aiPlanHTML(r) {
         <span class="psz">${esc(p.size_h || "")}</span>
       </div>`).join("")}</div>
       <button id="aiApply" class="tiny primary" style="margin-top:9px">
-        只勾选这 ${picks.length} 项</button>
+        ${t("ai.applyPicks","只勾选这 {n} 项").replace("{n}", picks.length)}</button>
       <div style="color:var(--dim2);font-size:11.5px;margin-top:7px">
-        勾选后仍需你点底部的「清理选中项」才会真正执行。AI 不能直接删除任何东西。</div>` : ""}
+        ${t("ai.applyNote","勾选后仍需你点底部的「清理选中项」才会真正执行。AI 不能直接删除任何东西。")}</div>` : ""}
     ${r.raw ? `<details style="margin-top:8px"><summary style="cursor:pointer;
-      color:var(--dim2);font-size:11.5px">模型原始回复</summary>
+      color:var(--dim2);font-size:11.5px">${t("ai.rawReply","模型原始回复")}</summary>
       <pre style="white-space:pre-wrap;font-size:11px;color:var(--dim2)">${esc(r.raw)}</pre></details>` : ""}`;
 }
 
@@ -1565,7 +1566,7 @@ function updateFooter() {
   $("selSize").textContent = fmt(total);
   const d = STATE?.disk;
   $("selFree").innerHTML = (d && total > 0)
-    ? ` · 清理后 ${d.letter}: 可用约 <span class="free">${fmt(d.free + total)}</span>` : "";
+    ? ` · ${t("foot.afterClean","清理后 {drive}: 可用约").replace("{drive}", d.letter)} <span class="free">${fmt(d.free + total)}</span>` : "";
   $("btnClean").disabled = n === 0 || busy;
 }
 
@@ -1573,12 +1574,11 @@ function updateFooter() {
 function renderCumulative() {
   const s = STATE.stats || {};
   const total = s.total_freed || 0;
-  $("statRange").textContent = s.first_time ? `${s.run_count} 次记录` : "";
+  $("statRange").textContent = s.first_time ? t("stat.runs","{n} 次记录").replace("{n}", s.run_count) : "";
 
   if (!s.run_count || !total) {
     $("cumulative").innerHTML =
-      '<div class="empty" style="margin:0">还没有清理记录。执行一次清理后，' +
-      '这里会显示累计释放量，并换算成日常单位。</div>';
+      `<div class="empty" style="margin:0">${t("stat.empty","还没有清理记录。执行一次清理后，这里会显示累计释放量，并换算成日常单位。")}</div>`;
     renderConvToggle();
     return;
   }
@@ -1592,15 +1592,15 @@ function renderCumulative() {
           ${c.note ? `<div class="cnote">${esc(c.note)}</div>` : ""}
           <div class="cnote">1 ${esc(c.plural)} ≈ ${esc(c.bytes_per_unit_h)}</div></div>
       </div>`).join("")
-    : '<div class="empty" style="margin:0">当前累计量对这些单位来说都太小了' +
-      '（不足 0.01 个单位）。</div>';
+    : `<div class="empty" style="margin:0">${t("stat.tooSmall","当前累计量对这些单位来说都太小了（不足 0.01 个单位）。")}</div>`;
 
   // 可视化明细
   const tl = (s.timeline || []).slice(0, 24).reverse();
   const max = Math.max(...tl.map(x => x.freed), 1);
   const bars = tl.map(x => {
     const h = x.freed > 0 ? Math.max(3, Math.round(x.freed / max * 68)) : 2;
-    const label = `${x.time}  ${x.trigger}  释放 ${fmt(x.freed)}`;
+    const label = t("stat.barTitle","{time}  {trigger}  释放 {v}")
+      .replace("{time}", x.time).replace("{trigger}", x.trigger).replace("{v}", fmt(x.freed));
     return `<div class="bar${x.freed > 0 ? "" : " zero"}" style="height:${h}px"
                  title="${esc(label)}"></div>`;
   }).join("");
@@ -1616,37 +1616,37 @@ function renderCumulative() {
   $("cumulative").innerHTML = `
     <div class="cumhead">
       <div>
-        <div class="cl">累计释放</div>
+        <div class="cl">${t("stat.cumFreed","累计释放")}</div>
         <div class="cv">${esc(s.total_freed_h)}</div>
       </div>
       <div class="cm">
-        清理 ${s.run_count} 次<br>
-        ${s.first_time ? `自 ${esc(s.first_time.slice(0, 10))} 起` : ""}
+        ${t("stat.runN","清理 {n} 次").replace("{n}", s.run_count)}<br>
+        ${s.first_time ? t("stat.since","自 {v} 起").replace("{v}", esc(s.first_time.slice(0, 10))) : ""}
       </div>
     </div>
     <div class="conv">${convHtml}</div>
     <details class="sub"${CUM_SUB_OPEN ? " open" : ""}>
-      <summary>查看明细图表（趋势 / 分类 / 各盘 / 项目）</summary>
+      <summary>${t("stat.detail","查看明细图表（趋势 / 分类 / 各盘 / 项目）")}</summary>
       <div style="margin-top:12px">
-        ${drvRows.length ? `<div style="color:var(--dim2);font-size:11.5px">各盘分布</div>
+        ${drvRows.length ? `<div style="color:var(--dim2);font-size:11.5px">${t("stat.byDrive","各盘分布")}</div>
           ${drvRows.map(d => `<div class="brow drv">
-            <div class="bl"><span class="n">${esc(d.drive)}: 盘</span>
+            <div class="bl"><span class="n">${esc(d.drive)}: ${t("st.driveSuffix","盘")}</span>
               <span class="v">${esc(d.freed_h)}</span></div>
             <div class="bt"><i style="width:${(d.freed / Math.max(total, 1) * 100).toFixed(1)}%"></i></div>
           </div>`).join("")}` : ""}
         <div style="color:var(--dim2);font-size:11.5px;margin-top:${drvRows.length ? "12px" : "0"}">
-          每次释放量（左旧右新，共 ${tl.length} 次）</div>
+          ${t("stat.timeline","每次释放量（左旧右新，共 {n} 次）").replace("{n}", tl.length)}</div>
         <div class="chart">${bars}</div>
         <div class="chart-x">
           <span>${esc((tl[0]?.time || "").slice(5, 16))}</span>
           <span>${esc((tl[tl.length - 1]?.time || "").slice(5, 16))}</span></div>
-        ${catRows.length ? `<div style="margin-top:14px;color:var(--dim2);font-size:11.5px">按类别累计</div>
+        ${catRows.length ? `<div style="margin-top:14px;color:var(--dim2);font-size:11.5px">${t("stat.byCat","按类别累计")}</div>
           ${catRows.map(c => `<div class="brow cat">
             <div class="bl"><span class="n">${esc(catLabel(c.name))}</span>
               <span class="v">${esc(c.freed_h)}</span></div>
             <div class="bt"><i style="width:${(c.freed / catMax * 100).toFixed(1)}%"></i></div>
           </div>`).join("")}` : ""}
-        ${topRows.length ? `<div style="margin-top:14px;color:var(--dim2);font-size:11.5px">贡献最多的项目</div>
+        ${topRows.length ? `<div style="margin-top:14px;color:var(--dim2);font-size:11.5px">${t("stat.topItems","贡献最多的项目")}</div>
           ${topRows.slice(0, 5).map(t => `<div class="brow drv">
             <div class="bl"><span class="n">${esc(t.label)}</span>
               <span class="v">${esc(t.freed_h)}</span></div>
@@ -1666,7 +1666,7 @@ function renderConvToggle() {
   const s = STATE.stats || {};
   const units = (s.units || []).filter(u => !u.unlimited);
   $("convToggle").innerHTML =
-    `<span class="tgl${convOnly === null ? " on" : ""}" data-id="">看全部</span>` +
+    `<span class="tgl${convOnly === null ? " on" : ""}" data-id="">${t("stat.all","看全部")}</span>` +
     units.map(u => `<span class="tgl${convOnly === u.id ? " on" : ""}"
                           data-id="${esc(u.id)}">${esc(u.label)}</span>`).join("");
   $("convToggle").querySelectorAll(".tgl").forEach(t =>
@@ -1682,12 +1682,12 @@ function renderUnits() {
   $("unitList").innerHTML = units.length ? units.map(u => `
     <div class="unitrow">
       <div class="un">${esc(u.label)}${u.unlimited
-          ? ' <span style="color:var(--dim2)">（基准）</span>' : ""}
+          ? ` <span style="color:var(--dim2)">${t("unit.basis","（基准）")}</span>` : ""}
         ${typeof u.raw === "string"
-          ? `<span style="color:var(--dim2)"> 表达式：${esc(u.raw)}</span>` : ""}</div>
+          ? `<span style="color:var(--dim2)"> ${t("unit.expr","表达式：")}${esc(u.raw)}</span>` : ""}</div>
       <div><span class="uv">${esc(u.bytes_h)}</span>
-        <button class="tiny ghost" data-del="${esc(u.id)}">删</button></div>
-    </div>`).join("") : '<div class="empty">暂无自定义单位。</div>';
+        <button class="tiny ghost" data-del="${esc(u.id)}">${t("unit.del","删")}</button></div>
+    </div>`).join("") : `<div class="empty">${t("unit.none","暂无自定义单位。")}</div>`;
   $("unitList").querySelectorAll("[data-del]").forEach(b =>
     b.addEventListener("click", async () => {
       const r = await (await fetch(`${API}/__oc__/units/delete`, {
@@ -1720,13 +1720,12 @@ function ruleFreed(rule) {
 function renderRules() {
   const rules = STATE.custom_rules || [];
   $("ruleSelInfo").textContent = selected.size
-    ? `当前已勾选 ${selected.size} 项` : "当前未勾选任何项";
+    ? t("rule.selectedN","当前已勾选 {n} 项").replace("{n}", selected.size) : t("rule.selectedNone","当前未勾选任何项");
   $("btnRuleSave").disabled = selected.size === 0;
 
   if (!rules.length) {
     $("ruleList").innerHTML =
-      '<div class="empty" style="margin:0">还没有规则。勾选上面的清理项，' +
-      '起个名字保存即可。</div>';
+      `<div class="empty" style="margin:0">${t("rule.none","还没有规则。勾选上面的清理项，起个名字保存即可。")}</div>`;
     return;
   }
   $("ruleList").innerHTML = rules.map(r => {
@@ -1737,21 +1736,21 @@ function renderRules() {
     return `<div class="rule" data-rid="${esc(r.id)}">
       <div class="rh">
         <span class="rn">${esc(r.name)}</span>
-        <span class="badge ${here ? "b-cat" : "b-mid"}">${esc(r.drive)}: 盘</span>
-        ${r.auto ? '<span class="badge b-mid">保存时已清理</span>' : ""}
+        <span class="badge ${here ? "b-cat" : "b-mid"}">${esc(r.drive)}: ${t("st.driveSuffix","盘")}</span>
+        ${r.auto ? `<span class="badge b-mid">${t("rule.cleanedOnSave","保存时已清理")}</span>` : ""}
       </div>
-      <div class="rd">${ts.length} 个清理项 · 当前可释放 ${fmt(freed)}${
-        missing > 0 ? ` · ${missing} 项不适用于当前盘` : ""}</div>
+      <div class="rd">${t("rule.stat","{n} 个清理项 · 当前可释放 {v}").replace("{n}", ts.length).replace("{v}", fmt(freed))}${
+        missing > 0 ? t("rule.missing"," · {n} 项不适用于当前盘").replace("{n}", missing) : ""}</div>
       <div class="chips">${ts.slice(0, 6).map(t =>
         `<span class="chip" title="${esc(t.path)}">${esc(t.label)}</span>`).join("")}${
-        ts.length > 6 ? `<span class="chip">…另 ${ts.length - 6} 项</span>` : ""}</div>
+        ts.length > 6 ? `<span class="chip">${t("rule.andMore","…另 {n} 项").replace("{n}", ts.length - 6)}</span>` : ""}</div>
       <div class="racts">
         <button class="tiny" data-apply="${esc(r.id)}"
-          ${here ? "" : "disabled"}>套用到勾选</button>
+          ${here ? "" : "disabled"}>${t("rule.apply","套用到勾选")}</button>
         <button class="tiny go" data-run="${esc(r.id)}"
-          ${here && freed > 0 ? "" : "disabled"}>立即清理</button>
-        <button class="tiny ghost" data-rename="${esc(r.id)}">改名</button>
-        <button class="tiny ghost" data-rdel="${esc(r.id)}">删</button>
+          ${here && freed > 0 ? "" : "disabled"}>${t("rule.run","立即清理")}</button>
+        <button class="tiny ghost" data-rename="${esc(r.id)}">${t("rule.rename","改名")}</button>
+        <button class="tiny ghost" data-rdel="${esc(r.id)}">${t("unit.del","删")}</button>
       </div>
     </div>`;
   }).join("");
@@ -1779,7 +1778,7 @@ function renderRules() {
   box.querySelectorAll("[data-rename]").forEach(b => b.addEventListener("click", async e => {
     e.stopPropagation();
     const r = rules.find(x => x.id === b.dataset.rename);
-    const name = prompt("新的规则名：", r ? r.name : "");
+    const name = prompt(t("rule.newNamePrompt","新的规则名："), r ? r.name : "");
     if (!name || !name.trim()) return;
     const res = await (await fetch(`${API}/__oc__/custom-rules`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1836,7 +1835,7 @@ async function runRule(rule, silent) {
     });
     const data = await res.json();
     if (data.error) { toast(data.error); return; }
-    showCleanResult(data.entry, data.stats, t0, `规则「${rule.name}」`);
+    showCleanResult(data.entry, data.stats, t0, t("rule.cleanTitle","规则「{n}」").replace("{n}", rule.name));
   } catch (e) {
     toast(t("rule.runFail","执行规则失败：") + e.message);
   }
@@ -1878,29 +1877,29 @@ function renderSteam() {
   const s = STEAM;
   if (!s || !s.found) {
     $("steamHint").textContent = "";
-    el.innerHTML = '<div class="empty" style="margin:0">' +
-      (s && s.error ? "读取失败：" + esc(s.error)
-        : "未检测到 Steam 安装或库中没有已安装游戏。") +
-      '<div style="margin-top:6px;color:var(--dim2);font-size:11.5px">' +
-      '数据读自 Steam 自己的清单文件（libraryfolders.vdf / appmanifest_*.acf），' +
-      '不扫描磁盘，直接读取 Steam 自身的记录。</div></div>';
+    el.innerHTML = `<div class="empty" style="margin:0">` +
+      (s && s.error ? t("st.readFail","读取失败：") + esc(s.error)
+        : t("st.notFound","未检测到 Steam 安装或库中没有已安装游戏。")) +
+      `<div style="margin-top:6px;color:var(--dim2);font-size:11.5px">` +
+      t("st.manifestNote","数据读自 Steam 自己的清单文件（libraryfolders.vdf / appmanifest_*.acf），不扫描磁盘，直接读取 Steam 自身的记录。") +
+      `</div></div>`;
     return;
   }
-  $("steamHint").textContent = `${s.game_count} 个 · ${s.total_size_h}`;
+  $("steamHint").textContent = `${s.game_count} ${t("st.countSuffix","个")} · ${s.total_size_h}`;
   const top = [...s.games].sort((a, b) => b.size - a.size).slice(0, 5);
   el.innerHTML = `
-    <div class="stat"><span>已安装</span><b>${s.game_count} 个游戏</b></div>
-    <div class="stat"><span>记录体积</span><b class="freed">${esc(s.total_size_h)}</b></div>
+    <div class="stat"><span>${t("st.installed","已安装")}</span><b>${s.game_count} ${t("st.gamesSuffix","个游戏")}</b></div>
+    <div class="stat"><span>${t("st.recSize","记录体积")}</span><b class="freed">${esc(s.total_size_h)}</b></div>
     ${(s.by_drive || []).map(d => `<div class="stat">
-        <span>${esc(d.drive)}: 盘 <span style="color:var(--dim2);font-size:11.5px">占该盘 ${d.share}%</span></span>
+        <span>${esc(d.drive)}: ${t("st.driveSuffix","盘")} <span style="color:var(--dim2);font-size:11.5px">${t("st.driveShare","占该盘 {n}%").replace("{n}", d.share)}</span></span>
         <b>${esc(d.size_h)}</b></div>`).join("")}
     ${top.map(g => `<div class="sgame">
         <div class="sgl"><span class="sgn">${esc(g.display_name || g.name)}</span>
           <span class="sgs">${esc(g.size_h)}</span></div></div>`).join("")}
     <button class="primary" id="btnSteamDetail" style="width:100%;margin-top:11px">
-      打开 Steam 游戏库页面</button>
+      ${t("st.openPage","打开 Steam 游戏库页面")}</button>
     <div style="color:var(--dim2);font-size:11.5px;margin-top:9px;line-height:1.6">
-      读自 Steam 清单，<b>不是扫描结果</b>。要卸载游戏请在 Steam 客户端里操作。
+      ${t("st.fromManifest","读自 Steam 清单，<b>不是扫描结果</b>。要卸载游戏请在 Steam 客户端里操作。")}
     </div>`;
   const b = $("btnSteamDetail");
   if (b) b.addEventListener("click", () => switchView("steam"));
@@ -1910,48 +1909,48 @@ function renderSteam() {
 function renderSteamPage() {
   const s = STEAM;
   if (!s) {
-    $("stOverview").innerHTML = '<div class="empty"><span class="spin"></span>正在读取 Steam 清单…</div>';
+    $("stOverview").innerHTML = `<div class="empty"><span class="spin"></span>${t("st.loading","正在读取 Steam 清单…")}</div>`;
     return;
   }
   if (!s.found) {
     $("stHint").textContent = "";
     $("stOverview").innerHTML = '<div class="errline">' +
-      esc(s.error || "未检测到 Steam 安装或库中没有已安装游戏。") + '</div>' +
+      esc(s.error || t("st.notFound","未检测到 Steam 安装或库中没有已安装游戏。")) + '</div>' +
       '<div style="color:var(--dim2);font-size:12px;margin-top:8px">' +
-      '本工具从注册表与常见路径查找 Steam，并读取 libraryfolders.vdf。' +
-      '如果你的 Steam 装在非常规位置，可以把库目录告诉我，我加一条识别规则。</div>';
+      t("st.notFoundNote","本工具从注册表与常见路径查找 Steam，并读取 libraryfolders.vdf。如果你的 Steam 装在非常规位置，可以把库目录告诉我，我加一条识别规则。") +
+      '</div>';
     $("stGames").innerHTML = ""; $("stSort").innerHTML = "";
     $("stOrphanPanel").style.display = "none";
     renderOtherPlatforms();   // Steam 没有不等于 Epic/GOG 也没有
     return;
   }
 
-  $("stHint").textContent = `${s.game_count} 个游戏 · ${s.total_size_h}`;
+  $("stHint").textContent = `${s.game_count} ${t("st.gamesSuffix","个游戏")} · ${s.total_size_h}`;
 
   // ---- 库总览：按盘分组，显示该盘容量与 Steam 占比 ----
   $("stOverview").innerHTML = `
     <div class="ovrow">
       <div class="ovstats" style="flex:1">
-        <div class="stat"><span>已安装游戏</span><b>${s.game_count} 个</b></div>
-        <div class="stat"><span>Steam 记录总体积</span><b class="freed">${esc(s.total_size_h)}</b></div>
-        <div class="stat"><span>Steam 库数量</span><b>${(s.libraries || []).length} 个</b></div>
+        <div class="stat"><span>${t("st.installedGames","已安装游戏")}</span><b>${s.game_count} ${t("st.countSuffix","个")}</b></div>
+        <div class="stat"><span>${t("st.totalSize","Steam 记录总体积")}</span><b class="freed">${esc(s.total_size_h)}</b></div>
+        <div class="stat"><span>${t("st.libCount","Steam 库数量")}</span><b>${(s.libraries || []).length} ${t("st.countSuffix","个")}</b></div>
       </div>
     </div>
     <div style="margin-top:14px;padding-top:13px;border-top:1px solid var(--line)">
       <div style="color:var(--dim2);font-size:11.5px;margin-bottom:9px">
-        Steam 在各盘的占用（这是你要求看到的「D/E 盘存储」）</div>
+        ${t("st.byDrive","Steam 在各盘的占用（这是你要求看到的「D/E 盘存储」）")}</div>
       ${(s.by_drive || []).map(d => `
         <div class="dsk">
           <div class="dskh">
-            <b>${esc(d.drive)}: 盘</b>
-            <span>Steam ${esc(d.size_h)} · ${d.apps} 个游戏 · 占该盘 ${d.share}%</span>
-            <span class="dskcap">盘总 ${esc(d.disk_total_h)} · 可用 ${esc(d.disk_free_h)}</span>
+            <b>${esc(d.drive)}: ${t("st.driveSuffix","盘")}</b>
+            <span>${t("st.driveLine","Steam {v} · {n} 个游戏 · 占该盘 {p}%").replace("{v}", esc(d.size_h)).replace("{n}", d.apps).replace("{p}", d.share)}</span>
+            <span class="dskcap">${t("st.diskCap","盘总 {t} · 可用 {f}").replace("{t}", esc(d.disk_total_h)).replace("{f}", esc(d.disk_free_h))}</span>
           </div>
           <div class="dskbar"><i style="width:${Math.min(100, d.share)}%"></i></div>
           ${d.libraries.map(l => `<div class="dsklib">
             <span class="mono">${esc(l.path)}</span>
-            <span>${l.apps} 个 · ${esc(l.size_h)}</span>
-            <button class="tiny ghost" data-reveal="${esc(l.path)}">打开</button>
+            <span>${l.apps} ${t("st.countSuffix","个")} · ${esc(l.size_h)}</span>
+            <button class="tiny ghost" data-reveal="${esc(l.path)}">${t("part.open","打开")}</button>
           </div>`).join("")}
         </div>`).join("")}
     </div>`;
@@ -1985,24 +1984,25 @@ function renderSteamPage() {
       return db - da;
     });
   }
-  $("stListHint").textContent = q ? `筛选出 ${games.length} 个` : `共 ${games.length} 个`;
+  $("stListHint").textContent = q ? t("st.filtered","筛选出 {n} 个").replace("{n}", games.length)
+                                  : t("st.totalN","共 {n} 个").replace("{n}", games.length);
 
   if (!games.length) {
-    $("stGames").innerHTML = '<div class="empty" style="margin:0">没有匹配的游戏。</div>';
+    $("stGames").innerHTML = `<div class="empty" style="margin:0">${t("st.noMatch","没有匹配的游戏。")}</div>`;
   } else {
     // stale 计算抽成函数复用：早期版本在 showDetail 的选项对象里引用了
     // 模板字符串回调内的局部变量 stale，点击时抛 ReferenceError。
     const staleOf = g => {
       const d = daysSince(g.last_played);
-      return d === null ? "从没玩过" : (d > 180 ? `${d} 天没玩` : "");
+      return d === null ? t("st.neverPlayed","从没玩过") : (d > 180 ? t("st.staleDays","{n} 天没玩").replace("{n}", d) : "");
     };
     $("stGames").innerHTML = games.map(g => {
       const stale = staleOf(g);
       // 游戏本体是可清理项：没在玩的大作就是最值得回收的空间。
       // 徽标跟着后端的 cleanable 走，不在前端写死。
       const badge = !g.installed ? `<span class="vbadge unk">${esc(g.state)}</span>`
-        : (g.cleanable ? '<span class="vbadge clean">游戏本体 · 可清理</span>'
-                       : '<span class="vbadge keep">游戏本体 · 建议保留</span>');
+        : (g.cleanable ? `<span class="vbadge clean">${t("st.gameBodyClean","游戏本体 · 可清理")}</span>`
+                       : `<span class="vbadge keep">${t("st.gameBodyKeep","游戏本体 · 建议保留")}</span>`);
       return `<div class="vrow ${g.installed ? "" : "c-keep"}" data-appid="${esc(g.appid)}">
         <div class="vtop">
           <span class="fname">${esc(g.display_name || g.name)}${badge}${
@@ -2010,8 +2010,8 @@ function renderSteamPage() {
           <span class="fsize">${esc(g.size_h)}</span>
         </div>
         <div class="vtop" style="margin:4px 0 0">
-          <span class="vcat">Steam 记录体积 · 位于 ${esc(g.library)}${
-            g.exists ? "" : ' · <span class="stale">目录不存在</span>'}</span>
+          <span class="vcat">${t("st.recSizeAt","Steam 记录体积 · 位于 {v}").replace("{v}", esc(g.library))}${
+            g.exists ? "" : ` · <span class="stale">${t("st.missing","目录不存在")}</span>`}</span>
         </div>
       </div>`;
     }).join("");
@@ -2020,12 +2020,14 @@ function renderSteamPage() {
       if (!g) return;
       const stale = staleOf(g);
       showDetail({
-        ...g, type: "dir", title: "Steam 游戏（读自 Steam 清单）",
-        confidence_label: "高（Steam 自己的记录）",
+        ...g, type: "dir", title: t("st.detailTitle","Steam 游戏（读自 Steam 清单）"),
+        confidence_label: t("st.confidence","高（Steam 自己的记录）"),
         // 已安装且目录还在的游戏才给「删除」入口；其余只是记录，没有可删的东西
         game_body: (g.installed && g.exists && g.cleanable) ? "steam" : "",
-        impact: `Steam 记录体积 ${g.size_h}；最后更新 ${g.last_updated || "无记录"}；`
-                + `最后游玩 ${g.last_played || "无记录"}（${stale || "近期有玩"}）。`,
+        impact: t("st.impact","Steam 记录体积 {size}；最后更新 {updated}；最后游玩 {played}（{stale}）。")
+          .replace("{size}", g.size_h).replace("{updated}", g.last_updated || t("st.noRecord","无记录"))
+          .replace("{played}", g.last_played || t("st.noRecord","无记录"))
+          .replace("{stale}", stale || t("st.playedRecently","近期有玩")),
       });
     }));
   }
@@ -2035,17 +2037,17 @@ function renderSteamPage() {
     $("stOrphanPanel").style.display = "";
     $("stOrphans").innerHTML = `
       <div class="warnpane warm">
-        <b>发现 ${s.orphan_count} 个目录在 Steam 清单里没有对应记录</b>
-        ${s.orphan_size_h ? `（合计 ${esc(s.orphan_size_h)}）` : ""}。
-        这通常是卸载不干净留下的残留，是最值得回收的一类空间。
-        <b>但请先确认里面没有你想留的东西</b> —— 有些游戏的存档或 MOD 可能在这里。
+        <b>${t("st.orphanFoundSteam","发现 {n} 个目录在 Steam 清单里没有对应记录").replace("{n}", s.orphan_count)}</b>
+        ${s.orphan_size_h ? `${t("st.orphanTotal","（合计 {v}）").replace("{v}", esc(s.orphan_size_h))}` : ""}。
+        ${t("st.orphanNoteSteam","这通常是卸载不干净留下的残留，是最值得回收的一类空间。")}
+        <b>${t("st.orphanCheck","删前请先确认里面没有你想留的东西")}</b> —— ${t("st.orphanSavesMaybe","有些游戏的存档或 MOD 可能在这里。")}
       </div>
       ${(s.orphans || []).map(o => `<div class="sgame">
         <div class="sgl"><span class="sgn">${esc(o.name)}</span>
           <span class="sgs mono">${esc(o.path)}</span></div>
         <span class="fsize">${esc(o.size_h || "")}</span>
-        <button class="tiny" data-delgame="${esc(o.path)}" data-orphan="1">删除</button>
-        <button class="tiny ghost" data-reveal="${esc(o.path)}">打开目录</button>
+        <button class="tiny" data-delgame="${esc(o.path)}" data-orphan="1">${t("st.delete","删除")}</button>
+        <button class="tiny ghost" data-reveal="${esc(o.path)}">${t("st.openDir","打开目录")}</button>
       </div>`).join("")}`;
     // 残留目录一键删除：它就在 steamapps\common 的顶层，后端的二次识别天然放行；
     // 点击直接进确认弹窗（体积行上已可见），与删游戏同一道后端校验。
@@ -2072,8 +2074,8 @@ function renderSteamPage() {
 /** Epic / GOG 区块：有游戏才显示对应面板；每行给平台徽章、体积与详情弹窗。 */
 function renderOtherPlatforms() {
   const plats = [
-    ["epic", "epicPanel", "epicGames", "epicHint", "epicOrphans", "Epic 游戏", "Epic 启动器的 .item 清单"],
-    ["gog", "gogPanel", "gogGames", "gogHint", "gogOrphans", "GOG 游戏", "GOG 注册表"],
+    ["epic", "epicPanel", "epicGames", "epicHint", "epicOrphans", t("st.epicTitle","Epic 游戏"), t("st.epicSource","Epic 启动器的 .item 清单")],
+    ["gog", "gogPanel", "gogGames", "gogHint", "gogOrphans", t("st.gogTitle","GOG 游戏"), t("st.gogSource","GOG 注册表")],
   ];
   for (const [key, panelId, listId, hintId, orphId, label, source] of plats) {
     const panel = $(panelId);
@@ -2082,10 +2084,10 @@ function renderOtherPlatforms() {
     const meta = (GAMES && GAMES.platforms && GAMES.platforms[key]) || {};
     if (!games.length && !(meta.orphan_count > 0)) { panel.style.display = "none"; continue; }
     panel.style.display = "";
-    if (!games.length) { $(hintId).textContent = "0 个游戏"; $(listId).innerHTML = ""; }
+    if (!games.length) { $(hintId).textContent = t("st.zeroGames","0 个游戏"); $(listId).innerHTML = ""; }
     else {
       const total = games.reduce((acc, g) => acc + (g.size || 0), 0);
-      $(hintId).textContent = `${games.length} 个游戏 · ${fmt(total)}`;
+      $(hintId).textContent = `${games.length} ${t("st.gamesSuffix","个游戏")} · ${fmt(total)}`;
       $(listId).innerHTML = games.map(g => `
         <div class="vrow" data-gpath="${esc(g.path)}">
           <div class="vtop">
@@ -2093,9 +2095,9 @@ function renderOtherPlatforms() {
             <span class="fsize">${esc(g.size_h)}</span>
           </div>
           <div class="vtop" style="margin:4px 0 0">
-            <span class="vcat">${label} · 位于 ${esc(g.library || "")}${
-              g.exists ? "" : ' · <span class="stale">目录不存在</span>'}</span>
-            <button class="tiny ghost" data-reveal="${esc(g.path)}" style="margin-left:auto">打开</button>
+            <span class="vcat">${t("st.recSizeAt","{label} · 位于 {v}").replace("{label}", esc(label)).replace("{v}", esc(g.library || ""))}${
+              g.exists ? "" : ` · <span class="stale">${t("st.missing","目录不存在")}</span>`}</span>
+            <button class="tiny ghost" data-reveal="${esc(g.path)}" style="margin-left:auto">${t("part.open","打开")}</button>
           </div>
         </div>`).join("");
       $(listId).querySelectorAll(".vrow").forEach(el => el.addEventListener("click", ev => {
@@ -2103,10 +2105,10 @@ function renderOtherPlatforms() {
         const g = games.find(x => x.path === el.dataset.gpath);
         if (!g) return;
         showDetail({
-          ...g, type: "dir", title: `${label}（读自${source}）`,
-          confidence_label: `高（${label}自己的记录）`,
+          ...g, type: "dir", title: t("st.platDetailTitle","{label}（读自{src}）").replace("{label}", label).replace("{src}", source),
+          confidence_label: t("st.platConfidence","高（{label}自己的记录）").replace("{label}", label),
           game_body: (g.exists && g.cleanable) ? g.platform : "",
-          impact: `清单/注册表记录体积 ${g.size_h}。`,
+          impact: t("st.platImpact","清单/注册表记录体积 {v}。").replace("{v}", g.size_h),
         });
       }));
     }
@@ -2118,17 +2120,17 @@ function renderOtherPlatforms() {
         orb.style.display = "";
         orb.innerHTML = `
           <div class="warnpane warm">
-            <b>发现 ${meta.orphan_count} 个目录在 ${esc(label)}的记录里没有对应</b>
-            ${meta.orphan_size_h && meta.orphan_size_h !== "0 B" ? `（合计 ${esc(meta.orphan_size_h)}）` : ""}。
-            通常是卸载不干净留下的残留。<b>删前请先确认里面没有你想留的东西</b>，
-            或先在 ${esc(label === "Epic 游戏" ? "Epic 启动器" : "GOG Galaxy")}里点一次「安装」验证它不是漏记的活游戏。
+            <b>${t("st.orphanFound","发现 {n} 个目录在 {label}的记录里没有对应").replace("{n}", meta.orphan_count).replace("{label}", esc(label))}</b>
+            ${meta.orphan_size_h && meta.orphan_size_h !== "0 B" ? `${t("st.orphanTotal","（合计 {v}）").replace("{v}", esc(meta.orphan_size_h))}` : ""}。
+            ${t("st.orphanNote","通常是卸载不干净留下的残留。")}<b>${t("st.orphanCheck","删前请先确认里面没有你想留的东西")}</b>，
+            ${t("st.orphanVerify","或先在 {plat}里点一次「安装」验证它不是漏记的活游戏。").replace("{plat}", esc(label === "Epic 游戏" || key === "epic" ? "Epic 启动器" : "GOG Galaxy"))}
           </div>
           ${(meta.orphans || []).map(o => `<div class="sgame">
             <div class="sgl"><span class="sgn">${esc(o.name)}</span>
               <span class="sgs mono">${esc(o.path)}</span></div>
             <span class="fsize">${esc(o.size_h || "")}</span>
-            <button class="tiny" data-delgame="${esc(o.path)}" data-orphan="1">删除</button>
-            <button class="tiny ghost" data-reveal="${esc(o.path)}">打开目录</button>
+            <button class="tiny" data-delgame="${esc(o.path)}" data-orphan="1">${t("st.delete","删除")}</button>
+            <button class="tiny ghost" data-reveal="${esc(o.path)}">${t("st.openDir","打开目录")}</button>
           </div>`).join("")}`;
         orb.querySelectorAll("[data-delgame]").forEach(b =>
           b.addEventListener("click", () => {
@@ -2148,24 +2150,24 @@ function renderSchedule() {
   if (s.preset) $("schPreset").value = s.preset;
   if (s.drive) $("schDrive").value = s.drive;
   const info = $("schInfo");
-  if (!s.enabled) { info.textContent = "未启用。启用后需保持本服务窗口开启才会执行。"; return; }
-  const next = s.next_run ? new Date(s.next_run * 1000).toLocaleString("zh-CN") : "—";
-  const last = s.last_run ? new Date(s.last_run * 1000).toLocaleString("zh-CN") : "从未";
-  info.innerHTML = `下次：${esc(next)}<br>上次：${esc(last)}`;
+  if (!s.enabled) { info.textContent = t("sch.off","未启用。启用后需保持本服务窗口开启才会执行。"); return; }
+  const next = s.next_run ? new Date(s.next_run * 1000).toLocaleString() : "—";
+  const last = s.last_run ? new Date(s.last_run * 1000).toLocaleString() : t("sch.never","从未");
+  info.innerHTML = `${t("sch.next","下次：")}${esc(next)}<br>${t("sch.last","上次：")}${esc(last)}`;
 }
 
 function renderHistory() {
   const hist = STATE.history || [];
-  if (!hist.length) { $("history").innerHTML = '<div class="empty">暂无记录</div>'; return; }
+  if (!hist.length) { $("history").innerHTML = `<div class="empty">${t("hist.none","暂无记录")}</div>`; return; }
   $("history").innerHTML = hist.map(h => {
     const names = (h.results || []).filter(r => r.freed > 0).map(r => r.label);
     const fails = (h.results || []).filter(r => r.failed > 0)
-      .map(r => `${r.label}（${r.failed} 项被占用）`);
+      .map(r => t("hist.lockedN","{label}（{n} 项被占用）").replace("{label}", r.label).replace("{n}", r.failed));
     return `<div class="logrow">
       <div class="t"><span>${esc(h.time)} · ${esc(h.trigger || "")}</span>
-        <span class="freed">释放 ${esc(h.freed_h || fmt(h.freed))}</span></div>
-      <div class="d">${names.length ? esc(names.join("、")) : "没有可清理的内容"}</div>
-      ${fails.length ? `<div class="d failed">跳过：${esc(fails.join("、"))}</div>` : ""}
+        <span class="freed">${t("hist.freed","释放 {v}").replace("{v}", esc(h.freed_h || fmt(h.freed)))}</span></div>
+      <div class="d">${names.length ? esc(names.join("、")) : t("hist.nothing","没有可清理的内容")}</div>
+      ${fails.length ? `<div class="d failed">${t("hist.skipped","跳过：")}${esc(fails.join("、"))}</div>` : ""}
     </div>`;
   }).join("");
 }
@@ -2180,8 +2182,8 @@ function confirmDialog() {
       const chosen = i.items.filter(x => subs && subs[x.path]);
       if (chosen.length) {
         size = chosen.reduce((a, x) => a + x.size, 0);
-        files = chosen.length; note = `仅删勾选的 ${chosen.length} 项`;
-      } else note = "清空整个回收站";
+        files = chosen.length; note = t("cc.selectedOnly","仅删勾选的 {n} 项").replace("{n}", chosen.length);
+      } else note = t("cc.emptyAll","清空整个回收站");
     }
     return { id, label: t.label, risk: t.risk, size, files, note,
              path: t.path, admin: t.needs_admin };
@@ -2195,8 +2197,8 @@ function confirmDialog() {
                 risk: (n && n.risk) || "中", size: (n && n.size) || 0,
                 files: 0,
                 note: (n && !n.cleanable)
-                  ? "非工具推荐项（建议保留/未识别）：你已明确勾选，服务端将按系统目录保护执行"
-                  : "清空目录内容（服务端会重新识别校验）",
+                  ? t("cc.nonCleanNote","非工具推荐项（建议保留/未识别）：你已明确勾选，服务端将按系统目录保护执行")
+                  : t("cc.pathNote","清空目录内容（服务端会重新识别校验）"),
                 path: p, admin: false, nonClean: !!(n && !n.cleanable) });
   }
   rows.sort((a, b) => b.size - a.size);
@@ -2208,27 +2210,26 @@ function confirmDialog() {
   const nonClean = rows.filter(r => r.nonClean);
   window._hasNonCleanSel = nonClean.length > 0;
   const riskyNote = r => r.id.startsWith("recycle-bin")
-    ? "清空后无法恢复" : "删除后历史诊断线索丢失";
+    ? t("cc.trashNote","清空后无法恢复") : t("cc.diagNote","删除后历史诊断线索丢失");
 
   $("modal").innerHTML = `
-    <h2>确认清理 —— ${esc(drive)}: 盘 · 执行后无法恢复</h2>
+    <h2>${t("cc.title","确认清理 —— {drive}: 盘 · 执行后无法恢复").replace("{drive}", esc(drive))}</h2>
     <div class="mbody">
-      ${nonClean.length ? `<div class="warnpane"><b>包含 ${nonClean.length} 项「建议保留 / 未识别」—— 工具不推荐删除：</b>
-        这些不是缓存，可能是软件本体、个人文件或无法判定用途的目录；
-        删除后可能无法恢复。请确认你已亲自打开看过内容。<ul>${
+      ${nonClean.length ? `<div class="warnpane"><b>${t("cc.nonCleanHead","包含 {n} 项「建议保留 / 未识别」—— 工具不推荐删除：").replace("{n}", nonClean.length)}</b>
+        ${t("cc.nonCleanBody","这些不是缓存，可能是软件本体、个人文件或无法判定用途的目录；删除后可能无法恢复。请确认你已亲自打开看过内容。")}<ul>${
         nonClean.slice(0, 8).map(r => `<li>${esc(r.label)} —— ${esc(r.path)}</li>`).join("")
-        }${nonClean.length > 8 ? `<li>…等 ${nonClean.length} 项</li>` : ""}</ul></div>` : ""}
-      ${risky.length ? `<div class="warnpane"><b>包含不可逆或会影响排查的项：</b><ul>${
-        risky.map(r => `<li>${esc(r.label)}（风险 ${esc(r.risk)}）—— ${esc(riskyNote(r))}</li>`).join("")
+        }${nonClean.length > 8 ? `<li>${t("cc.andMore","…等 {n} 项").replace("{n}", nonClean.length)}</li>` : ""}</ul></div>` : ""}
+      ${risky.length ? `<div class="warnpane"><b>${t("cc.riskyHead","包含不可逆或会影响排查的项：")}</b><ul>${
+        risky.map(r => `<li>${esc(r.label)}（${t("cc.risk","风险")} ${esc(r.risk)}）—— ${esc(riskyNote(r))}</li>`).join("")
       }</ul></div>` : ""}
       ${trashable ? `<label style="display:flex;gap:8px;align-items:center;margin:10px 0;font-size:13.5px;cursor:pointer">
         <input type="checkbox" id="mTrash" checked>
-        高风险项删进回收站（可恢复；清空回收站后才真正释放空间，本次统计不含这部分）
+        ${t("cc.trashOpt","高风险项删进回收站（可恢复；清空回收站后才真正释放空间，本次统计不含这部分）")}
       </label>` : ""}
-      ${admin.length && !STATE.is_admin ? `<div class="warnpane">以下项需要管理员权限，当前普通权限会失败：
+      ${admin.length && !STATE.is_admin ? `<div class="warnpane">${t("cc.adminNote","以下项需要管理员权限，当前普通权限会失败：")}
         ${esc(admin.map(r => r.label).join("、"))}</div>` : ""}
       <table>
-        <thead><tr><th>清理项</th><th>路径</th><th class="n">大小</th><th class="n">文件数</th></tr></thead>
+        <thead><tr><th>${t("cc.thItem","清理项")}</th><th>${t("cc.thPath","路径")}</th><th class="n">${t("cc.thSize","大小")}</th><th class="n">${t("cc.thFiles","文件数")}</th></tr></thead>
         <tbody>${rows.map(r => `<tr>
           <td>${esc(r.label)} <span class="badge ${riskCls(r.risk)}">${esc(r.risk)}</span>
             ${r.note ? `<div style="color:var(--dim2);font-size:11.5px">${esc(r.note)}</div>` : ""}</td>
@@ -2238,13 +2239,13 @@ function confirmDialog() {
       </table>
       <div class="bar2" id="pbar"><i></i></div>
       <div id="plog" style="color:var(--dim);font-size:12px;margin-top:8px">
-        正在按清单执行删除，被占用的文件会自动跳过。</div>
+        ${t("cc.progressing","正在按清单执行删除，被占用的文件会自动跳过。")}</div>
     </div>
     <div class="mfoot">
-      <div class="left">共 ${rows.length} 项，预计释放
+      <div class="left">${t("cc.total","共 {n} 项，预计释放").replace("{n}", rows.length)}
         <b style="color:var(--ok)">${fmt(total)}</b></div>
-      <button id="mCancel" class="ghost">取消</button>
-      <button id="mGo" class="go">${nonClean.length ? `仍要删除（含 ${nonClean.length} 项非推荐项）` : "确认删除"}</button>
+      <button id="mCancel" class="ghost">${t("cc.cancel","取消")}</button>
+      <button id="mGo" class="go">${nonClean.length ? t("cc.goAnyway","仍要删除（含 {n} 项非推荐项）").replace("{n}", nonClean.length) : t("cc.go","确认删除")}</button>
     </div>`;
   $("mask").classList.add("on");
   $("mCancel").addEventListener("click", closeModal);
@@ -2255,7 +2256,7 @@ function closeModal() { $("mask").classList.remove("on"); }
 async function doClean() {
   busy = true;
   $("mGo").disabled = true; $("mCancel").disabled = true;
-  $("mGo").innerHTML = '<span class="spin"></span>清理中';
+  $("mGo").innerHTML = `<span class="spin"></span>${t("cc.cleaning","清理中")}`;
   const only = {};
   for (const [id, map] of Object.entries(subSel)) {
     const list = Object.entries(map).filter(([, v]) => v).map(([k]) => k);
@@ -2282,7 +2283,7 @@ async function doClean() {
     // 包含关系去重的如实提示：外层项被跳过、只清了最小项
     if (Array.isArray(data.merged) && data.merged.length)
       toast(t("toast.merged","已合并 {n} 个包含外层的勾选项（只清理最小项）").replace("{n}", data.merged.length));
-    showCleanResult(e, data.stats, t0, "清理完成");
+    showCleanResult(e, data.stats, t0, t("clean.done","清理完成"));
   } catch (e) {
     const log = $("plog");
     if (log) log.innerHTML = '<span class="res-err">' + t("clean.fail","清理失败：") + esc(e.message) + "</span>";
@@ -2306,49 +2307,49 @@ function showCleanResult(e, stats, t0, title) {
     <h2>${esc(title)}</h2>
     <div class="mbody">
       <div style="font-size:15px;margin-bottom:12px">
-        本次释放 <b class="res-ok" style="font-size:19px">${esc(e.freed_h)}</b>
+        ${t("cr.freed","本次释放")} <b class="res-ok" style="font-size:19px">${esc(e.freed_h)}</b>
         <span style="color:var(--dim2);font-size:12.5px">
-          · ${e.results.length} 项 · 耗时 ${((Date.now() - t0) / 1000).toFixed(1)} 秒</span>
+          · ${e.results.length} ${t("part.items","项")} · ${t("cr.took","耗时 {n} 秒").replace("{n}", ((Date.now() - t0) / 1000).toFixed(1))}</span>
       </div>
       ${e.results.some(r => r.trashed > 0) ? `<div style="color:var(--dim2);font-size:12.5px;margin:-6px 0 10px">
-        部分高风险项已移入回收站（可恢复）：这部分空间会在清空回收站后释放，未计入上面的数字。</div>` : ""}
+        ${t("cr.trashedNote","部分高风险项已移入回收站（可恢复）：这部分空间会在清空回收站后释放，未计入上面的数字。")}</div>` : ""}
       ${trashPaths.length ? `
       <div class="warnpane" style="margin:-2px 0 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <button id="btnEmptyBin" class="primary" style="font-size:12.5px">
-          清空这些项的回收站</button>
+          ${t("eb.armLabel","清空这些项的回收站")}</button>
         <span style="font-size:11.5px;color:var(--dim2)">
-          只移除本次清理移入回收站的 ${trashPaths.length} 项并彻底释放空间；回收站里其它内容不受影响。不可恢复。</span>
+          ${t("eb.scopeNote","只移除本次清理移入回收站的 {n} 项并彻底释放空间；回收站里其它内容不受影响。不可恢复。").replace("{n}", trashPaths.length)}</span>
         <div id="binPane" style="width:100%"></div>
       </div>` : ""}
       <table>
-        <thead><tr><th>清理项</th><th class="n">释放</th><th class="n">已删</th><th class="n">跳过</th></tr></thead>
+        <thead><tr><th>${t("cc.thItem","清理项")}</th><th class="n">${t("cr.thFreed","释放")}</th><th class="n">${t("cr.thDeleted","已删")}</th><th class="n">${t("cr.thSkipped","跳过")}</th></tr></thead>
         <tbody>${e.results.map(r => `<tr>
           <td>${esc(r.label)}${r.error ? ` <span class="res-err">${esc(r.error)}</span>` : ""}${r.trashed > 0 ? `
-            <div style="color:var(--dim2);font-size:11.5px">已移入回收站 ${r.trashed} 项，清空回收站后释放</div>` : ""}</td>
-          <td class="n ${r.freed > 0 ? "res-ok" : ""}">${r.trashed > 0 ? `<span style="color:var(--dim2)">→ 回收站</span>` : fmt(r.freed)}</td>
+            <div style="color:var(--dim2);font-size:11.5px">${t("cr.inBin","已移入回收站 {n} 项，清空回收站后释放").replace("{n}", r.trashed)}</div>` : ""}</td>
+          <td class="n ${r.freed > 0 ? "res-ok" : ""}">${r.trashed > 0 ? `<span style="color:var(--dim2)">${t("cr.toBin","→ 回收站")}</span>` : fmt(r.freed)}</td>
           <td class="n">${r.deleted}</td>
           <td class="n ${r.failed > 0 ? "res-warn" : ""}">${r.failed}</td>
         </tr>`).join("")}</tbody>
       </table>
       ${bad.length ? `<div class="warnpane warm" style="margin-top:14px">
-        <b>以下项被占用、无权限或路径不存在，已跳过（不是错误）：</b>
+        <b>${t("cr.skippedHead","以下项被占用、无权限或路径不存在，已跳过（不是错误）：")}</b>
         <ul>${bad.slice(0, 8).map(r => `<li>${esc(r.label)}：${
-          esc((r.skipped || []).slice(0, 4).join("、") || r.error || "占用中")}${
-          r.failed > 4 ? ` 等 ${r.failed} 项` : ""}</li>`).join("")}</ul>
+          esc((r.skipped || []).slice(0, 4).join("、") || r.error || t("cr.locked","占用中"))}${
+          r.failed > 4 ? ` ${t("cr.andNMore","等 {n} 项").replace("{n}", r.failed)}` : ""}</li>`).join("")}</ul>
         ${bad.some(r => (r.skipped || []).length) ? `
           <div style="margin-top:9px;display:flex;align-items:center;gap:9px;flex-wrap:wrap">
             <button id="btnFindLock" class="primary" style="font-size:12.5px">
-              一键查找占用进程</button>
+              ${t("lk.open","一键查找占用进程")}</button>
             <span style="font-size:11.5px;color:var(--dim2)">
-              只列出候选程序，关不关由你决定</span>
+              ${t("lk.scopeNote","只列出候选程序，关不关由你决定")}</span>
           </div>` : ""}
         <div id="lockPane"></div></div>` : ""}
       <div style="color:var(--dim2);font-size:12px;margin-top:12px">
-        累计已释放 ${esc(STATE.stats?.total_freed_h || "0 B")}，换算结果已更新到右侧面板。
+        ${t("cr.cumulative","累计已释放 {v}，换算结果已更新到右侧面板。").replace("{v}", esc(STATE.stats?.total_freed_h || "0 B"))}
       </div>
     </div>
     <div class="mfoot"><div class="left"></div>
-      <button id="mDone" class="primary">完成</button></div>`;
+      <button id="mDone" class="primary">${t("cr.done","完成")}</button></div>`;
   $("mask").classList.add("on");
   const fl = $("btnFindLock");
   if (fl) fl.addEventListener("click", () => findLockHolders(bad, fl));
@@ -2362,12 +2363,12 @@ function showCleanResult(e, stats, t0, title) {
     eb.addEventListener("click", async () => {
       if (!armed) {
         armed = true;
-        eb.textContent = `确认清空（不可恢复）`;
+        eb.textContent = t("eb.armConfirm","确认清空（不可恢复）");
         eb.classList.add("go");
         return;
       }
       eb.disabled = true;
-      eb.innerHTML = '<span class="spin"></span>清空中';
+      eb.innerHTML = `<span class="spin"></span>${t("eb.emptying","清空中")}`;
       const pane = $("binPane");
       try {
         const r = await fetch(`${API}/__oc__/recycle-purge`, {
@@ -2417,13 +2418,13 @@ async function findLockHolders(bad, btn) {
   if (!pane) return;
   if (!paths.length) {
     pane.innerHTML = `<div style="margin-top:10px;font-size:12.5px">
-      这些项不是「被占用」，而是路径不存在或权限不足，没有可查的进程。</div>`;
+      ${t("lk.notLocked","这些项不是「被占用」，而是路径不存在或权限不足，没有可查的进程。")}</div>`;
     return;
   }
   const old = btn ? btn.textContent : "";
-  if (btn) { btn.disabled = true; btn.textContent = "正在查找…"; }
+  if (btn) { btn.disabled = true; btn.textContent = t("lk.searching","正在查找…"); }
   pane.innerHTML = `<div style="margin-top:10px;font-size:12.5px;color:var(--dim2)">
-    正在检查 ${paths.length} 个文件并枚举系统进程，请稍候…</div>`;
+    ${t("lk.checking","正在检查 {n} 个文件并枚举系统进程，请稍候…").replace("{n}", paths.length)}</div>`;
   try {
     const r = await fetch(`${API}/__oc__/locks`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -2439,37 +2440,34 @@ async function findLockHolders(bad, btn) {
       <td class="n">${c.pid}</td>
       <td>${esc(c.name || "?")}</td>
       <td style="font-size:11.5px;color:var(--dim2)">${esc(c.why || "")}${
-        c.hits > 1 ? `（命中 ${c.hits} 个文件）` : ""}${
+        c.hits > 1 ? `${t("lk.hitFiles","（命中 {n} 个文件）").replace("{n}", c.hits)}` : ""}${
         c.exe ? `<br><span style="color:var(--dim2)">${esc(c.exe)}</span>` : ""}</td>
     </tr>`;
     const table = (title, arr) => arr.length ? `
       <div style="font-size:12.5px;margin:11px 0 5px"><b>${title}</b>（${arr.length}）</div>
-      <table><thead><tr><th class="n">PID</th><th>进程</th><th>判断依据</th></tr></thead>
+      <table><thead><tr><th class="n">PID</th><th>${t("lk.thProc","进程")}</th><th>${t("lk.thWhy","判断依据")}</th></tr></thead>
         <tbody>${arr.map(row).join("")}</tbody></table>` : "";
     pane.innerHTML = `
       <div style="margin-top:11px;font-size:12.5px">
-        <b>占用检查</b>：${locked.length} 个文件确实被别的进程打开着${
-          unknown.length ? `；另有 ${unknown.length} 个无法判定（权限不足，以管理员身份运行能读到更多）` : ""}${
-          d.truncated ? "；文件太多，只检查了前 80 个" : ""}。
-        ${locked.length === 0 ? "若它们现在都已不占用，直接重新清理即可。" : ""}
+        <b>${t("lk.checkHead","占用检查")}</b>：${t("lk.lockedN","{n} 个文件确实被别的进程打开着").replace("{n}", locked.length)}${
+          unknown.length ? t("lk.unknownN","；另有 {n} 个无法判定（权限不足，以管理员身份运行能读到更多）").replace("{n}", unknown.length) : ""}${
+          d.truncated ? t("lk.truncated","；文件太多，只检查了前 80 个") : ""}。
+        ${locked.length === 0 ? t("lk.noneNow","若它们现在都已不占用，直接重新清理即可。") : ""}
       </div>
-      ${table("可能性高（程序本体在该目录下，或命令行里出现了完整路径）", strong)}
-      ${table("也值得一看（命令行里出现了同名文件）", weak)}
+      ${table(t("lk.strong","可能性高（程序本体在该目录下，或命令行里出现了完整路径）"), strong)}
+      ${table(t("lk.weak","也值得一看（命令行里出现了同名文件）"), weak)}
       ${(!strong.length && !weak.length) ? `
         <div style="margin-top:9px;font-size:12.5px">
-          没能从进程列表里定位到可疑项 —— 这很正常，Windows 不允许直接把「文件句柄」
-          反查成进程。可以打开「任务管理器 → 性能 → 资源监视器 → CPU → 关联的句柄」，
-          在里面搜索这个文件名，就能看到真正持有它的进程。</div>` : ""}
+          ${t("lk.noCandidate","没能从进程列表里定位到可疑项 —— 这很正常，Windows 不允许直接把「文件句柄」反查成进程。可以打开「任务管理器 → 性能 → 资源监视器 → CPU → 关联的句柄」，在里面搜索这个文件名，就能看到真正持有它的进程。")}</div>` : ""}
       ${d.ps_error ? `<div style="margin-top:8px;font-size:11.5px;color:var(--warn)">
-        进程枚举未完成：${esc(d.ps_error)}</div>` : ""}
+        ${t("lk.psError","进程枚举未完成：")}${esc(d.ps_error)}</div>` : ""}
       <div style="color:var(--dim2);font-size:11.5px;margin-top:10px">
-        ※ 以上是<b>候选</b>，不是确证；<b>不要结束 System、explorer.exe 等系统进程</b>。
-        多数程序一退出就自动解锁 —— 先在它们里面保存并退出，再回来重新清理即可。</div>`;
+        ${t("lk.disclaimer","※ 以上是<b>候选</b>，不是确证；<b>不要结束 System、explorer.exe 等系统进程</b>。多数程序一退出就自动解锁 —— 先在它们里面保存并退出，再回来重新清理即可。")}</div>`;
   } catch (ex) {
     pane.innerHTML = `<div style="margin-top:10px;font-size:12.5px;color:var(--warn)">
-      查找失败：${esc(ex.message || String(ex))}</div>`;
+      ${t("lk.fail","查找失败：")}${esc(ex.message || String(ex))}</div>`;
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = old || "一键查找占用进程"; }
+    if (btn) { btn.disabled = false; btn.textContent = old || t("lk.open","一键查找占用进程"); }
   }
 }
 
@@ -2513,7 +2511,7 @@ function switchView(name) {
   $("fullView").style.display = name === "full" ? "flex" : "none";
   $("steamView").style.display = name === "steam" ? "flex" : "none";
   setToolbars(true, name === "steam" ? "compact" : "normal");
-  $("btnSteam").textContent = name === "steam" ? "返回扫描概览" : "Steam 游戏库";
+  $("btnSteam").textContent = name === "steam" ? t("nav.backFull","返回扫描概览") : t("nav.steam","Steam 游戏库");
   renderViewNav();
   if (name === "steam") renderSteamPage();
 }
@@ -2548,7 +2546,8 @@ async function startFullScan() {
     renderOverview(); renderChart();
     const mins = Math.max(1, Math.round((Date.now() - hit.at) / 60000));
     $("fsHint").textContent =
-      `${drive}: 盘 · ${mins} 分钟前的扫描结果（点「全盘扫描本盘」强制重扫）`;
+      t("fs.cachedResult","{drive}: 盘 · {mins} 分钟前的扫描结果（点「全盘扫描本盘」强制重扫）")
+        .replace("{drive}", drive).replace("{mins}", mins);
     return;
   }
   if ($("fsScanning")) {
@@ -2559,14 +2558,14 @@ async function startFullScan() {
   fsScanDrive = drive;
   fsScanDepth = depth;
   const b = $("btnFullScan");
-  b.disabled = true; b.textContent = "全盘扫描中…";
+  b.disabled = true; b.textContent = t("fs.scanningFull","全盘扫描中…");
   view = "full";
   renderViewNav();                   // 扫描页可能还没机会走 switchView，先同步导航
   fsStack = [];
   $("steamView").style.display = "none";
   $("fullView").style.display = "flex";
   setToolbars(true, true);
-  $("fsHint").textContent = `${drive}: 盘`;
+  $("fsHint").textContent = t("fs.driveHint","{drive}: 盘").replace("{drive}", drive);
   $("fsNav").innerHTML = "";
   $("fsChart").innerHTML = ""; $("fsModes").innerHTML = "";
 
@@ -2609,8 +2608,8 @@ async function startFullScan() {
       ind ? "" : Math.max(3, Math.min(100, Number(p.pct) || 0)) + "%";
     if (st && p && p.text) st.textContent = p.text;
     if (hint) hint.textContent = ind
-      ? "这一步无法预知总工作量，条纹表示仍在推进"
-      : `整体进度 ${Math.round(p.pct)}%`;
+      ? t("fs.progressInd","这一步无法预知总工作量，条纹表示仍在推进")
+      : t("fs.progressPct","整体进度 {n}%").replace("{n}", Math.round(p.pct));
   };
   const poll = async () => {
     try {
@@ -2635,11 +2634,11 @@ async function startFullScan() {
   } catch (e) {
     if (ac.signal.aborted) return;   // 被换盘作废：界面已交给新扫描，静默退出
     $("fsOverview").innerHTML =
-      `<div class="errline">磁盘概览扫描失败：${esc(e.message)}</div>` +
+      `<div class="errline">${t("fs.scanFail","磁盘概览扫描失败：")}${esc(e.message)}</div>` +
       '<div style="color:var(--dim2);font-size:12px;margin-top:8px">' +
-      '可先用命令行确认服务端是否正常：' +
+      t("fs.scanFailHint","可先用命令行确认服务端是否正常：") +
       `<code>python -X utf8 app.py --fullscan-only --drive ${esc(drive)}</code></div>`;
-    b.textContent = "重试全盘扫描";
+    b.textContent = t("fs.retryFull","重试全盘扫描");
   } finally {
     clearInterval(timer);
     // 只有当自己仍是「当前扫描」时才清理状态与解禁按钮 —— 被换盘作废的旧扫描
@@ -2692,45 +2691,46 @@ function renderOverview() {
   const mix = Math.max(keepSum + unkSum, 1);
 
   $("fsHint").textContent =
-    `${FS.drive}: 盘 · ${FS.node_count} 个节点 · 已识别 ${FS.explained} 个`
-    + ` · ${FS.max_depth} 层`
-    + (FS.engine === "wiztree" ? " · WizTree MFT 加速" : "");
+    t("fs.tagline","{drive}: 盘 · {nodes} 个节点 · 已识别 {explained} 个 · {depth} 层{engine}")
+      .replace("{drive}", FS.drive).replace("{nodes}", FS.node_count)
+      .replace("{explained}", FS.explained).replace("{depth}", FS.max_depth)
+      .replace("{engine}", FS.engine === "wiztree" ? t("fs.mftFast"," · WizTree MFT 加速") : "");
 
   $("fsOverview").innerHTML = `
     <div class="ovrow">
       <div class="ring" style="background:conic-gradient(${color} 0turn ${(usedPct/100).toFixed(3)}turn, var(--track) ${(usedPct/100).toFixed(3)}turn 1turn)">
-        <div class="rt"><div class="p">${usedPct}%</div><div class="l">已使用</div></div>
+        <div class="rt"><div class="p">${usedPct}%</div><div class="l">${t("disk.used","已使用")}</div></div>
       </div>
       <div class="ovstats">
         <div class="stat"><span>${t("disk.total","总容量")}</span><b>${d.total_h}</b></div>
-        <div class="stat"><span>已使用</span><b>${d.used_h}</b></div>
+        <div class="stat"><span>${t("disk.used","已使用")}</span><b>${d.used_h}</b></div>
         <div class="stat"><span>${t("disk.free","可用")}</span><b class="freed">${d.free_h}</b></div>
-        <div class="stat"><span>本次扫到</span><b>${FS.scanned_total_h} · ${FS.node_count} 个节点</b></div>
+        <div class="stat"><span>${t("fs.scannedNow","本次扫到")}</span><b>${FS.scanned_total_h} · ${FS.node_count} ${t("fs.nodesSuffix","个节点")}</b></div>
       </div>
     </div>
     ${FS.engine ? `<div class="enginebar ${FS.engine === "wiztree" ? "fast" : ""}">
-      <b>${FS.engine === "wiztree" ? "WizTree MFT 加速" : "PowerShell 递归扫描"}</b>
+      <b>${FS.engine === "wiztree" ? t("fs.mftFast2","WizTree MFT 加速") : t("fs.psWalk","PowerShell 递归扫描")}</b>
       <span>${esc(FS.engine_note || "")}</span>
       ${FS.engine === "wiztree"
-        ? "<span>借本机已装的 WizTree 读 MFT，比逐目录递归快；不安装、不修改它。</span>"
-        : "<span>装入 WizTree 可显著缩短全盘扫描耗时（本工具只调用，不捆绑）。</span>"}
+        ? t("fs.wiztreeNote","<span>借本机已装的 WizTree 读 MFT，比逐目录递归快；不安装、不修改它。</span>")
+        : t("fs.wiztreeHint","<span>装入 WizTree 可显著缩短全盘扫描耗时（本工具只调用，不捆绑）。</span>")}
     </div>` : ""}
     <div style="margin-top:15px;padding-top:13px;border-top:1px solid var(--line)">
       <div style="color:var(--dim2);font-size:11.5px;margin-bottom:3px">
-        扫到的内容里，可清理与需保留的比例</div>
+        ${t("fs.mixHead","扫到的内容里，可清理与需保留的比例")}</div>
       <div class="clbar">
         <i class="c" style="width:${(cleanSum/mix*100).toFixed(1)}%"></i>
         <i class="k" style="width:${((keepSum+unkSum)/mix*100).toFixed(1)}%"></i>
       </div>
       <div class="cllegend">
-        <span><em style="background:var(--ok)"></em>可清理 ${fmt(cleanSum)}</span>
-        <span><em style="background:var(--danger)"></em>建议保留 ${fmt(keepSum)}</span>
-        <span><em style="background:var(--dim2)"></em>未识别 ${fmt(unkSum)}</span>
+        <span><em style="background:var(--ok)"></em>${t("badge.clean","可清理")} ${fmt(cleanSum)}</span>
+        <span><em style="background:var(--danger)"></em>${t("badge.keep","建议保留")} ${fmt(keepSum)}</span>
+        <span><em style="background:var(--dim2)"></em>${t("badge.unk","未识别")} ${fmt(unkSum)}</span>
       </div>
     </div>`;
 
   // 面包屑 + 返回上一级
-  const crumbs = [`<span class="cb${fsStack.length ? "" : " cur"}" data-i="-1">${esc(FS.drive)}: 盘</span>`];
+  const crumbs = [`<span class="cb${fsStack.length ? "" : " cur"}" data-i="-1">${esc(FS.drive)}: ${t("st.driveSuffix","盘")}</span>`];
   fsStack.forEach((s, i) => {
     crumbs.push('<span class="sep">›</span>');
     crumbs.push(`<span class="cb${i === fsStack.length - 1 ? " cur" : ""}" data-i="${i}">${esc(s.name)}</span>`);
@@ -2738,12 +2738,12 @@ function renderOverview() {
   $("fsNav").innerHTML = `
     ${cur ? `<div class="upcard" id="fsUp">
         <span class="ua">↑</span>
-        <span class="ut"><span class="un">返回上一级</span>
-          <span class="us">${esc(fsStack.length > 1 ? fsStack[fsStack.length - 2].name : FS.drive + ": 盘")}</span></span>
+        <span class="ut"><span class="un">${t("fs.upLevel","返回上一级")}</span>
+          <span class="us">${esc(fsStack.length > 1 ? fsStack[fsStack.length - 2].name : FS.drive + ": " + t("st.driveSuffix","盘"))}</span></span>
       </div>` : ""}
     <div class="crumbs">${crumbs.join("")}</div>
-    <div class="drillhint">当前目录：<b>${esc(cur ? cur.path : FS.drive + ":\\")}</b>
-      · 本层 ${here.length} 项，合计 ${fmt(here.reduce((a, n) => a + n.size, 0))}</div>`;
+    <div class="drillhint">${t("fs.curDir","当前目录：")}<b>${esc(cur ? cur.path : FS.drive + ":\\")}</b>
+      · ${t("fs.levelStat","本层 {n} 项，合计 {v}").replace("{n}", here.length).replace("{v}", fmt(here.reduce((a, n) => a + n.size, 0)))}</div>`;
 
   $("fsNav").querySelectorAll(".cb").forEach(el => el.addEventListener("click", () => {
     const i = parseInt(el.dataset.i, 10);
@@ -2778,7 +2778,7 @@ async function fsDrill(node) {
     renderOverview();
     if (!FS.subdir_ready) {
       $("fsChart").innerHTML = '<div class="loading" style="margin:0">' +
-        '<span class="spin"></span>未启用 WizTree 加速，正在现场扫描该目录（可能需要几秒）…</div>';
+        `<span class="spin"></span>${t("fs.noWiztreeOnTheFly","未启用 WizTree 加速，正在现场扫描该目录（可能需要几秒）…")}</div>`;
     }
     await loadSubLevel(node);
     const got = !!(FS.kids && FS.kids[key] && FS.kids[key].length);
@@ -2934,23 +2934,23 @@ function renderChart() {
     <div class="vrow-wrap" data-path="${esc(it.path)}">
       <div class="vrow ${cls}" data-i="${idx}" data-can-drill="${drillable ? 1 : 0}">
         <div class="vtop">
-          ${canCheck ? `<input type="checkbox" class="rowsel" data-path="${esc(it.path)}"${it.target_id ? ` data-tid="${esc(it.target_id)}"` : ""}${rowChecked ? " checked" : ""} title="勾选这项参与清理">` : ""}
-          ${drillable ? `<button class="tiny ghost expinline" data-tree="${idx}" title="就地展开查看子目录">展开 ▾</button>` : ""}
+          ${canCheck ? `<input type="checkbox" class="rowsel" data-path="${esc(it.path)}"${it.target_id ? ` data-tid="${esc(it.target_id)}"` : ""}${rowChecked ? " checked" : ""} title="${t("fs.tickTitle","勾选这项参与清理")}">` : ""}
+          ${drillable ? `<button class="tiny ghost expinline" data-tree="${idx}" title="${t("sub.expandTitle","就地展开查看子目录")}">${t("sub.expand","展开 ▾")}</button>` : ""}
           <span class="fname">${esc(it.name)}${badge}${pinBadge}${
-            drillable ? '<span class="vgo">点开看子项 ›</span>' : ""}</span>
-          <button class="tiny ghost rowinfo" data-info="${idx}">详情</button>
+            drillable ? `<span class="vgo">${t("fs.drillHint","点开看子项 ›")}</span>` : ""}</span>
+          <button class="tiny ghost rowinfo" data-info="${idx}">${t("fs.detailBtn","详情")}</button>
           <span class="fsize">${fmt(it.size)}</span>
         </div>
         <div class="vtrack"><i class="vfill" style="width:${w}%${it.custom_color ? `;background:${esc(it.custom_color)}` : ""}"></i></div>
         <div class="vtop" style="margin:5px 0 0">
           <span class="vcat">${midName ? esc(midName) + " · " : ""}${it.category ? esc(catLabel(it.category)) : ""}${
-            it.steam_game ? " · Steam 游戏" : ""}${
-            it.steam_library ? " · Steam 库" : ""}${
-            it.game_platform === "epic" ? " · Epic 游戏" : ""}${
-            it.game_platform === "gog" ? " · GOG 游戏" : ""}${
-            it.game_library ? " · 游戏库" : ""}${
-            it.type === "file" ? " · 文件" : " · 目录"}${
-            loc ? ` · 位于 ${esc(loc)}` : ""}</span>
+            it.steam_game ? ` · ${t("sf.steamGame","Steam 游戏")}` : ""}${
+            it.steam_library ? ` · ${t("sf.steamLib","Steam 库")}` : ""}${
+            it.game_platform === "epic" ? ` · ${t("sf.epicGame","Epic 游戏")}` : ""}${
+            it.game_platform === "gog" ? ` · ${t("sf.gogGame","GOG 游戏")}` : ""}${
+            it.game_library ? ` · ${t("sf.gameLib","游戏库")}` : ""}${
+            it.type === "file" ? ` · ${t("sf.file","文件")}` : ` · ${t("sf.dir","目录")}`}${
+            loc ? ` · ${t("sf.locatedAt","位于 {v}").replace("{v}", esc(loc))}` : ""}</span>
         </div>
       </div>
       <div class="vrow-kids" id="vk_${idx}"></div>
@@ -3049,49 +3049,51 @@ async function openRowOverride(node) {
     cur = (data.targets || {})[key] || {};
   } catch (_) { /* 读不到就当没有覆盖 */ }
   $("modal").innerHTML = `
-    <h2>自定义显示 —— ${esc(node.name)}</h2>
+    <h2>${t("ov.title","自定义显示 —— {n}").replace("{n}", esc(node.name))}</h2>
     <div class="mbody">
       <div style="color:var(--dim2);font-size:12px;margin-bottom:10px;overflow-wrap:anywhere">${esc(node.path)}</div>
-      <label style="display:block;font-size:13px;margin:8px 0 4px">徽章文字（留空恢复默认「可清理 / 建议保留 / 未识别」，最多 16 字）</label>
+      <label style="display:block;font-size:13px;margin:8px 0 4px">${t("ov.badgeLabel","徽章文字（留空恢复默认「可清理 / 建议保留 / 未识别」，最多 16 字）")}</label>
       <input id="ovLabel" style="width:100%" maxlength="16" value="${esc(cur.label || "")}"
-             placeholder="例如：我的下载，先留着">
-      <label style="display:block;font-size:13px;margin:12px 0 6px">标签样式（点选；徽章底色与柱条颜色一起跟随）</label>
+             placeholder="${t("ov.badgePh","例如：我的下载，先留着")}">
+      <label style="display:block;font-size:13px;margin:12px 0 6px">${t("ov.kindLabel","标签样式（点选；徽章底色与柱条颜色一起跟随）")}</label>
       <div class="segbtns" id="ovKindChips">
-        <button type="button" class="seg" data-k="">跟随识别结果</button>
-        <button type="button" class="seg" data-k="clean">可清理</button>
-        <button type="button" class="seg" data-k="unk">未识别</button>
-        <button type="button" class="seg" data-k="keep">建议保留</button>
-        <button type="button" class="seg" data-k="color">自定义颜色</button>
+        <button type="button" class="seg" data-k="">${t("ov.follow","跟随识别结果")}</button>
+        <button type="button" class="seg" data-k="clean">${t("badge.clean","可清理")}</button>
+        <button type="button" class="seg" data-k="unk">${t("badge.unk","未识别")}</button>
+        <button type="button" class="seg" data-k="keep">${t("badge.keep","建议保留")}</button>
+        <button type="button" class="seg" data-k="color">${t("ov.kColor","自定义颜色")}</button>
       </div>
       <div id="ovColorRow" style="display:none;margin-top:8px">
         <input type="color" id="ovColor" value="${esc(cur.color || "#60a5fa")}"
                style="width:52px;height:28px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer">
-        <span style="font-size:12px;color:var(--dim2);margin-left:6px">徽章与柱条都用这个颜色</span>
+        <span style="font-size:12px;color:var(--dim2);margin-left:6px">${t("ov.colorNote","徽章与柱条都用这个颜色")}</span>
       </div>
-      <label style="display:block;font-size:13px;margin:12px 0 4px">下方说明（已填入当前说明，直接编辑即可；清空恢复识别结果，最多 120 字）</label>
+      <label style="display:block;font-size:13px;margin:12px 0 4px">${t("ov.noteLabel","下方说明（已填入当前说明，直接编辑即可；清空恢复识别结果，最多 120 字）")}</label>
       <textarea id="ovNote" rows="3" style="width:100%" maxlength="120"
-                placeholder="写在这里会替换行下方的说明文字">${esc(cur.note || node.title || "")}</textarea>
+                placeholder="${t("ov.notePh","写在这里会替换行下方的说明文字")}">${esc(cur.note || node.title || "")}</textarea>
       <label style="display:flex;align-items:flex-start;gap:8px;margin:14px 0 4px;font-size:13px;cursor:pointer">
         <input type="checkbox" id="ovPin" style="margin-top:2px"${cur.pin ? " checked" : ""}>
-        <span><b>提级到排行顶层</b><span style="color:var(--dim2);font-size:12px">
-          （把这个深层目录固定显示在占用排行第一层，不用一层层点下去找；
-          取消勾选即恢复。标记保存在本机自定义数据里，随迁移数据一起走）</span></span>
+        <span><b>${t("ov.pinLabel","提级到排行顶层")}</b><span style="color:var(--dim2);font-size:12px">
+          ${t("ov.pinDesc","（把这个深层目录固定显示在占用排行第一层，不用一层层点下去找；取消勾选即恢复。标记保存在本机自定义数据里，随迁移数据一起走）")}</span></span>
       </label>
       <div style="color:var(--dim2);font-size:12px;margin-top:8px">
-        注意：标签样式与颜色只是你给自己看的显示偏好，不改变工具对这个目录的
-        风险判定，也不会把「建议保留」变成「可清理」的自动勾选行为。</div>
+        ${t("ov.warn","注意：标签样式与颜色只是你给自己看的显示偏好，不改变工具对这个目录的风险判定，也不会把「建议保留」变成「可清理」的自动勾选行为。")}</div>
     </div>
     <div class="mfoot">
-      <button id="ovDel" class="ghost">恢复默认</button>
-      <button id="ovCancel" class="ghost">取消</button>
-      <button id="ovSave" class="primary">保存</button>
+      <button id="ovDel" class="ghost">${t("ov.reset","恢复默认")}</button>
+      <button id="ovCancel" class="ghost">${t("ov.cancel","取消")}</button>
+      <button id="ovSave" class="primary">${t("ov.save","保存")}</button>
     </div>`;
   $("mask").classList.add("on");
   // 标签样式 chip：点选即生效预览（保存才持久化）；选「自定义颜色」才出现色板。
   // 文字与样式保持一致：徽章文字为空或原本就是三档标准文案时，跟着所选
   // 样式填入对应的默认文案，避免「文字可清理、底色建议保留」的错位。
   const chips = [...$("ovKindChips").querySelectorAll(".seg")];
-  const STD_KIND_TEXT = { clean: "可清理", unk: "未识别", keep: "建议保留" };
+  const STD_KIND_TEXT = {
+    clean: t("badge.clean","可清理"),
+    unk: t("badge.unk","未识别"),
+    keep: t("badge.keep","建议保留"),
+  };
   const setChip = k => {
     chips.forEach(c => c.classList.toggle("on", c.dataset.k === k));
     $("ovColorRow").style.display = k === "color" ? "" : "none";
@@ -3178,19 +3180,19 @@ async function toggleInlineKids(wrap, item, btn) {
   if (!container) return;
   if (container.classList.contains("open")) {
     container.classList.remove("open");
-    btn.textContent = "展开 ▾";
+    btn.textContent = t("sub.expand","展开 ▾");
     return;
   }
   container.classList.add("open");
-  btn.textContent = "收起 ▴";
+  btn.textContent = t("sub.collapse","收起 ▴");
   if (container.dataset.loaded) return;
 
-  container.innerHTML = '<div class="loading"><span class="spin"></span>正在按需扫描子项…</div>';
+  container.innerHTML = `<div class="loading"><span class="spin"></span>${t("sub.scanning","正在按需扫描子项…")}</div>`;
   try {
     const res = await fetch(`${API}/__oc__/subdirs?drive=${encodeURIComponent(FS?.drive || drive)}&path=${encodeURIComponent(item.path)}&limit=100&lang=${i18nLocale() === "en" ? "en" : "zh"}`);
     const r = await res.json();
     if (r.error || !(r.children || []).length) {
-      container.innerHTML = '<div class="empty" style="margin:4px 0">此项暂无可见子目录或为空。</div>';
+      container.innerHTML = `<div class="empty" style="margin:4px 0">${t("sub.none","此项暂无可见子目录或为空。")}</div>`;
       container.dataset.loaded = "1";
       return;
     }
@@ -3204,7 +3206,7 @@ async function toggleInlineKids(wrap, item, btn) {
     container.innerHTML = "";
     appendKidsPage(container);
   } catch (err) {
-    container.innerHTML = `<div class="errline">加载失败：${esc(err.message)}</div>`;
+    container.innerHTML = `<div class="errline">${t("sub.loadFail","加载失败：")}${esc(err.message)}</div>`;
   }
 }
 
@@ -3238,7 +3240,7 @@ function updateKidsMoreRow(container) {
       moreRow.style.cssText = "padding:4px 8px";
       container.appendChild(moreRow);
     }
-    moreRow.innerHTML = `<button class="tiny ghost" data-kidmore="1">显示更多（还有 ${rest} 项）</button>`;
+    moreRow.innerHTML = `<button class="tiny ghost" data-kidmore="1">${t("sub.showMore","显示更多（还有 {n} 项）").replace("{n}", rest)}</button>`;
     moreRow.querySelector("button").addEventListener("click", ev => {
       ev.stopPropagation();
       appendKidsPage(container);
@@ -3248,7 +3250,8 @@ function updateKidsMoreRow(container) {
     const d = document.createElement("div");
     d.className = "kidtotal empty";
     d.style.cssText = "margin:2px 0 6px;font-size:11.5px";
-    d.textContent = `该层共有 ${total} 个子项，按体积只列出前 ${kids.length} 个。`;
+    d.textContent = t("sub.truncated","该层共有 {total} 个子项，按体积只列出前 {listed} 个。")
+      .replace("{total}", total).replace("{listed}", kids.length);
     container.appendChild(d);
   }
 }
@@ -3258,17 +3261,17 @@ function subTreeRowHTML(c) {
   const kind = c.game_platform ? "keep" : rowKind(c);
   const cls = "c-" + (kind === "unk" ? "unknown" : kind);
   const badge = c.game_platform
-    ? `<span class="vbadge keep">${c.game_platform === "epic" ? "Epic" : "GOG"} 游戏本体</span>`
-    : c.game_library ? '<span class="vbadge keep">游戏库</span>'
-    : !c.recognized ? "" : (c.cleanable ? '<span class="vbadge clean">可清理</span>' : '<span class="vbadge keep">建议保留</span>');
+    ? `<span class="vbadge keep">${c.game_platform === "epic" ? "Epic" : "GOG"} ${t("sub.gameBody","游戏本体")}</span>`
+    : c.game_library ? `<span class="vbadge keep">${t("sub.gameLib","游戏库")}</span>`
+    : !c.recognized ? "" : (c.cleanable ? `<span class="vbadge clean">${t("badge.clean","可清理")}</span>` : `<span class="vbadge keep">${t("badge.keep","建议保留")}</span>`);
   const canExpand = c.can_drill || c.type === "dir";
   return `
     <div class="vrow-wrap" data-path="${esc(c.path)}">
       <div class="vrow ${cls}" style="padding:4px 8px;font-size:12px;background:var(--panel2)">
         <div class="vtop" style="margin-bottom:0">
-          ${canExpand ? `<button class="tiny ghost expinline" title="就地展开查看子目录">展开 ▾</button>` : ""}
+          ${canExpand ? `<button class="tiny ghost expinline" title="${t("sub.expandTitle","就地展开查看子目录")}">${t("sub.expand","展开 ▾")}</button>` : ""}
           <span class="fname" style="font-size:12.5px">${esc(c.display_name && c.display_name !== c.name ? c.display_name : c.name)}${badge}</span>
-          <button class="tiny ghost" data-open="${esc(c.path)}" style="margin-left:auto">打开</button>
+          <button class="tiny ghost" data-open="${esc(c.path)}" style="margin-left:auto">${t("part.open","打开")}</button>
           <span class="fsize">${esc(c.size_h)}</span>
         </div>
       </div>
@@ -3299,8 +3302,9 @@ function bindSubTreeEvents(container) {
    保存后按 ovkey 生效（普通项跨盘符通用，自动发现项按路径），文本与
    「可清理」结论立即反映到卡片说明、徽章与「全选可清理」。
    全部留空保存 = 恢复该项目的默认释义。 */
-async function editOverride(t) {
-  const key = t.ovkey || t.base_id || t.id;
+async function editOverride(node) {
+  // 参数不能叫 t —— 会遮蔽翻译函数 t()，模板里的词条调用全部炸（CDP 抓过）
+  const key = node.ovkey || node.base_id || node.id;
   let cur = {};
   try {
     const r = await (await fetch(`${API}/__oc__/overrides`)).json();
@@ -3308,36 +3312,34 @@ async function editOverride(t) {
   } catch { /* 读不到就当没有覆盖 */ }
   const cl = typeof cur.cleanable === "boolean" ? String(cur.cleanable) : "default";
   $("modal").innerHTML = `
-    <h2>自定义释义 —— ${esc(t.label)}</h2>
+    <h2>${t("ov2.title","自定义释义 —— {n}").replace("{n}", esc(node.label))}</h2>
     <div class="mbody">
       <div class="dconf" style="margin-bottom:10px">
-        改过的说明会显示在卡片与详情里；「结论」决定它算不算可清理项
-        （影响「全选可清理」与徽章）。改动优先于内置说明与资源包。
+        ${t("ov2.intro","改过的说明会显示在卡片与详情里；「结论」决定它算不算可清理项（影响「全选可清理」与徽章）。改动优先于内置说明与资源包。")}
       </div>
-      <div class="field"><label style="width:64px">是什么</label>
-        <textarea id="ovWhat" rows="2" style="flex:1">${esc(cur.what ?? t.what ?? "")}</textarea></div>
-      <div class="field"><label style="width:64px">能否重建</label>
-        <textarea id="ovRebuild" rows="2" style="flex:1">${esc(cur.rebuild ?? t.rebuild ?? "")}</textarea></div>
-      <div class="field"><label style="width:64px">删除影响</label>
-        <textarea id="ovImpact" rows="2" style="flex:1">${esc(cur.impact ?? t.impact ?? "")}</textarea></div>
-      <div class="field"><label style="width:64px">建议保留</label>
-        <textarea id="ovKeep" rows="2" style="flex:1">${esc(cur.keep_if ?? t.keep_if ?? "")}</textarea></div>
-      <div class="field"><label style="width:64px">结论</label>
+      <div class="field"><label style="width:64px">${t("ov2.what","是什么")}</label>
+        <textarea id="ovWhat" rows="2" style="flex:1">${esc(cur.what ?? node.what ?? "")}</textarea></div>
+      <div class="field"><label style="width:64px">${t("ov2.rebuild","能否重建")}</label>
+        <textarea id="ovRebuild" rows="2" style="flex:1">${esc(cur.rebuild ?? node.rebuild ?? "")}</textarea></div>
+      <div class="field"><label style="width:64px">${t("ov2.impact","删除影响")}</label>
+        <textarea id="ovImpact" rows="2" style="flex:1">${esc(cur.impact ?? node.impact ?? "")}</textarea></div>
+      <div class="field"><label style="width:64px">${t("ov2.keepIf","建议保留")}</label>
+        <textarea id="ovKeep" rows="2" style="flex:1">${esc(cur.keep_if ?? node.keep_if ?? "")}</textarea></div>
+      <div class="field"><label style="width:64px">${t("ov2.verdict","结论")}</label>
         <select id="ovClean" style="flex:1">
-          <option value="default">跟随默认判定</option>
-          <option value="true" ${cl === "true" ? "selected" : ""}>可清理</option>
-          <option value="false" ${cl === "false" ? "selected" : ""}>不可清理（建议保留）</option>
+          <option value="default">${t("ov2.followDefault","跟随默认判定")}</option>
+          <option value="true" ${cl === "true" ? "selected" : ""}>${t("ov2.cleanable","可清理")}</option>
+          <option value="false" ${cl === "false" ? "selected" : ""}>${t("ov2.notCleanable","不可清理（建议保留）")}</option>
         </select></div>
       <div class="dconf" style="margin-top:8px">
-        注意：把高风险项改成「可清理」不会降低它的风险等级，清理时仍按高风险处理
-        （默认删进回收站）。
+        ${t("ov2.riskNote","注意：把高风险项改成「可清理」不会降低它的风险等级，清理时仍按高风险处理（默认删进回收站）。")}
       </div>
     </div>
     <div class="mfoot">
-      <button id="ovReset" class="ghost">恢复默认</button>
+      <button id="ovReset" class="ghost">${t("ov.reset","恢复默认")}</button>
       <div class="grow"></div>
-      <button id="ovCancel" class="ghost">取消</button>
-      <button id="ovSave" class="primary">保存</button>
+      <button id="ovCancel" class="ghost">${t("ov.cancel","取消")}</button>
+      <button id="ovSave" class="primary">${t("ov.save","保存")}</button>
     </div>`;
   $("mask").classList.add("on");
   $("ovCancel").addEventListener("click", closeModal);
@@ -3376,52 +3378,51 @@ async function editOverride(t) {
 function showDetail(it) {
   const clean = it.cleanable;
   const adviceCls = clean ? "yes" : "no";
-  const adviceHead = clean ? "可以清理" : "建议保留 / 不要直接删";
+  const adviceHead = clean ? t("det.cleanHead","可以清理")
+                           : t("det.keepHead","建议保留 / 不要直接删");
   // 游戏本体走专门的删除通道：树节点带 steam_game / game_platform 标记，
   // Steam 页的行带 game_body。三者都指回后端能二次确认的那条安全边界。
   const gamePlat = it.steam_game ? "steam" : (it.game_platform || it.game_body || "");
   $("modal").innerHTML = `
-    <h2>这一项是什么</h2>
+    <h2>${t("det.title","这一项是什么")}</h2>
     <div class="mbody">
       <div class="dhead">
         <div class="dname">${esc(it.display_name || it.name)}
-          ${!it.recognized ? '<span class="vbadge unk">未识别</span>'
-            : (clean ? '<span class="vbadge clean">可清理</span>'
-                     : '<span class="vbadge keep">建议保留</span>')}</div>
+          ${!it.recognized ? `<span class="vbadge unk">${t("badge.unk","未识别")}</span>`
+            : (clean ? `<span class="vbadge clean">${t("badge.clean","可清理")}</span>`
+                     : `<span class="vbadge keep">${t("badge.keep","建议保留")}</span>`)}</div>
         <div class="dsize">${fmt(it.size)}</div>
       </div>
       <dl class="dfacts">
-        <dt>识别为</dt><dd><b>${esc(it.title)}</b></dd>
-        <dt>分类</dt><dd>${esc(catLabel(it.category))}</dd>
-        <dt>风险等级</dt>
+        <dt>${t("det.recognizedAs","识别为")}</dt><dd><b>${esc(it.title)}</b></dd>
+        <dt>${t("det.category","分类")}</dt><dd>${esc(catLabel(it.category))}</dd>
+        <dt>${t("det.risk","风险等级")}</dt>
           <dd><span class="badge ${riskCls(it.risk)}">${esc(it.risk)}</span></dd>
-        <dt>识别依据</dt><dd>${esc(it.confidence_label || "")}</dd>
-        <dt>占用</dt><dd>${fmt(it.size)}${
-          it.files > 1 ? ` · ${it.files.toLocaleString()} 个文件` : ""}</dd>
-        ${it.modified ? `<dt>最后修改</dt><dd>${esc(it.modified)}</dd>` : ""}
+        <dt>${t("det.basis","识别依据")}</dt><dd>${esc(it.confidence_label || "")}</dd>
+        <dt>${t("det.usage","占用")}</dt><dd>${fmt(it.size)}${
+          it.files > 1 ? ` · ${it.files.toLocaleString()} ${t("det.filesSuffix","个文件")}` : ""}</dd>
+        ${it.modified ? `<dt>${t("det.modified","最后修改")}</dt><dd>${esc(it.modified)}</dd>` : ""}
       </dl>
-      <div class="dsec"><div class="dh">是什么</div>${esc(it.what)}</div>
+      <div class="dsec"><div class="dh">${t("det.what","是什么")}</div>${esc(it.what)}</div>
       <div class="dadv ${adviceCls}"><b>${adviceHead}</b><br>${esc(it.advice)}</div>
-      ${it.tip ? `<div class="dtip">提示：${esc(it.tip)}</div>` : ""}
-      <div class="dpath">路径：${esc(it.path)}</div>
-      ${!it.recognized ? '<div class="dconf">知识库里没有这个名称的规则，' +
-        '所以本工具不对它做任何清理建议。你可以在 config\\filetypes.json 里补一条规则，' +
-        '或装一个覆盖它的资源包。</div>' : ""}
+      ${it.tip ? `<div class="dtip">${t("det.tip","提示：")}${esc(it.tip)}</div>` : ""}
+      <div class="dpath">${t("det.path","路径：")}${esc(it.path)}</div>
+      ${!it.recognized ? `<div class="dconf">${t("det.noRule",
+        "知识库里没有这个名称的规则，所以本工具不对它做任何清理建议。你可以在 config\\filetypes.json 里补一条规则，或装一个覆盖它的资源包。")}</div>` : ""}
       <div id="dAiOut" class="dsec" style="display:none"></div>
     </div>
     <div class="mfoot">
-      <div class="left">${clean
-        ? "勾选占用排行里这一行即可清理"
-        : "本工具不会删除此项"}</div>
-      ${STATE?.ai?.ready ? '<button id="dAi" class="ghost">让 AI 解释</button>' : ""}
-      ${it.target_id ? '<button id="dOv" class="ghost">自定义释义</button>' : ""}
+      <div class="left">${clean ? t("det.howClean","勾选占用排行里这一行即可清理")
+                                : t("det.noDel","本工具不会删除此项")}</div>
+      ${STATE?.ai?.ready ? `<button id="dAi" class="ghost">${t("det.aiAsk","让 AI 解释")}</button>` : ""}
+      ${it.target_id ? `<button id="dOv" class="ghost">${t("det.custom","自定义释义")}</button>` : ""}
       ${it.path && it.type !== "file"
-        ? `<button id="dPart" class="ghost">细分查看：哪些能删</button>` : ""}
-      ${gamePlat ? '<button id="dDelGame" class="go">删除这个游戏</button>' : ""}
-      <button id="dReveal" class="ghost">在资源管理器中打开</button>
-      ${it.path && it.type !== "file" ? '<button id="dLocate" class="ghost">定位到这个目录</button>' : ""}
-      <button id="dCopy" class="ghost">复制路径</button>
-      <button id="dClose" class="primary">知道了</button>
+        ? `<button id="dPart" class="ghost">${t("det.parts","细分查看：哪些能删")}</button>` : ""}
+      ${gamePlat ? `<button id="dDelGame" class="go">${t("det.delGame","删除这个游戏")}</button>` : ""}
+      <button id="dReveal" class="ghost">${t("det.reveal","在资源管理器中打开")}</button>
+      ${it.path && it.type !== "file" ? `<button id="dLocate" class="ghost">${t("det.locate","定位到这个目录")}</button>` : ""}
+      <button id="dCopy" class="ghost">${t("det.copy","复制路径")}</button>
+      <button id="dClose" class="primary">${t("det.ok","知道了")}</button>
     </div>`;
   $("mask").classList.add("on");
   $("dClose").addEventListener("click", closeModal);
@@ -3477,34 +3478,32 @@ function showDetail(it) {
 function confirmDeleteGame(it, plat, orphan) {
   const platName = plat === "steam" ? "Steam"
                  : (plat === "epic" ? "Epic Games" : "GOG");
-  const head = orphan ? "删除残留目录" : "删除游戏";
+  const head = orphan ? t("dg.orphanHead","删除残留目录") : t("dg.head","删除游戏");
   $("modal").innerHTML = `
-    <h2>${head} —— ${esc(platName)} · 执行后无法恢复</h2>
+    <h2>${head} —— ${esc(platName)} · ${t("dg.irreversible","执行后无法恢复")}</h2>
     <div class="mbody">
-      <div class="warnpane"><b>将永久删除整个目录</b>：${orphan
-        ? "这是 Steam 清单里已无记录的目录（通常是卸载不干净的残留）"
-        : "游戏本体，以及放在这个目录里的存档、配置和 Mod"}。
-        多数游戏把存档存在 <code>文档\\My Games</code>、
-        <code>AppData</code> 或平台云存档里，不受影响 —— 但删之前请确认
-        这个目录里没有你想保留的东西${orphan ? "（有些游戏的存档或 MOD 会留在这里）" : ""}。</div>
+      <div class="warnpane"><b>${t("dg.permanent","将永久删除整个目录")}</b>：${orphan
+        ? t("dg.orphanWhat","这是 Steam 清单里已无记录的目录（通常是卸载不干净的残留）")
+        : t("dg.gameWhat","游戏本体，以及放在这个目录里的存档、配置和 Mod")}。
+        ${t("dg.savesSafe","多数游戏把存档存在")} <code>${t("dg.savesWhere","文档\\My Games")}</code>、
+        <code>AppData</code> ${t("dg.savesSafe2","或平台云存档里，不受影响 —— 但删之前请确认")}
+        ${t("dg.savesSafe3","这个目录里没有你想保留的东西")}${orphan ? t("dg.orphanSaves","（有些游戏的存档或 MOD 会留在这里）") : ""}。</div>
       <dl class="dfacts">
-        <dt>${orphan ? "目录" : "游戏"}</dt><dd><b>${esc(it.display_name || it.name)}</b></dd>
-        <dt>占用</dt><dd>${fmt(it.size)}</dd>
-        <dt>位置</dt><dd class="mono" style="word-break:break-all">${esc(it.path)}</dd>
+        <dt>${orphan ? t("dg.itemDir","目录") : t("dg.itemGame","游戏")}</dt><dd><b>${esc(it.display_name || it.name)}</b></dd>
+        <dt>${t("det.usage","占用")}</dt><dd>${fmt(it.size)}</dd>
+        <dt>${t("dg.location","位置")}</dt><dd class="mono" style="word-break:break-all">${esc(it.path)}</dd>
       </dl>
-      <div id="saveScan" style="margin-top:10px;color:var(--dim);font-size:12.5px">正在查找本地存档…</div>
-      <div class="dadv no"><b>${orphan ? "先排除一种误报" : "更稳妥的做法"}</b><br>${
+      <div id="saveScan" style="margin-top:10px;color:var(--dim);font-size:12.5px">${t("dg.scanningSaves","正在查找本地存档…")}</div>
+      <div class="dadv no"><b>${orphan ? t("dg.orphanCheck","先排除一种误报") : t("dg.saferWay","更稳妥的做法")}</b><br>${
         orphan
-        ? "如果它其实是被 Steam 清单漏记的活游戏，先在 Steam 里点一次「安装」——"
-          + "若 Steam 开始往这个目录写文件，就说明不是残留，别删。"
-        : `在 ${esc(platName)} 客户端里卸载，它会同时清掉库记录，不留残留；`
-          + "直接删目录也能释放空间，之后客户端里会显示「未安装」，想再玩重新下载即可。"}</div>
+        ? t("dg.orphanAdvice","如果它其实是被 Steam 清单漏记的活游戏，先在 Steam 里点一次「安装」——若 Steam 开始往这个目录写文件，就说明不是残留，别删。")
+        : t("dg.uninstallAdvice","在 {plat} 客户端里卸载，它会同时清掉库记录，不留残留；直接删目录也能释放空间，之后客户端里会显示「未安装」，想再玩重新下载即可。").replace("{plat}", esc(platName))}</div>
       <div id="delGameMsg" style="color:var(--dim);font-size:12px;margin-top:9px"></div>
     </div>
     <div class="mfoot">
-      <div class="left">预计释放 <b style="color:var(--ok)">${fmt(it.size)}</b></div>
-      <button id="dgCancel" class="ghost">取消</button>
-      <button id="dgGo" class="go">确认删除</button>
+      <div class="left">${t("dg.willFree","预计释放")} <b style="color:var(--ok)">${fmt(it.size)}</b></div>
+      <button id="dgCancel" class="ghost">${t("dg.cancel","取消")}</button>
+      <button id="dgGo" class="go">${t("dg.confirm","确认删除")}</button>
     </div>`;
   $("mask").classList.add("on");
   $("dgCancel").addEventListener("click", closeModal);
@@ -3516,21 +3515,21 @@ function confirmDeleteGame(it, plat, orphan) {
     const box = $("saveScan");
     if (!box) return;                       // 弹窗可能已被关掉
     if (d.error || !d.count) {
-      box.innerHTML = `<span style="color:var(--dim2)">未在「文档\\My Games」「AppData」等常见位置
-        发现与它同名的本地存档（不代表平台云存档里也没有）。</span>`;
+      box.innerHTML = `<span style="color:var(--dim2)">${t("dg.noSaves",
+        "未在「文档\\My Games」「AppData」等常见位置发现与它同名的本地存档（不代表平台云存档里也没有）。")}</span>`;
       return;
     }
-    box.innerHTML = `<div class="warnpane" style="margin-top:6px"><b>发现 ${d.count} 处疑似本地存档
-      —— 删除游戏不会动它们（都在安装目录之外），想彻底清就先备份：</b><ul>${
+    box.innerHTML = `<div class="warnpane" style="margin-top:6px"><b>${t("dg.savesFound",
+      "发现 {n} 处疑似本地存档 —— 删除游戏不会动它们（都在安装目录之外），想彻底清就先备份：").replace("{n}", d.count)}</b><ul>${
       d.saves.map(s => `<li><span class="mono" style="word-break:break-all">${esc(s.path)}</span>
-        <span style="color:var(--dim2)">（${esc(s.where)} · 约 ${esc(s.size_h)}）</span></li>`).join("")
+        <span style="color:var(--dim2)">（${esc(s.where)} · ${t("dg.savesApprox","约")} ${esc(s.size_h)}）</span></li>`).join("")
     }</ul></div>`;
   }).catch(() => { const box = $("saveScan"); if (box) box.textContent = ""; });
   $("dgGo").addEventListener("click", async () => {
     const btn = $("dgGo"), msg = $("delGameMsg");
     if (!btn || !msg) return;
-    btn.disabled = true; btn.textContent = "正在删除…";
-    msg.textContent = "正在删除整个目录，大目录可能要几十秒…";
+    btn.disabled = true; btn.textContent = t("dg.deleting","正在删除…");
+    msg.textContent = t("dg.deletingLong","正在删除整个目录，大目录可能要几十秒…");
     try {
       const r = await (await fetch(`${API}/__oc__/clean-game`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -3538,18 +3537,18 @@ function confirmDeleteGame(it, plat, orphan) {
       })).json();
       // 部分删除（目录还在但已腾出空间）也要如实展示，不能只报错误行
       $("modal").innerHTML = `
-        <h2>${r.ok ? "已删除" : (r.freed > 0 ? "部分删除" : "删除失败")}</h2>
+        <h2>${r.ok ? t("dg.done","已删除") : (r.freed > 0 ? t("dg.partial","部分删除") : t("dg.failed","删除失败"))}</h2>
         <div class="mbody">
-          ${r.error ? `<div class="dadv no"><b>未完全删除</b><br>${esc(r.error)}</div>` : ""}
-          <div class="dadv ${r.ok ? "yes" : "no"}"><b>${r.ok ? "删除完成" : (r.freed > 0 ? "已腾出部分空间" : "空间未变化")}</b><br>
-            ${esc(r.name)} ${r.freed > 0 ? `释放 <b style="color:var(--ok)">${esc(r.freed_h)}</b>` : "没有释放空间"}。
+          ${r.error ? `<div class="dadv no"><b>${t("dg.notFully","未完全删除")}</b><br>${esc(r.error)}</div>` : ""}
+          <div class="dadv ${r.ok ? "yes" : "no"}"><b>${r.ok ? t("dg.done","已删除") : (r.freed > 0 ? t("dg.freedSome","已腾出部分空间") : t("dg.freedNone","空间未变化"))}</b><br>
+            ${esc(r.name)} ${r.freed > 0 ? `${t("dg.freed","释放")} <b style="color:var(--ok)">${esc(r.freed_h)}</b>` : t("dg.freedNothing","没有释放空间")}。
             ${r.disk && r.disk.free_h
-              ? `${esc(r.disk.letter)}: 盘当前可用 ${esc(r.disk.free_h)}。` : ""}</div>
+              ? `${t("dg.diskFree","{letter}: 盘当前可用 {v}。").replace("{letter}", esc(r.disk.letter)).replace("{v}", esc(r.disk.free_h))}` : ""}</div>
           ${r.ok ? `<div style="color:var(--dim2);font-size:12px;margin-top:9px">
-            磁盘概览是删除之前扫的，数字已经过期；需要最新数据时再点「全盘扫描本盘」。</div>` : ""}
+            ${t("dg.diskStale","磁盘概览是删除之前扫的，数字已经过期；需要最新数据时再点「全盘扫描本盘」。")}</div>` : ""}
         </div>
         <div class="mfoot">
-          <button id="dgClose" class="primary">知道了</button>
+          <button id="dgClose" class="primary">${t("det.ok","知道了")}</button>
         </div>`;
       $("dgClose").addEventListener("click", () => {
         closeModal();
@@ -3571,9 +3570,9 @@ function confirmDeleteGame(it, plat, orphan) {
         }
       });
     } catch (e) {
-      btn.disabled = false; btn.textContent = "确认删除";
+      btn.disabled = false; btn.textContent = t("dg.confirm","确认删除");
       msg.innerHTML =
-        `<span style="color:var(--danger)">请求失败：${esc(e.message || String(e))}</span>`;
+        `<span style="color:var(--danger)">${t("dg.requestFail","请求失败：")}${esc(e.message || String(e))}</span>`;
     }
   });
 }
@@ -3584,10 +3583,10 @@ async function aiExplainInto(it, btn) {
   const out = $("dAiOut");
   if (!out) return;
   btn.disabled = true;
-  const old = btn.textContent; btn.textContent = "正在请求…";
+  const old = btn.textContent; btn.textContent = t("ai.requesting","正在请求…");
   out.style.display = "block";
-  out.innerHTML = '<div class="dh">AI 解释</div><div class="loading">' +
-    '<span class="spin"></span>正在请求你配置的 AI 服务…</div>';
+  out.innerHTML = `<div class="dh">${t("ai.explain","AI 解释")}</div><div class="loading">` +
+    `<span class="spin"></span>${t("ai.requestingSvc","正在请求你配置的 AI 服务…")}</div>`;
   try {
     const r = await (await fetch(`${API}/__oc__/ai/explain`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -3598,12 +3597,12 @@ async function aiExplainInto(it, btn) {
       })
     })).json();
     out.innerHTML = r.ok
-      ? `<div class="dh">AI 解释<span class="hint">由你自己配置的模型生成，仅供参考</span></div>` +
+      ? `<div class="dh">${t("ai.explain","AI 解释")}<span class="hint">${t("ai.disclaimer","由你自己配置的模型生成，仅供参考")}</span></div>` +
         String(r.text || "").split(/\n+/).filter(Boolean)
           .map(p => `<div class="dpar">${esc(p)}</div>`).join("")
-      : `<div class="dh">AI 解释</div><div class="errline">${esc(r.error || "请求失败")}</div>`;
+      : `<div class="dh">${t("ai.explain","AI 解释")}</div><div class="errline">${esc(r.error || t("ai.requestFail","请求失败"))}</div>`;
   } catch (e) {
-    out.innerHTML = `<div class="dh">AI 解释</div><div class="errline">${esc(String(e))}</div>`;
+    out.innerHTML = `<div class="dh">${t("ai.explain","AI 解释")}</div><div class="errline">${esc(String(e))}</div>`;
   } finally {
     btn.disabled = false; btn.textContent = old;
   }
@@ -3620,12 +3619,12 @@ function partRow(x) {
     <span class="pnm">${esc(x.name)}${
       x.why ? `<div class="pwhy">${esc(x.why)}</div>` : ""}</span>
     <span class="psz">${esc(x.size_h || fmt(x.size || 0))}</span>
-    <button class="tiny ghost" data-prev="${esc(x.path)}">打开</button>
+    <button class="tiny ghost" data-prev="${esc(x.path)}">${t("part.open","打开")}</button>
   </div>`;
 }
 
 function partList(arr) {
-  if (!arr || !arr.length) return '<div class="empty">这一类里没有内容</div>';
+  if (!arr || !arr.length) return `<div class="empty">${t("part.emptyGroup","这一类里没有内容")}</div>`;
   return `<div class="plist">${arr.map(partRow).join("")}</div>`;
 }
 
@@ -3641,9 +3640,9 @@ function renderSubdirList(it, r) {
     const cls = !c.recognized ? "c-unknown" : (c.cleanable ? "c-clean" : "c-keep");
     const w = top ? Math.max(1.5, c.size / top * 100).toFixed(1) : 2;
     const badge = !c.recognized
-      ? '<span class="vbadge unk">未识别</span>'
-      : (c.cleanable ? '<span class="vbadge clean">可清理</span>'
-                     : '<span class="vbadge keep">建议保留</span>');
+      ? `<span class="vbadge unk">${t("badge.unk","未识别")}</span>`
+      : (c.cleanable ? `<span class="vbadge clean">${t("badge.clean","可清理")}</span>`
+                     : `<span class="vbadge keep">${t("badge.keep","建议保留")}</span>`);
     return `<div class="prow ${cls}" data-path="${esc(c.path)}"
                  data-drill="${c.can_drill ? 1 : 0}">
       <span class="pnm">
@@ -3651,34 +3650,33 @@ function renderSubdirList(it, r) {
           <b>${esc(c.name)}</b>${badge}
           <span class="psz">${esc(c.size_h || fmt(c.size))}</span>
           ${c.steam_game ? '<span class="vbadge clean">Steam</span>' : ""}
-          ${c.can_drill ? '<span class="vgo">▸ 可继续展开</span>' : ""}
+          ${c.can_drill ? `<span class="vgo">${t("part.canExpand","▸ 可继续展开")}</span>` : ""}
         </span>
         <span class="vtrack" style="margin-top:4px"><i class="vfill" style="width:${w}%"></i></span>
         ${c.what ? `<div class="pwhy">${esc(c.what)}</div>` : ""}
       </span>
-      <button class="tiny ghost" data-prev="${esc(c.path)}">打开</button>
+      <button class="tiny ghost" data-prev="${esc(c.path)}">${t("part.open","打开")}</button>
     </div>`;
   };
   $("pBody").innerHTML = `
-    <div class="dh">这一层被谁占着（按体积排序）</div>
+    <div class="dh">${t("part.whoTakes","这一层被谁占着（按体积排序）")}</div>
     <div class="psum">
-      <div class="pbox"><div class="pl">子目录</div>
-        <div class="pv">${dirs.length} 个</div>
+      <div class="pbox"><div class="pl">${t("part.dirs","子目录")}</div>
+        <div class="pv">${dirs.length} ${t("part.count","个")}</div>
         <div class="pwhy">${fmt(dirs.reduce((a, x) => a + x.size, 0))}</div></div>
-      <div class="pbox"><div class="pl">文件</div>
-        <div class="pv">${files.length} 个</div>
+      <div class="pbox"><div class="pl">${t("part.files","文件")}</div>
+        <div class="pv">${files.length} ${t("part.count","个")}</div>
         <div class="pwhy">${fmt(files.reduce((a, x) => a + x.size, 0))}</div></div>
     </div>
     <div class="dsec">
-      <div class="dh">全部子项 · 共 ${esc(r.listed_total_h || fmt(r.listed_total || 0))}</div>
+      <div class="dh">${t("part.allKids","全部子项 · 共 {v}").replace("{v}", esc(r.listed_total_h || fmt(r.listed_total || 0)))}</div>
       <div class="plist">${kids.map(row).join("")}</div>
-      <div class="dtip">带「▸ 可继续展开」的目录可以点开继续往下拆（WizTree 加速下
-        任意层都是即时返回）。绿色是知识库判定可清理的，橙红是建议保留的，
-        灰色是知识库不认识、工具不做判断的。</div>
+      <div class="dtip">${t("part.treeTip",
+        "带「▸ 可继续展开」的目录可以点开继续往下拆（WizTree 加速下任意层都是即时返回）。绿色是知识库判定可清理的，橙红是建议保留的，灰色是知识库不认识、工具不做判断的。")}</div>
     </div>
     ${r.engine === "wiztree"
-      ? `<div class="enginebar fast"><b>WizTree MFT 加速</b>
-         <span>子项清单直接取自全盘 MFT 快照，未再次扫描磁盘。</span></div>`
+      ? `<div class="enginebar fast"><b>${t("part.mftFast","WizTree MFT 加速")}</b>
+         <span>${t("part.mftNote","子项清单直接取自全盘 MFT 快照，未再次扫描磁盘。")}</span></div>`
       : ""}`;
   // 点「可继续展开」的行继续下钻，形成真正的多级目录浏览
   $("pBody").querySelectorAll(".prow[data-drill='1']").forEach(el =>
@@ -3696,20 +3694,20 @@ function bindPartReveal() {
 }
 
 async function showPartition(it) {
-  const foot = `<button id="dBack" class="ghost">返回</button>
-    <button id="dClose2" class="primary">知道了</button>`;
+  const foot = `<button id="dBack" class="ghost">${t("part.back","返回")}</button>
+    <button id="dClose2" class="primary">${t("det.ok","知道了")}</button>`;
   $("modal").innerHTML = `
-    <h2>细分查看</h2>
+    <h2>${t("part.title","细分查看")}</h2>
     <div class="mbody">
       <div class="dhead">
         <div class="dname">${esc(it.name)}</div>
         <div class="dsize">${fmt(it.size)}</div>
       </div>
       <div class="dpath">${esc(it.path)}</div>
-      <div class="dsec" id="pBody">正在分析这个目录里的子项…（大目录可能要几秒到几十秒）</div>
-      <div class="dconf">只会读取子项的名字与体积，不读取任何文件内容，也不修改任何东西。</div>
+      <div class="dsec" id="pBody">${t("part.analyzing","正在分析这个目录里的子项…（大目录可能要几秒到几十秒）")}</div>
+      <div class="dconf">${t("part.privacy","只会读取子项的名字与体积，不读取任何文件内容，也不修改任何东西。")}</div>
     </div>
-    <div class="mfoot"><div class="left">本工具不会删除此项</div>${foot}</div>`;
+    <div class="mfoot"><div class="left">${t("det.noDel","本工具不会删除此项")}</div>${foot}</div>`;
   $("mask").classList.add("on");
   $("dClose2").addEventListener("click", closeModal);
   $("dBack").addEventListener("click", () => showDetail(it));
@@ -3733,12 +3731,12 @@ async function showPartition(it) {
       encodeURIComponent(it.path)}&lang=${i18nLocale() === "en" ? "en" : "zh"}`);
     r = await res.json();
   } catch (e) {
-    $("pBody").innerHTML = `<div class="dadv no"><b>分析失败</b><br>${
+    $("pBody").innerHTML = `<div class="dadv no"><b>${t("part.fail","分析失败")}</b><br>${
       esc(String(e))}</div>`;
     return;
   }
   if (r.error) {
-    $("pBody").innerHTML = `<div class="dadv no"><b>没法分析这个目录</b><br>${
+    $("pBody").innerHTML = `<div class="dadv no"><b>${t("part.cantAnalyze","没法分析这个目录")}</b><br>${
       esc(r.error)}</div>`;
     return;
   }
@@ -3747,44 +3745,42 @@ async function showPartition(it) {
   const tot = (r.cleanable_size || 0) + (r.keep_size || 0);
   const ratio = tot > 0 ? Math.round((r.cleanable_size || 0) * 100 / tot) : 0;
   const kindBadge = kind === "browser"
-    ? '<span class="vbadge keep">浏览器资料</span>'
-    : kind === "game" ? '<span class="vbadge unk">游戏安装</span>'
-    : '<span class="vbadge unk">未识别</span>';
+    ? `<span class="vbadge keep">${t("part.browserData","浏览器资料")}</span>`
+    : kind === "game" ? `<span class="vbadge unk">${t("part.gameInstall","游戏安装")}</span>`
+    : `<span class="vbadge unk">${t("badge.unk","未识别")}</span>`;
   // 保留区的说明必须跟着身份走，不能一律说「浏览器用户数据」
   const keepTip = kind === "browser"
-    ? "书签、密码、Cookie、登录状态、扩展、历史记录等用户数据，以及浏览器自身的文件都在这一部分。删掉无法恢复，即使「看起来很大」也请原样保留。"
+    ? t("part.keepBrowser","书签、密码、Cookie、登录状态、扩展、历史记录等用户数据，以及浏览器自身的文件都在这一部分。删掉无法恢复，即使「看起来很大」也请原样保留。")
     : kind === "game"
-      ? "这些是游戏本体的一部分（资源包、主程序、着色器缓存）。手工删任何一个都可能导致游戏崩溃或需要重新下载几十 GB。想回收这块空间，请用 Steam / 对应启动器卸载。"
-      : "这里不是缓存，也不是工具能替你判断的内容。工具只把体积分布摊开给你看，不做任何结论 —— 请自行确认用途后再决定。";
+      ? t("part.keepGame","这些是游戏本体的一部分（资源包、主程序、着色器缓存）。手工删任何一个都可能导致游戏崩溃或需要重新下载几十 GB。想回收这块空间，请用 Steam / 对应启动器卸载。")
+      : t("part.keepUnknown","这里不是缓存，也不是工具能替你判断的内容。工具只把体积分布摊开给你看，不做任何结论 —— 请自行确认用途后再决定。");
   const cacheTip = kind === "game"
-    ? "极少数游戏会有独立的缓存目录。这些目录删掉后游戏会自动重建，但可能因此重新编译着色器、首次进图变慢。"
-    : "这些是 Cache / Code Cache / GPUCache 一类的派生数据，程序下次运行会重新生成，删掉最多是首次打开某个站点慢一点。想清它们请用主列表里对应的清理项，不要手工去资源管理器里删。";
+    ? t("part.cacheGame","极少数游戏会有独立的缓存目录。这些目录删掉后游戏会自动重建，但可能因此重新编译着色器、首次进图变慢。")
+    : t("part.cacheGeneric","这些是 Cache / Code Cache / GPUCache 一类的派生数据，程序下次运行会重新生成，删掉最多是首次打开某个站点慢一点。想清它们请用主列表里对应的清理项，不要手工去资源管理器里删。");
 
   $("pBody").innerHTML = `
-    <div class="dh">这个目录是什么 ${kindBadge}</div>
+    <div class="dh">${t("part.whatIs","这个目录是什么")} ${kindBadge}</div>
     <div class="dsec" style="margin-top:9px">${esc(r.title || "")} —— ${esc(r.note || "")}</div>
     <div class="psum">
-      <div class="pbox good"><div class="pl">可清理的缓存子目录</div>
+      <div class="pbox good"><div class="pl">${t("part.cacheBox","可清理的缓存子目录")}</div>
         <div class="pv">${esc(r.cleanable_size_h || "0 B")}</div>
-        <div class="pwhy">${cl.length} 项 · 占 ${ratio}%</div></div>
-      <div class="pbox bad"><div class="pl">建议保留</div>
+        <div class="pwhy">${cl.length} ${t("part.items","项")} · ${t("part.ofTotal","占 {n}%").replace("{n}", ratio)}</div></div>
+      <div class="pbox bad"><div class="pl">${t("badge.keep","建议保留")}</div>
         <div class="pv">${esc(r.keep_size_h || "0 B")}</div>
-        <div class="pwhy">${kp.length} 项 · ${
-          kind === "game" ? "游戏本体" : kind === "browser"
-            ? "用户数据 / 程序文件" : "工具不做判断"}</div></div>
+        <div class="pwhy">${kp.length} ${t("part.items","项")} · ${
+          kind === "game" ? t("part.gameBody","游戏本体") : kind === "browser"
+            ? t("part.userData","用户数据 / 程序文件") : t("part.noJudge","工具不做判断")}</div></div>
     </div>
-    ${r.denied ? `<div class="dadv no"><b>权限不足</b><br>
-      这个目录需要管理员权限才能完整读取，下面的体积可能偏小。
-      以管理员身份重开本工具可拿到完整数据。</div>` : ""}
+    ${r.denied ? `<div class="dadv no"><b>${t("part.denied","权限不足")}</b><br>
+      ${t("part.deniedNote","这个目录需要管理员权限才能完整读取，下面的体积可能偏小。以管理员身份重开本工具可拿到完整数据。")}</div>` : ""}
     ${cl.length ? `<div class="dsec">
-      <div class="dh">① 缓存子目录 —— 删掉会自动重建</div>
+      <div class="dh">${t("part.sec1","① 缓存子目录 —— 删掉会自动重建")}</div>
       ${partList(cl)}
       <div class="dtip">${esc(cacheTip)}</div>
-    </div>` : `<div class="dsec"><div class="dh">① 缓存子目录</div>
-      <div class="empty">这个目录里没有识别到可清理的缓存子目录，
-      所以它整体都不建议动。</div></div>`}
+    </div>` : `<div class="dsec"><div class="dh">${t("part.sec1","① 缓存子目录")}</div>
+      <div class="empty">${t("part.sec1Empty","这个目录里没有识别到可清理的缓存子目录，所以它整体都不建议动。")}</div></div>`}
     <div class="dsec">
-      <div class="dh">② 这些不要删除</div>
+      <div class="dh">${t("part.sec2","② 这些不要删除")}</div>
       ${partList(kp)}
       <div class="dtip">${esc(keepTip)}</div>
     </div>`;
@@ -3862,7 +3858,7 @@ document.addEventListener("keydown", e => {
       fsStack.pop(); fsMode = "dirs";
       renderOverview(); renderChart();
       const up = fsStack.length ? fsStack[fsStack.length - 1].name
-                                : (FS ? FS.drive + ": 盘" : "上一层");
+                                : (FS ? FS.drive + ": " + t("st.driveSuffix","盘") : t("fs.parent","上一层"));
       toast(t("toast.upLevel","已返回上一级：") + up);
     } else {
       toast(t("toast.atTop","已在顶层目录"));
@@ -3903,7 +3899,7 @@ $("btnUnitAdd").addEventListener("click", async () => {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: "u" + Date.now().toString(36), label, plural: label,
                            bytes_per_unit: num * parseFloat($("uUnit").value),
-                           note: $("uNote").value.trim() || "自定义单位",
+                           note: $("uNote").value.trim() || t("unit.defaultNote","自定义单位"),
                            category: "自定义" })
   })).json();
   if (r.error) { toast(r.error); return; }
@@ -3913,10 +3909,10 @@ $("btnUnitAdd").addEventListener("click", async () => {
   toast(t("toast.unitAdded","已添加换算单位：") + label);
 });
 $("btnUnitExample").addEventListener("click", () => {
-  $("uLabel").value = "部 演唱会录像";
+  $("uLabel").value = t("unit.exLabel","部 演唱会录像");
   $("uBytes").value = "8";
   $("uUnit").value = "1073741824";
-  $("uNote").value = "范例：按 8 GB/部估算";
+  $("uNote").value = t("unit.exNote","范例：按 8 GB/部估算");
   toast(t("unit.exampleDone","已填入范例，点「添加单位」即可"));
 });
 
@@ -3951,18 +3947,18 @@ $("bundleFile").addEventListener("change", async e => {
     })).json();
     if (r.error) { toast(r.error); return; }
     const parts = [];
-    if (r.units_added) parts.push(`单位 +${r.units_added}`);
-    if (r.units_updated) parts.push(`单位 ~${r.units_updated}`);
-    if (r.overrides_applied) parts.push(`释义 ${r.overrides_applied} 条`);
-    if (r.rules_added) parts.push(`规则 +${r.rules_added}`);
-    if (r.rules_updated) parts.push(`规则 ~${r.rules_updated}`);
+    if (r.units_added) parts.push(t("io.unitsAdded","单位 +{n}").replace("{n}", r.units_added));
+    if (r.units_updated) parts.push(t("io.unitsUpdated","单位 ~{n}").replace("{n}", r.units_updated));
+    if (r.overrides_applied) parts.push(t("io.overrides","释义 {n} 条").replace("{n}", r.overrides_applied));
+    if (r.rules_added) parts.push(t("io.rulesAdded","规则 +{n}").replace("{n}", r.rules_added));
+    if (r.rules_updated) parts.push(t("io.rulesUpdated","规则 ~{n}").replace("{n}", r.rules_updated));
     const skipped = [].concat(r.units_skipped, r.overrides_skipped,
                               r.rules_skipped).filter(Boolean);
     if (skipped.length)
       console.warn("[O-Cleaner] 导入跳过项：", skipped);
     toast(parts.length ? t("io.imported","已导入：") + parts.join("，")
-          + (skipped.length ? `（跳过 ${skipped.length} 项，详情见控制台）` : "")
-          : "没有可导入的内容");
+          + (skipped.length ? t("io.skippedN","（跳过 {n} 项，详情见控制台）").replace("{n}", skipped.length) : "")
+          : t("io.nothing","没有可导入的内容"));
     await loadState();
   } catch { toast(t("io.importFail","导入失败，请重试")); }
 });
@@ -3976,8 +3972,8 @@ $("btnSchSave").addEventListener("click", async () => {
                            preset: $("schPreset").value, drive: $("schDrive").value })
   })).json();
   STATE.schedule = s; renderSchedule();
-  $("btnSchSave").textContent = "已保存";
-  setTimeout(() => $("btnSchSave").textContent = "保存定时设置", 1400);
+  $("btnSchSave").textContent = t("sch.saved","已保存");
+  setTimeout(() => $("btnSchSave").textContent = t("sch.saveBtn","保存定时设置"), 1400);
 });
 
 /* ==================== 资源包 / AI 面板的事件 ==================== */
@@ -3991,18 +3987,18 @@ $("packFile").addEventListener("change", async e => {
     let data;
     try { data = JSON.parse(text); }
     catch (err) {
-      msg.innerHTML = `<span class="res-err">不是合法的 JSON：${esc(String(err))}</span>`;
+      msg.innerHTML = `<span class="res-err">${t("io.badJson2","不是合法的 JSON：")}${esc(String(err))}</span>`;
       return;
     }
-    msg.innerHTML = '<span class="spin"></span>正在校验并导入…';
+    msg.innerHTML = `<span class="spin"></span>${t("io.validating","正在校验并导入…")}`;
     const r = await (await fetch(`${API}/__oc__/packs/import`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: data }),
     })).json();
     if (r.packs) { STATE.packs = r.packs; renderPacks(); }
     msg.innerHTML = r.ok
-      ? `<span class="res-ok">已导入：${esc(r.message || f.name)}</span>`
-      : `<span class="res-err">导入失败：${esc(r.error || "未知原因")}</span>`;
+      ? `<span class="res-ok">${t("io.imported2","已导入：")}${esc(r.message || f.name)}</span>`
+      : `<span class="res-err">${t("io.importFail2","导入失败：")}${esc(r.error || t("ai.unknown","未知原因"))}</span>`;
     if (r.ok) await scan();
   } finally {
     e.target.value = "";                  // 允许重复选同一个文件
@@ -4010,20 +4006,20 @@ $("packFile").addEventListener("change", async e => {
 });
 $("btnPackUpdate").addEventListener("click", async () => {
   const msg = $("packMsg");
-  msg.innerHTML = '<span class="spin"></span>正在从远端清单下载…';
+  msg.innerHTML = `<span class="spin"></span>${t("io.downloading","正在从远端清单下载…")}`;
   await packOp("update", {});
 });
 
 $("btnAiSave").addEventListener("click", () => aiSave());
 $("btnAiTest").addEventListener("click", async () => {
   await aiSave();                          // 先存再测，避免测的还是旧配置
-  await aiRun("test", {}, $("btnAiTest"), "测试连接");
+  await aiRun("test", {}, $("btnAiTest"), t("ai.test","测试连接"));
 });
 $("btnAiPlan").addEventListener("click", () => {
   const req = $("aiAsk").value.trim();
   if (!req) { toast(t("ai.needAsk","请先描述你的清理目标")); return; }
   aiRun("plan", { request: req, candidates: aiCandidates() },
-        $("btnAiPlan"), "生成方案");
+        $("btnAiPlan"), t("ai.planBtn","生成方案"));
 });
 $("btnAiClear").addEventListener("click", () => { AI_PICKS = []; $("aiOut").innerHTML = ""; });
 
@@ -4057,7 +4053,7 @@ function initAccordions() {
     h.setAttribute("role", "button");
     h.setAttribute("tabindex", "0");
     h.setAttribute("aria-expanded", p.classList.contains("open") ? "true" : "false");
-    h.title = "点击展开 / 收起";
+    h.title = t("acc.toggle","点击展开 / 收起");
     const flip = () => {
       p.classList.toggle("open");
       const opened = p.classList.contains("open");
@@ -4097,7 +4093,7 @@ function initPanelNav() {
   nav.innerHTML = ps.map(p => {
     const h = p.querySelector(":scope > h3");
     const label = ((h && h.childNodes[0] && h.childNodes[0].textContent) || p.dataset.acc).trim();
-    return `<button data-acc="${p.dataset.acc}" title="展开并定位到该面板">${esc(label)}</button>`;
+    return `<button data-acc="${p.dataset.acc}" title="${t("acc.goto","展开并定位到该面板")}">${esc(label)}</button>`;
   }).join("");
   nav.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
     const p = document.querySelector(`aside > .panel.acc[data-acc="${CSS.escape(b.dataset.acc)}"]`);
@@ -4225,6 +4221,283 @@ const I18N_EN = {
   "fs.emptyLayer": "Nothing above {h} at this level.",
   "fs.emptyLayerTail": "Switch views above, or go back one level.",
   "fs.pinned": "Pinned", "fs.pinnedTitle": "Pinned to the top of the ranking — right-click to unpin",
+  /* —— i18n L3 收尾：动态弹窗与行内文案（详情 / 删除 / AI / 细分 / 编辑 / 子树 / 后缀 / Steam 页）—— */
+  "det.title": "What is this item", "det.recognizedAs": "Identified as",
+  "det.category": "Category", "det.risk": "Risk level", "det.basis": "Basis",
+  "det.usage": "Size", "det.filesSuffix": "files", "det.modified": "Last modified",
+  "det.what": "What it is", "det.cleanHead": "Safe to clean",
+  "det.keepHead": "Keep / do not delete directly", "det.tip": "Tip: ", "det.path": "Path: ",
+  "det.noRule": "No rule matches this name in the knowledge base, so this tool makes no cleaning suggestion for it. You can add a rule in config\\filetypes.json or install a resource pack that covers it.",
+  "det.howClean": "Tick this row in the size ranking to include it in cleaning",
+  "det.noDel": "This tool will not delete this item",
+  "det.aiAsk": "Ask AI to explain", "det.custom": "Custom explanation",
+  "det.parts": "Break down: what can be deleted", "det.delGame": "Delete this game",
+  "det.reveal": "Show in Explorer", "det.locate": "Locate this folder",
+  "det.copy": "Copy path", "det.ok": "Got it",
+  "dg.head": "Delete game", "dg.orphanHead": "Delete leftover folder",
+  "dg.irreversible": "This cannot be undone", "dg.permanent": "The entire folder will be permanently deleted",
+  "dg.orphanWhat": "this folder has no record in the Steam manifest anymore (usually an incomplete-uninstall leftover)",
+  "dg.gameWhat": "the game itself, plus saves, configs and mods stored inside this folder",
+  "dg.savesSafe": "Most games keep saves in", "dg.savesWhere": "Documents\\My Games",
+  "dg.savesSafe2": "or platform cloud saves — unaffected. But before deleting, make sure",
+  "dg.savesSafe3": "nothing inside this folder is something you want to keep",
+  "dg.orphanSaves": "(some games keep saves or mods here)",
+  "dg.itemDir": "Folder", "dg.itemGame": "Game", "dg.location": "Location",
+  "dg.scanningSaves": "Looking for local saves…",
+  "dg.orphanCheck": "Rule out one false positive first", "dg.saferWay": "The safer way",
+  "dg.orphanAdvice": "If it is actually a live game missed by the Steam manifest, click \"Install\" once in Steam — if Steam starts writing files into this folder, it is not a leftover; do not delete it.",
+  "dg.uninstallAdvice": "Uninstall from the {plat} client — it also clears the library record without leftovers. Deleting the folder directly also frees the space; the client will then show \"not installed\", and you can re-download to play again.",
+  "dg.willFree": "Estimated release", "dg.cancel": "Cancel", "dg.confirm": "Confirm delete",
+  "dg.noSaves": "No local saves with a matching name were found in common locations such as Documents\\My Games or AppData (this does not rule out platform cloud saves).",
+  "dg.savesFound": "Found {n} possible local save locations — deleting the game will not touch them (all outside the install folder). Back them up first if you want a thorough wipe:",
+  "dg.savesApprox": "approx.",
+  "dg.deleting": "Deleting…", "dg.deletingLong": "Deleting the whole folder; large folders may take tens of seconds…",
+  "dg.done": "Deleted", "dg.partial": "Partially deleted", "dg.failed": "Delete failed",
+  "dg.notFully": "Not fully deleted", "dg.freedSome": "Part of the space was released",
+  "dg.freedNone": "No space changed", "dg.freed": "Released",
+  "dg.freedNothing": "No space was released",
+  "dg.diskFree": "{letter}: currently {v} free.",
+  "dg.diskStale": "The disk overview was scanned before the deletion and is stale; run \"Full-disk scan\" again for fresh numbers.",
+  "dg.requestFail": "Request failed: ",
+  "ai.requesting": "Requesting…", "ai.explain": "AI explanation",
+  "ai.requestingSvc": "Requesting your configured AI service…",
+  "ai.disclaimer": "Generated by your own model; for reference only",
+  "ai.requestFail": "Request failed",
+  "part.open": "Open", "part.emptyGroup": "Nothing in this group",
+  "part.canExpand": "▸ Expandable", "part.whoTakes": "What takes up this level (sorted by size)",
+  "part.dirs": "Subfolders", "part.files": "Files", "part.count": "",
+  "part.allKids": "All child items · total {v}",
+  "part.treeTip": "Folders marked \"▸ Expandable\" can be expanded further (instant at any depth with WizTree acceleration). Green = cleanable per the knowledge base, orange = keep, grey = unknown to the knowledge base — no judgment made.",
+  "part.mftFast": "WizTree MFT acceleration",
+  "part.mftNote": "The child list comes straight from the full-disk MFT snapshot; the disk was not scanned again.",
+  "part.title": "Break down",
+  "part.analyzing": "Analyzing the items inside… (large folders may take seconds to tens of seconds)",
+  "part.privacy": "Only names and sizes are read — no file contents, nothing is modified.",
+  "part.back": "Back", "part.fail": "Analysis failed", "part.cantAnalyze": "Cannot analyze this folder",
+  "part.browserData": "Browser data", "part.gameInstall": "Game install",
+  "part.whatIs": "What is in this folder", "part.cacheBox": "Cleanable cache subfolders",
+  "part.items": "items", "part.ofTotal": "{n}% of total",
+  "part.gameBody": "Game data", "part.userData": "User data / program files",
+  "part.noJudge": "No judgment made", "part.denied": "Permission denied",
+  "part.deniedNote": "This folder needs administrator rights to be read fully; the sizes below may be underestimates. Reopen this tool as administrator for complete data.",
+  "part.sec1": "① Cache subfolders — rebuilt automatically after deletion",
+  "part.sec1Empty": "No cleanable cache subfolders were identified here, so the whole folder is not recommended for cleaning.",
+  "part.sec2": "② Do not delete these",
+  "part.keepBrowser": "User data such as bookmarks, passwords, cookies, sign-in state, extensions and history lives here, along with the browser's own files. Deleting it is unrecoverable — keep it as is, even if it \"looks big\".",
+  "part.keepGame": "These are part of the game itself (packs, executables, shader caches). Deleting any of them by hand can crash the game or force a tens-of-GB re-download. To reclaim this space, uninstall via Steam / the game's launcher.",
+  "part.keepUnknown": "This is not a cache, and not something this tool can judge for you. It only lays out the size distribution without conclusions — confirm the purpose yourself before deciding.",
+  "part.cacheGame": "A few games keep separate cache folders. Deleting them is safe — the game rebuilds them, though shaders may recompile and loading may be slower the first time.",
+  "part.cacheGeneric": "These are derived caches (Cache / Code Cache / GPUCache and the like) that programs regenerate on the next run; deleting them at most slows the first visit to a site. Clean them via the matching items in the main list instead of by hand.",
+  "ov.title": "Custom display — {n}",
+  "ov.badgeLabel": "Badge text (leave empty to restore the default \"Clean / Keep / Unrecognized\", max 16 characters)",
+  "ov.badgePh": "e.g. My downloads, keep for now",
+  "ov.kindLabel": "Badge style (click to pick; badge background and bar color follow together)",
+  "ov.follow": "Follow recognition", "ov.kColor": "Custom color",
+  "ov.colorNote": "Badge and bar both use this color",
+  "ov.noteLabel": "Description below (pre-filled with the current one; empty restores the recognized text, max 120 characters)",
+  "ov.notePh": "Text here replaces the description below the row",
+  "ov.pinLabel": "Pin to the top of the ranking",
+  "ov.pinDesc": "(pin this deep folder to the first level of the size ranking so you don't have to click down layer by layer; untick to restore. Stored in local custom data and travels with migrated data)",
+  "ov.warn": "Note: badge style and color are display preferences only — they never change this tool's risk verdict for the folder, nor turn \"Keep\" into an auto-checked \"Clean\".",
+  "ov.cancel": "Cancel", "ov.save": "Save",
+  "ov2.title": "Custom explanation — {n}",
+  "ov2.intro": "Edited text shows on cards and in details; \"Verdict\" decides whether it counts as cleanable (affects \"Select cleanable\" and the badge). Your edits take priority over built-in text and resource packs.",
+  "ov2.what": "What it is", "ov2.rebuild": "Rebuildable?", "ov2.impact": "Delete impact",
+  "ov2.keepIf": "Keep if", "ov2.verdict": "Verdict",
+  "ov2.followDefault": "Follow default verdict", "ov2.cleanable": "Cleanable",
+  "ov2.notCleanable": "Not cleanable (keep)",
+  "ov2.riskNote": "Note: marking a high-risk item \"Cleanable\" does not lower its risk level; cleaning still treats it as high risk (deleted to the Recycle Bin by default).",
+  "sub.expand": "Expand ▾", "sub.collapse": "Collapse ▴",
+  "sub.scanning": "Scanning child items on demand…",
+  "sub.none": "No visible subfolders here, or empty.",
+  "sub.loadFail": "Failed to load: ",
+  "sub.showMore": "Show more ({n} more)",
+  "sub.truncated": "This level has {total} items in total; only the top {listed} by size are listed.",
+  "sub.gameBody": "game data", "sub.gameLib": "Game library",
+  "sub.expandTitle": "Expand child items in place",
+  "sf.steamGame": "Steam game", "sf.steamLib": "Steam library",
+  "sf.epicGame": "Epic game", "sf.gogGame": "GOG game",
+  "sf.gameLib": "game library", "sf.file": "file", "sf.dir": "folder",
+  "sf.locatedAt": "in {v}",
+  "st.installed": "Installed", "st.gamesSuffix": "games", "st.countSuffix": "",
+  "st.recSize": "Recorded size", "st.driveSuffix": "drive",
+  "st.driveShare": "{n}% of this drive", "st.openPage": "Open the Steam library page",
+  "st.fromManifest": "Read from the Steam manifest, <b>not a scan result</b>. Uninstall games from the Steam client.",
+  "st.loading": "Reading the Steam manifest…",
+  "st.notFound": "No Steam installation detected, or no installed games in its libraries.",
+  "st.notFoundNote": "This tool looks for Steam in the registry and common paths, then reads libraryfolders.vdf. If your Steam lives in an unusual location, tell me the library path and I'll add a rule.",
+  "st.installedGames": "Installed games", "st.totalSize": "Steam recorded total",
+  "st.libCount": "Steam libraries",
+  "st.byDrive": "Steam usage per drive (the \"D/E drive storage\" view you asked for)",
+  "st.driveLine": "Steam {v} · {n} games · {p}% of this drive",
+  "st.diskCap": "Disk {t} total · {f} free",
+  "st.filtered": "{n} matched", "st.totalN": "{n} in total",
+  "st.noMatch": "No matching games.", "st.neverPlayed": "Never played",
+  "st.staleDays": "{n} days since last play",
+  "st.gameBodyClean": "Game data · Cleanable", "st.gameBodyKeep": "Game data · Keep",
+  "st.recSizeAt": "Steam recorded size · in {v}", "st.missing": "Folder missing",
+  "st.detailTitle": "Steam game (read from the Steam manifest)",
+  "st.confidence": "High (Steam's own records)",
+  "st.impact": "Steam recorded size {size}; last updated {updated}; last played {played} ({stale}).",
+  "st.noRecord": "no record", "st.playedRecently": "played recently",
+  "st.orphanFoundSteam": "{n} folders have no matching record in the Steam manifest",
+  "st.orphanTotal": "(total {v})",
+  "st.orphanNoteSteam": "Usually leftovers from incomplete uninstalls — the most rewarding space to reclaim.",
+  "st.orphanCheck": "But make sure nothing inside is worth keeping first",
+  "st.orphanSavesMaybe": "some games keep saves or mods here.",
+  "st.delete": "Delete", "st.openDir": "Open folder",
+  "st.epicTitle": "Epic games", "st.epicSource": "Epic launcher's .item manifests",
+  "st.gogTitle": "GOG games", "st.gogSource": "GOG registry",
+  "st.zeroGames": "0 games",
+  "st.orphanFound": "{n} folders have no match in {label}'s records",
+  "st.orphanNote": "Usually leftovers from incomplete uninstalls.",
+  "st.orphanVerify": "or click \"Install\" once in {plat} to verify it is not a missed live game.",
+  "st.platDetailTitle": "{label} (read from {src})",
+  "st.platConfidence": "High ({label}'s own records)",
+  "st.platImpact": "Manifest/registry recorded size {v}.",
+  "nav.backFull": "Back to scan overview",
+  "fs.cachedResult": "{drive}: scanned {mins} min ago (click \"Full-disk scan\" to force a rescan)",
+  "fs.scanningFull": "Full-disk scan running…", "fs.driveHint": "{drive}: drive",
+  "fs.progressInd": "Total work is unknown at this step; the stripes mean it is still moving",
+  "fs.progressPct": "Overall progress {n}%",
+  "fs.scanFail": "Disk overview scan failed: ",
+  "fs.scanFailHint": "You can first confirm the server works from a command line:",
+  "fs.retryFull": "Retry full-disk scan",
+  "fs.noWiztreeOnTheFly": "WizTree acceleration is off; scanning this folder on the fly (may take seconds)…",
+  "fs.tagline": "{drive}: drive · {nodes} nodes · {explained} identified · {depth} level(s){engine}",
+  "fs.mftFast": " · WizTree MFT accelerated", "fs.mftFast2": "WizTree MFT acceleration",
+  "fs.psWalk": "PowerShell recursive scan",
+  "fs.wiztreeNote": "<span>Reads the MFT via the WizTree installed on this machine — faster than per-folder recursion; it is never installed or modified.</span>",
+  "fs.wiztreeHint": "<span>Installing WizTree shortens full-disk scans a lot (this tool only calls it, never bundles it).</span>",
+  "fs.scannedNow": "Scanned this run", "fs.nodesSuffix": "nodes",
+  "fs.mixHead": "Of what was scanned, how much is cleanable vs. keep",
+  "fs.upLevel": "Up one level", "fs.curDir": "Current folder: ",
+  "fs.levelStat": "{n} items at this level, {v} total", "fs.parent": "Parent level",
+  "fs.tickTitle": "Tick to include this item in cleaning",
+  "fs.drillHint": "Open to see child items ›", "fs.detailBtn": "Details",
+  "scan.running": "Scanning…", "scan.tallying": "Tallying…",
+  "scan.lastTime": "Last scan {v}", "scan.fail": "Scan failed: ",
+  "drv.system": "System",
+  "drv.title": "{letter}: total {t}, {p}% used, {f} free",
+  "drv.free": "{v} free",
+  "gd.runtime": "Runtime", "gd.runtimeOk": "Python service is up and reachable",
+  "gd.admin": "Administrator rights",
+  "gd.adminOk": "Present — Recycle Bin and Windows\\Temp can be tallied",
+  "gd.adminNo": "Missing. Recycle Bin and Windows\\Temp will show \"needs administrator\"; right-click start-ocleaner.bat → Run as administrator for full stats",
+  "gd.dataDir": "Data folder", "gd.unknown": "(unknown)",
+  "gd.redirected": "(redirected here)",
+  "gd.dataDirNote": "(next to the program by default: history and configs live inside, copy the whole folder to migrate, USB sticks included)",
+  "gd.ready": "Ready", "gd.bundled": "Bundled here", "gd.sysInstalled": "Installed on system",
+  "gd.mftFast": "Full-disk scans read the MFT — much faster than recursion.",
+  "gd.portableNote": "This copy lives in the O-Cleaner folder; copy it to another PC and it just works.",
+  "gd.notInstalled": "Not installed",
+  "gd.withoutNote": "It works without it, but full-disk scans fall back to recursion and take noticeably longer.",
+  "gd.wiztree": "WizTree acceleration",
+  "gd.downloadBtn": "Download the WizTree portable edition (about 7.5 MB)",
+  "gd.downloadNote": "Download the portable edition from the official diskanalyzer.com and unzip it into",
+  "gd.portableProps": "<b>No system install, no registry, no administrator rights</b>; copy the folder to another PC and it takes effect immediately.",
+  "gd.licenseHead": "Third-party component", "gd.homepage": "Homepage", "gd.distLicense": "Distribution license",
+  "wiz.downloading": "Downloading and extracting…", "wiz.retry": "Retry download",
+  "wiz.unknown": "unknown reason",
+  "packs.hint": "{live}/{total} enabled · {n} entries", "packs.none": "No resource packs in the packs/ folder yet.",
+  "packs.entries": "{n} entries", "packs.userSrc": "Imported", "packs.builtinSrc": "Built-in",
+  "packs.cantEnable": "Cannot enable: ", "packs.del": "Delete",
+  "packs.updateFail": "Update failed: ", "packs.updateDone": "Update finished: {ok} ok{bad}",
+  "packs.updateBad": ", {n} failed", "packs.applied": "Applied", "packs.opFail": "Operation failed: ",
+  "ai.keySaved": "Saved (ends {tail}); leave empty to keep it", "ai.ready": "Ready",
+  "ai.keyStored": "Key stored locally in <code>config/ai.json</code>",
+  "ai.noKey": "No key yet. Only the endpoint you enter yourself will ever receive it.",
+  "ai.saved": "Saved", "ai.saveFail": "Save failed", "ai.requesting2": "Requesting…",
+  "ai.unknown": "unknown reason",
+  "ai.testOk": "Connection OK, model replied: ", "ai.empty": "(empty)",
+  "ai.testFail": "Connection failed: ", "ai.genFail": "Generation failed",
+  "ai.pickedFrom": "Picked {m} of {n} items the built-in rules marked cleanable",
+  "ai.noCandidates": "No cleanable candidates right now",
+  "ai.noSummary": "(the model gave no summary)",
+  "ai.dropped": "; the model also mentioned {n} ids not in the list, dropped",
+  "ai.applyPicks": "Select only these {n} items",
+  "ai.applyNote": "After selection you still click \"Clean selected\" at the bottom to actually run it. AI can never delete anything by itself.",
+  "ai.rawReply": "Raw model reply",
+  "cc.selectedOnly": "Only the {n} ticked sub-items", "cc.emptyAll": "Empty the whole Recycle Bin",
+  "cc.nonCleanNote": "Not recommended by the tool (keep/unrecognized): you ticked it explicitly; the server still applies system-folder protection",
+  "cc.pathNote": "Empty the folder contents (the server re-identifies and re-checks)",
+  "cc.title": "Confirm clean — {drive}: drive · This cannot be undone",
+  "cc.nonCleanHead": "{n} \"keep / unrecognized\" items are included — the tool does not recommend deleting them:",
+  "cc.nonCleanBody": "These are not caches; they may be program data, personal files, or folders whose purpose cannot be judged. Deletion may be unrecoverable. Please make sure you have inspected the contents yourself.",
+  "cc.andMore": "…and {n} more", "cc.riskyHead": "Irreversible or diagnosis-affecting items are included:",
+  "cc.risk": "risk", "cc.trashNote": "unrecoverable once the bin is emptied",
+  "cc.diagNote": "deleting loses historical diagnosis clues",
+  "cc.trashOpt": "Send high-risk items to the Recycle Bin (recoverable; space is only freed when the bin is emptied and is not counted above)",
+  "cc.adminNote": "These need administrator rights and will fail with normal rights:",
+  "cc.thItem": "Item", "cc.thPath": "Path", "cc.thSize": "Size", "cc.thFiles": "Files",
+  "cc.progressing": "Deleting per the list; files in use are skipped automatically.",
+  "cc.total": "{n} items, estimated release", "cc.cancel": "Cancel",
+  "cc.goAnyway": "Delete anyway ({n} not-recommended items included)", "cc.go": "Confirm delete",
+  "cc.cleaning": "Cleaning",
+  "cr.freed": "Released this run", "cr.took": "took {n} s",
+  "cr.trashedNote": "Some high-risk items went to the Recycle Bin (recoverable): that space is freed when the bin is emptied and is not counted above.",
+  "cr.thFreed": "Released", "cr.thDeleted": "Deleted", "cr.thSkipped": "Skipped",
+  "cr.inBin": "{n} items moved to the Recycle Bin; freed when the bin is emptied",
+  "cr.toBin": "→ Recycle Bin",
+  "cr.skippedHead": "These were skipped — in use, no permission, or path missing (not an error):",
+  "cr.locked": "in use", "cr.andNMore": "and {n} more",
+  "cr.cumulative": "Total released so far {v}; conversions on the right panel are updated.",
+  "cr.done": "Done",
+  "eb.scopeNote": "Only removes the {n} items this run moved into the bin and frees their space for good; other contents of the bin are untouched. Unrecoverable.",
+  "eb.armConfirm": "Confirm empty (unrecoverable)", "eb.emptying": "Emptying",
+  "sch.off": "Not enabled. Enable it and keep this service window open for runs to happen.",
+  "sch.never": "never", "sch.next": "Next: ", "sch.last": "Last: ",
+  "sch.saved": "Saved", "sch.saveBtn": "Save schedule",
+  "hist.none": "No records yet", "hist.lockedN": "{label} ({n} items in use)",
+  "hist.freed": "Released {v}", "hist.nothing": "Nothing cleanable", "hist.skipped": "Skipped: ",
+  "foot.afterClean": "after cleaning {drive}: would have about",
+  "stat.runs": "{n} runs recorded",
+  "stat.empty": "No cleaning history yet. After the first clean, this shows the cumulative release converted into everyday units.",
+  "stat.tooSmall": "The cumulative amount is too small for these units (under 0.01 of a unit).",
+  "stat.barTitle": "{time}  {trigger}  released {v}",
+  "stat.cumFreed": "Total released", "stat.runN": "{n} cleanups",
+  "stat.since": "since {v}",
+  "stat.detail": "Detailed charts (trend / categories / drives / items)",
+  "stat.byDrive": "By drive", "stat.timeline": "Per-run release (oldest left, {n} runs)",
+  "stat.byCat": "By category", "stat.topItems": "Top contributing items",
+  "stat.all": "Show all",
+  "unit.basis": "(basis)", "unit.expr": "Formula: ", "unit.del": "Del",
+  "unit.none": "No custom units yet.", "unit.defaultNote": "Custom unit",
+  "unit.exLabel": "concert recordings", "unit.exNote": "Example: estimated at 8 GB per recording",
+  "rule.selectedN": "{n} items ticked", "rule.selectedNone": "Nothing ticked",
+  "rule.none": "No rules yet. Tick cleanup items above and save them under a name.",
+  "rule.cleanedOnSave": "Cleaned on save",
+  "rule.stat": "{n} items · currently frees {v}",
+  "rule.missing": " · {n} items don't apply to this drive",
+  "rule.andMore": "…{n} more", "rule.apply": "Apply to selection",
+  "rule.run": "Clean now", "rule.rename": "Rename",
+  "rule.newNamePrompt": "New rule name:", "rule.cleanTitle": "Rule \"{n}\"",
+  "io.unitsAdded": "units +{n}", "io.unitsUpdated": "units ~{n}",
+  "io.overrides": "{n} explanations", "io.rulesAdded": "rules +{n}", "io.rulesUpdated": "rules ~{n}",
+  "io.skippedN": "({n} skipped, see console)", "io.nothing": "Nothing to import",
+  "io.badJson2": "Not valid JSON: ", "io.validating": "Validating and importing…",
+  "io.imported2": "Imported: ", "io.importFail2": "Import failed: ",
+  "io.downloading": "Downloading from the remote manifest…",
+  "lk.open": "Find locking processes", "lk.scopeNote": "Only candidate programs are listed; closing them is up to you",
+  "lk.notLocked": "These are not \"in use\" — the paths don't exist or lack permission, so there is nothing to look up.",
+  "lk.searching": "Searching…",
+  "lk.checking": "Checking {n} files and enumerating system processes, please wait…",
+  "lk.hitFiles": "({n} files hit)", "lk.thProc": "Process", "lk.thWhy": "Basis",
+  "lk.checkHead": "Lock check", "lk.lockedN": "{n} files are genuinely held open by other processes",
+  "lk.unknownN": "; {n} more could not be judged (insufficient rights; run as administrator to read more)",
+  "lk.truncated": "; too many files, only the first 80 were checked",
+  "lk.noneNow": "If none of them are locked right now, simply clean again.",
+  "lk.strong": "Likely (the program lives in that folder, or its command line contains the full path)",
+  "lk.weak": "Also worth a look (the command line contains a file with the same name)",
+  "lk.noCandidate": "No suspicious process was located — that is normal; Windows offers no API to map a file handle back to its process. Open \"Task Manager → Performance → Resource Monitor → CPU → Associated Handles\" and search the file name there to find the real holder.",
+  "lk.psError": "Process enumeration did not finish: ",
+  "lk.disclaimer": "※ These are <b>candidates</b>, not proof; <b>never end system processes such as System or explorer.exe</b>. Most programs release their locks as soon as you save and exit them — then come back and clean again.",
+  "lk.fail": "Search failed: ",
+  "acc.toggle": "Click to expand / collapse", "acc.goto": "Expand and jump to this panel",
+  "esc.busy": "A scan is running; press Esc again after it finishes",
+  "clean.done": "Cleaning finished",
+  "st.readFail": "Failed to read: ", "st.manifestNote": "Data is read from Steam's own manifest files (libraryfolders.vdf / appmanifest_*.acf) — no disk scan, just Steam's own records.",
+  "packs.confirmDel": "Delete resource pack \"{n}\"?\n", "packs.confirmDel2": "Its explanations stop taking effect immediately; re-import to restore them.",
   "fs.stale1": "Content was just deleted; the usage tree is stale. ",
   "fs.stale2": "Click \"Full-disk scan\" in the toolbar to rescan.",
   "st.gameBody": "Game install",

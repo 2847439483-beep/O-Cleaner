@@ -697,6 +697,18 @@ def phase3_http() -> None:
         check("可读名单一化：display_name 优先且不与 title 并排",
               "const midName" in html and "fs.dispName" not in html
               and "dnDup" not in html and "zhHint" not in html)
+        # i18n L3 收尾（2026-10-14）：动态弹窗/行内文案全部走 t()；英文词典
+        # 必须覆盖所有 t("key",…) 调用键与 data-i18n 引用键，缺键会在英文
+        # 界面回落中文。同键重复定义会让后者静默覆盖前者，也一并拦下。
+        _t_keys = set(re.findall(r'\bt\(\s*"([a-zA-Z0-9]+\.[A-Za-z0-9]+)"', html))
+        _t_keys |= set(re.findall(r'data-i18n="([a-zA-Z0-9.]+)"', html))
+        _en_keys = re.findall(r'"([a-z][a-zA-Z0-9]*\.[A-Za-z0-9]+)"\s*:\s*["\']', html)
+        _en_set = set(_en_keys)
+        _en_dup = sorted({k for k in _en_keys if _en_keys.count(k) > 1})
+        _i18n_missing = sorted(k for k in _t_keys if k not in _en_set)
+        check("i18n 英文词典覆盖全部 t() 与 data-i18n 引用键",
+              not _i18n_missing and not _en_dup,
+              "缺键: " + ", ".join(_i18n_missing) + "; 重复定义: " + ", ".join(_en_dup))
         check("主题系统：三态切换与浅色变量组",
               '[data-theme="light"]' in html and "themeSeg" in html
               and "oc-theme" in html and "prefers-color-scheme" in html)
