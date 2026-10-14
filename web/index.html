@@ -1078,13 +1078,12 @@ function applyDefaultScope() {
 function renderGuide() {
   const w = (STATE && STATE.wiztree) || {};
   const admin = STATE && STATE.is_admin;
-  const pythonOk = true;               // 能打开页面就说明服务在跑
+  // 「运行环境」检查项已删：能打开这个面板本身就说明服务在跑，恒绿勾不携带信息
   const rows = [
-    { ok: pythonOk, t: t("gd.runtime","运行环境"), d: t("gd.runtimeOk","Python 服务已启动，本机可用") },
     { ok: admin, t: t("gd.admin","管理员权限"),
       d: admin ? t("gd.adminOk","已具备，可统计回收站与 Windows\\Temp")
                : t("gd.adminNo","未具备。回收站、Windows\\Temp 会显示「需要管理员权限」，右键 start-ocleaner.bat → 以管理员身份运行可获得完整统计") },
-    { ok: true, t: t("gd.dataDir","数据存档目录"), d: (STATE.data_dir || t("gd.unknown","（未知）"))
+    { ok: !!STATE.data_dir, t: t("gd.dataDir","数据存档目录"), d: (STATE.data_dir || t("gd.unknown","（未知）"))
         + (STATE.data_dir_redirected
            ? t("gd.redirected","（已重定向到这里）")
            : t("gd.dataDirNote","（默认跟程序同目录：历史记录与配置都在其中，整个文件夹拷走即完成数据迁移，U 盘携带同理）")) },
@@ -1102,6 +1101,11 @@ function renderGuide() {
                       : ""}</div>`
     : `<b class="warn">${t("gd.notInstalled","未安装")}</b>
        <div class="gd">${t("gd.withoutNote","没有它也能用，只是全盘扫描要逐目录递归，耗时明显更长。")}</div>`;
+  // 许可说明 details 的展开状态跨重渲染保留（照 CUM_SUB_OPEN 模式）：
+  // 每次清理完成后 loadState 都会重绘此面板，不保存的话用户展开就丢
+  const _lic = $("guide").querySelector("details.sub");
+  const licOpen = _lic ? _lic.open : GUIDE_LIC_OPEN;
+  GUIDE_LIC_OPEN = licOpen;
   $("guide").innerHTML = `
     <div class="glist">
       ${rows.map(r => `<div class="gitem">
@@ -1131,13 +1135,22 @@ function renderGuide() {
           ? ` · <a href="${esc(w.dist_license_url)}" target="_blank" rel="noopener">${t("gd.distLicense","分发许可")}</a>` : ""}
       </div>
     </details>`;
+  const _lic2 = $("guide").querySelector("details.sub");
+  if (_lic2) {
+    _lic2.open = GUIDE_LIC_OPEN;
+    _lic2.addEventListener("toggle", () => { GUIDE_LIC_OPEN = _lic2.open; });
+  }
   const b = $("btnWizInstall");
   if (b) b.addEventListener("click", installWizTree);
 }
 
+/* 下载进行中的模块级守卫：await 期间面板可能被 renderGuide 重绘，
+   新按钮是全新可点状态，没有守卫会并发发出两个安装请求 */
+let GUIDE_LIC_OPEN = false, WIZ_INSTALLING = false;
 async function installWizTree() {
   const b = $("btnWizInstall");
-  if (!b) return;
+  if (!b || WIZ_INSTALLING) return;
+  WIZ_INSTALLING = true;
   b.disabled = true; b.textContent = t("wiz.downloading","正在下载并解压…");
   try {
     const r = await (await fetch(`${API}/__oc__/wiztree/install`,
@@ -1150,8 +1163,13 @@ async function installWizTree() {
       toast(t("wiz.fail","自动安装失败：") + (r.error || t("wiz.unknown","未知原因")));
     }
   } catch (e) {
-    b.disabled = false; b.textContent = t("wiz.retry","重试下载");
+    // await 期间面板可能已被 renderGuide 重绘，旧 b 引用是游离节点 ——
+    // 重新取当前按钮再恢复（与 doClean 的防御写法一致）
+    const cur = $("btnWizInstall");
+    if (cur) { cur.disabled = false; cur.textContent = t("wiz.retry","重试下载"); }
     toast(t("wiz.fail","自动安装失败：") + e);
+  } finally {
+    WIZ_INSTALLING = false;
   }
 }
 
@@ -4382,7 +4400,6 @@ const I18N_EN = {
   "drv.system": "System",
   "drv.title": "{letter}: total {t}, {p}% used, {f} free",
   "drv.free": "{v} free",
-  "gd.runtime": "Runtime", "gd.runtimeOk": "Python service is up and reachable",
   "gd.admin": "Administrator rights",
   "gd.adminOk": "Present — Recycle Bin and Windows\\Temp can be tallied",
   "gd.adminNo": "Missing. Recycle Bin and Windows\\Temp will show \"needs administrator\"; right-click start-ocleaner.bat → Run as administrator for full stats",
