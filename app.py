@@ -4797,6 +4797,9 @@ def packs_enrich_target(t: dict, drive: str | None = None) -> None:
     if not hit:
         return
     t["pack"] = hit["_pack"]
+    # 伪 rule_id：英文界面下 apply_lang_payload 按它覆盖包内长文本
+    if not str(t.get("rule_id") or "").strip():
+        t["rule_id"] = f"{hit['_pack']}:{hit.get('id') or label or base}"
     for src, dst in (("what", "what"), ("rebuild", "rebuild"),
                      ("effect", "impact"), ("keep", "keep_if")):
         if hit.get(src) and not str(t.get(dst) or "").strip():

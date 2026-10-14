@@ -653,15 +653,19 @@ def phase3_http() -> None:
         check("i18n 字典键覆盖所有 data-i18n 引用",
               not _i18n_missing, "缺键: " + ", ".join(_i18n_missing))
         # i18n L3：知识库长文本双语。kb-en.json 必须覆盖 filetypes.json 的
-        # 全部规则 id + app.py 内联分支的伪 id；覆盖函数只动显示文本，
-        # 判定字段（cleanable/risk 数值/路径/体积）必须原样。
+        # 全部规则 id、app.py 内联分支的伪 id，以及资源包全部条目 id
+        # （packs_lookup 对未识别节点写 rule_id=<包id>:<条目id>）；
+        # 覆盖函数只动显示文本，判定字段（cleanable/risk 数值/路径/体积）
+        # 必须原样。
         _kb_en = app.load_kb_en().get("rules") or {}
         _kb_ids = {r.get("id") for sec in ("folder_rules", "file_rules")
                    for r in (app.load_filetypes().get(sec) or [])}
+        _kb_ids |= {f"{rec['pack']}:{(rec.get('entry') or {}).get('id')}"
+                    for rec in (app.load_packs().get("entries") or [])}
         _kb_missing = sorted(_kb_ids - set(_kb_en))
         _kb_empty_what = sorted(k for k, v in _kb_en.items()
                                 if not str(v.get("what") or "").strip())
-        check("知识库英文文案覆盖全部规则 id",
+        check("知识库英文文案覆盖全部规则与资源包条目 id",
               not _kb_missing and not _kb_empty_what,
               "缺 id: " + ", ".join(_kb_missing) + "; what 为空: " + ", ".join(_kb_empty_what))
         _lang_sample = {"children": [{"rule_id": "cache-temp", "what": "中文",

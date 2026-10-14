@@ -1,5 +1,5 @@
 {
-  "_comment": "内置知识库的英文文案（i18n L3）。前端在英文界面请求扫描/概览/子目录等接口时带 lang=en，后端在响应出口按 rule_id 用这里的文本覆盖 what/advice/tip 与置信度标签。缺键即回落中文 —— 只影响显示，不参与任何判定。rules 里同时收两类 id：filetypes.json 的规则 id，以及 app.py 内联分支的伪 id（steam-game / epic-game / gog-game / other-game-lib，由 mk() 写入 rule_id）。",
+  "_comment": "内置知识库的英文文案（i18n L3）。前端在英文界面请求扫描/概览/子目录等接口时带 lang=en，后端在响应出口按 rule_id 用这里的文本覆盖 what/advice/tip 与置信度标签。缺键即回落中文 —— 只影响显示，不参与任何判定。rules 里收三类 id：filetypes.json 的规则 id、app.py 内联分支的伪 id（steam-game / epic-game / gog-game / other-game-lib，由 mk() 写入 rule_id）、以及资源包条目 id（packs_lookup 对未识别节点写 rule_id=<包id>:<条目id>；advice 对应包内 effect+keep 的合并，tip 对应 rebuild）。",
   "confidence_labels": {
     "high": "High (explicit name match)",
     "medium": "Medium (inferred from name; possible ambiguity)",
@@ -240,6 +240,866 @@
       "what": "Epic/GOG game library folder; each subfolder is one game's installation.",
       "advice": "",
       "tip": ""
+    },
+    "explanations:exp-cache-temp": {
+      "what": "Temporary data produced while programs run: half-downloaded update packages, intermediate files from extractions, and cached copies kept to open things faster next time. Programs are designed assuming these files can disappear at any moment.",
+      "advice": "A few programs open slightly slower the first time afterwards (caches rebuild), and programs currently running may show brief loading errors — so close the related program before cleaning. If you keep your own files in such folders (some people use temp as a staging area), look before deleting.",
+      "tip": "Regenerates automatically, usually on demand the next time you use the related feature."
+    },
+    "explanations:exp-logs-dumps": {
+      "what": "Running logs written by programs and the 'crash scene photos' taken when something fails (crash dumps). Logs are for troubleshooting; dumps are for analyzing why a program crashed.",
+      "advice": "After deletion, evidence of past problems is gone: if a recent software issue is still unresolved or you need to send diagnostics to a developer, keep them for a few more days. When nothing is being investigated, it is safe to clean.",
+      "tip": "New ones keep appearing as programs continue to run."
+    },
+    "explanations:exp-win-update-cache": {
+      "what": "Installers downloaded by Windows Update, staging files from upgrades, and Windows.old — the old system kept after a feature upgrade for rollback.",
+      "advice": "Once Windows.old is removed you can no longer roll back to the previous version; if an update cache is cleared mid-update, the update must re-download. Nothing else is affected. Right after a feature upgrade, keep Windows.old until the new system is confirmed fine (Windows removes it itself after 10 days).",
+      "tip": "Re-downloaded the next time an update needs it."
+    },
+    "explanations:exp-shadercache": {
+      "what": "Cache of compiled rendering instructions kept by the GPU driver or games, avoiding recompilation on every launch — recompiling is the stutter and the shader-compilation progress bar you see.",
+      "advice": "The first few launches after cleaning load slower and may stutter in places; things return to normal after a few sessions. Not worth cleaning for games you play often — the benefit is momentary; it is a safe candidate when the disk is full and you need space.",
+      "tip": "Rebuilt automatically the next time you launch the game."
+    },
+    "explanations:exp-node-modules": {
+      "what": "Third-party dependency packages of JavaScript projects. One copy per project, easily hundreds of MB — the main disk consumer of frontend/Node projects.",
+      "advice": "The project cannot run or build until dependencies are reinstalled. Delete them only in old unmaintained projects — doing it to active projects just creates work for yourself. Leave them alone while a project is in active development.",
+      "tip": "Run `npm install` in the project (or the pnpm/yarn equivalent) to fully restore from package.json."
+    },
+    "explanations:exp-python-env": {
+      "what": "venv is a project's isolated Python environment (including its installed libraries); conda/anaconda/miniconda are the distribution itself or its package caches; __pycache__ is bytecode cache.",
+      "advice": "After deleting a venv, the project needs its environment rebuilt to run; deleting the conda/anaconda folder itself also removes every environment installed inside it — make sure it is a cache folder before deleting. If you cannot tell a venv from the conda installation itself, do not delete large folders named conda/anaconda.",
+      "tip": "__pycache__ regenerates automatically; a deleted venv must be rebuilt from requirements.txt; deleting the conda installation equals uninstalling the distribution."
+    },
+    "explanations:exp-recycle-bin": {
+      "what": "The staging area for files you (and other programs) deleted. Emptying it is the final, unrecoverable delete.",
+      "advice": "After emptying, the contents are truly gone — no tool can bring them back. Review the contents before emptying, and hold off if you recently deleted something you might want to restore.",
+      "tip": "The system folder structure rebuilds automatically."
+    },
+    "explanations:exp-download-dir": {
+      "what": "Where browsers and download tools save files. These are your own files — installed-out installers, documents you received, saved images and videos.",
+      "advice": "Useless installers are fair game to delete; but the folder often also holds the only copy of documents, invoices, or files shared via chat — review item by item rather than wiping the whole folder in one go. Move anything uncertain elsewhere first; installers you can re-download anytime are the safest things to clean here.",
+      "tip": "Nothing regenerates — once deleted, it is gone."
+    },
+    "explanations:exp-cloud-disk": {
+      "what": "Caches and sync data of cloud-drive clients. Note the difference: clearing caches is harmless, but the client's 'sync folder' may hold the only local copy of your cloud files.",
+      "advice": "After clearing caches, previously cached files must be fetched from the network again. If you cannot tell cache folders from sync folders, clean only the one whose name contains cache.",
+      "tip": "Caches rebuild; a deleted sync-folder copy is gone locally but still in the cloud (unless what you deleted was the cloud's sync source)."
+    },
+    "explanations:exp-installer-pkg": {
+      "what": "Software installers. Usually useless once installed, but they are the only proof of where this particular download came from.",
+      "advice": "Reinstalling the same version means finding the installer again; installed, working software is not affected. Offline installers of frequently used software and internally distributed corporate installers are worth keeping — they take little space.",
+      "tip": "Official sites and app stores always have fresh downloads, but old versions, niche software, and offline installers may be impossible to find again."
+    },
+    "explanations:exp-iso-image": {
+      "what": "Whole-disc/system images (.iso/.wim/.esd) or virtual machine disk files (.vhd/.vhdx).",
+      "advice": "Deleting a .vhd/.vhdx equals deleting everything in that virtual machine; deleting a system image only loses a ready-made reinstall medium. First confirm ownership: VM disks stay, always; images you can re-download online are deletable.",
+      "tip": "Nothing regenerates — a system image must be rebuilt, and a VM disk holds your entire installed system."
+    },
+    "explanations:exp-archive": {
+      "what": "Compressed archives: downloaded resources, collections shared by others, or your own archived old files.",
+      "advice": "If it was 'extract once, then useless' it can go; if the archive itself is the asset (never extracted, or the extracted copy was already deleted), deleting it loses it for good. If you already keep the contents as normal files, the archive can go; otherwise open and confirm first.",
+      "tip": "Nothing regenerates."
+    },
+    "explanations:exp-log-dump-file": {
+      "what": "Individual log or crash-dump files, mostly scattered around. Text logs are usually tiny; dumps can reach tens to hundreds of MB.",
+      "advice": "You lose the evidence for troubleshooting past problems; nothing else is affected. Clean when nothing is being investigated; if logs must go to technical support, send them first.",
+      "tip": "Programs keep writing new ones as they run."
+    },
+    "explanations:exp-drivers": {
+      "what": "Driver packages downloaded by driver-manager tools, or drivers you backed up manually. They are installers — deleting them does not affect the drivers already installed.",
+      "advice": "After deletion, an offline system reinstall has no driver packages on hand and you must find them online on the spot. Keep a set if you regularly install systems on old or offline machines; otherwise clean.",
+      "tip": "Re-downloadable via driver tools or the hardware vendor's website when needed."
+    },
+    "explanations:exp-music-app": {
+      "what": "Music app caches and downloaded songs. Caches are temporary listening data; the downloads folder may hold local files of your subscription songs.",
+      "advice": "Caches re-buffer after cleaning; songs in the downloads folder must be re-downloaded, and on some platforms offline songs stop working. Tell the cache and downloads subfolders apart — the latter are songs you chose; think before deleting.",
+      "tip": "Caches rebuild automatically."
+    },
+    "explanations:exp-photoshop": {
+      "what": "Caches, presets, and data of the Adobe suite. Media caches (preview indexes of video editors) can be cleaned; preset, action, and plug-in folders must not be touched.",
+      "advice": "After clearing media caches, reopening a project regenerates previews; deleting the wrong presets or plug-ins folder loses your custom configuration. Only clean subfolders whose names say cache / media cache; never touch project files and preset folders.",
+      "tip": "Media caches rebuild when the project is reopened."
+    },
+    "explanations:exp-office-tools": {
+      "what": "Office deployment tool install caches and WPS caches/configuration. Caches can be cleaned; WPS folders may also hold local copies of cloud documents and custom templates.",
+      "advice": "After clearing caches and downloaded install sources, a repair install re-downloads; deleting the config folder loses templates and settings. Do not touch anything marked local backup or cloud document copy.",
+      "tip": "Caches rebuild automatically."
+    },
+    "explanations:exp-game-launcher": {
+      "what": "Version libraries and resource caches of Minecraft launchers (PCL/HMCL etc.) and download caches of various game launchers. Minecraft keeps a full copy per version, and old versions pile up.",
+      "advice": "Deleting versions you no longer play is harmless; deleting a version you play means re-downloading the whole pack, and launcher configuration (save paths, Java settings) may go with it. Confirm which versions are still being played; never delete saves (the saves folder).",
+      "tip": "Needed versions can be re-downloaded."
+    },
+    "explanations:exp-im-chat": {
+      "what": "Local data of chat apps like WeChat/QQ: chat history databases, files, images, and videos sent in chats, plus huge image/video caches. Caches dominate, but the folder mixes in the chat history itself.",
+      "advice": "After clearing caches, images and videos in chats reload from the cloud (expired content may no longer load); deleting the data folder wipes this machine's chat history to zero. Clean only subfolders like cache or year-month folders under FileStorage; never bulk-delete the whole data folder. If chat history matters, back it up with the app's own backup feature first.",
+      "tip": "Caches rebuild; chat history does not — once deleted it is gone (unless you had backup or roaming enabled)."
+    },
+    "explanations:exp-video-edit": {
+      "what": "Draft projects and asset caches of video editors like Jianying. Draft folders hold unexported editing projects (timelines, subtitles, transition settings); caches are preview copies of assets.",
+      "advice": "After clearing caches, completed projects must re-link assets when reopened; deleting the drafts folder makes unexported work vanish immediately. Export-and-backup any unexported project before touching anything; if you cannot tell drafts from caches, leave the whole folder alone.",
+      "tip": "Caches rebuild; drafts do not."
+    },
+    "explanations:exp-torrent": {
+      "what": "BT client task data: in-flight chunks, seeding tasks, and tracker/verification caches. Note that completed downloads usually live in a separate folder you chose, not here.",
+      "advice": "Deleting cancels unfinished downloads and removes seeding tasks; completed files are unaffected (unless the save folder is set here too). Do not clean while seeding or sharing tasks exist; pure caches and leftover chunks are safe to clean.",
+      "tip": "Reinstalling the client does not restore the task list; unfinished downloads cannot resume."
+    },
+    "explanations:exp-vm-dir": {
+      "what": "Where VMware / VirtualBox / Hyper-V virtual machines live: each subfolder is usually one complete VM (disk file + configuration + snapshots).",
+      "advice": "Deleting a subfolder deletes that VM entirely, snapshots included; remove only VMs you are certain are abandoned. Keep absolutely anything holding a unique environment (for example an old app that only runs in that VM); for abandoned VMs, prefer deleting from the client — cleaner than manual folder deletion.",
+      "tip": "Nothing regenerates — the disk file holds your entire installed system and data."
+    },
+    "explanations:exp-ai-models": {
+      "what": "Local LLM data: models and dataset caches downloaded from HuggingFace, and model files pulled by Ollama / LM Studio. A single model is often several GB to tens of GB.",
+      "advice": "Next use re-downloads everything; for Ollama prefer `ollama rm` over deleting the folder manually so its model list stays consistent. Keep frequently used models on offline or metered connections; deleting models you use daily is pure self-sabotage.",
+      "tip": "Re-downloading restores them as-is (model files are public and version-pinned)."
+    },
+    "explanations:exp-dev-toolchain": {
+      "what": "Download caches and build intermediates of language package managers and build tools: pip wheel caches, npm/pnpm package caches, Gradle dependency and build caches, Cargo registry and build caches, and the Go build cache.",
+      "advice": "The first build after cleaning is noticeably slower (packages re-download from the network), then back to normal. Project sources and installed dependencies are never touched. For permanently offline build environments, keeping caches saves a lot of downloading; on ordinary dev machines this is the safest first batch to clean.",
+      "tip": "Everything rebuilds on demand: dependencies re-download and builds recompile the next time."
+    },
+    "games-platform:steam-common": {
+      "what": "Install location of all installed Steam games; each subfolder is one game.",
+      "advice": "Deleting equals uninstalling, and Steam's installed record is not cleared with it; re-download to play again. Keep while you still want to play. To uninstall, use the Steam client's Manage → Uninstall so the record is cleared too.",
+      "tip": "N/A: this is purchased, downloaded content; deleting means re-downloading."
+    },
+    "games-platform:steam-downloading": {
+      "what": "Chunk files of games currently downloading or updating.",
+      "advice": "After cleaning, the game must download from the beginning. Keep while a download task is in progress or you want to preserve its progress.",
+      "tip": "Rebuilds automatically, but downloaded progress starts over."
+    },
+    "games-platform:steam-temp": {
+      "what": "Temporary space used to unpack games during install or update.",
+      "advice": "Cleaning during an install breaks that install. No need to keep when no install task is running.",
+      "tip": "Rebuilds automatically."
+    },
+    "games-platform:steam-shadercache": {
+      "what": "Precompiled GPU shaders, reducing stutter on a game's first runs.",
+      "advice": "The first few runs after cleaning may stutter while compiling, then return to normal. No need to keep — and this is one of the larger categories; tens of GB is common.",
+      "tip": "Rebuilds automatically as the game runs."
+    },
+    "games-platform:steam-workshop": {
+      "what": "Mods, maps, and other content subscribed from the Steam Workshop.",
+      "advice": "After deletion, saves may fail to load for missing mods, or in-game items disappear. Keep them; to trim, unsubscribe in Steam and let the client handle it.",
+      "tip": "Re-downloaded after re-subscribing."
+    },
+    "games-platform:steam-compatdata": {
+      "what": "The Windows-compatibility environment Proton / Steam Play prepares per game.",
+      "advice": "After deletion the game must re-initialize the compatibility environment; saves inside are lost with it. Keep them — most Windows users never need this.",
+      "tip": "Rebuilds automatically, but rebuilding takes a while."
+    },
+    "games-platform:steam-appcache": {
+      "what": "UI caches, logs, and crash dumps of the Steam client.",
+      "advice": "The client loads store pages slightly slower the first time after cleaning. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "games-platform:steam-htmlcache": {
+      "what": "Web cache of the Steam client's built-in browser (store and community pages).",
+      "advice": "After cleaning, community pages may ask you to verify again when re-logging in. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "games-platform:steam-depotcache": {
+      "what": "Steam's manifest of downloaded content and chunk indexes.",
+      "advice": "After cleaning, Steam re-verifies installed games and may trigger a verification scan. No need to keep; keep it if you want to avoid the verification time.",
+      "tip": "Rebuilds automatically."
+    },
+    "games-platform:steam-userdata": {
+      "what": "Per-account local settings, local saves of some games, and cloud-sync staging files.",
+      "advice": "Deleting may lose saves and settings not yet synced to the cloud. Keep.",
+      "tip": "Does not rebuild automatically."
+    },
+    "games-platform:steam-libraryfolder": {
+      "what": "The location of one Steam library, containing steamapps and the games' install folders.",
+      "advice": "Deleting the whole thing uninstalls every game in this library. Keep.",
+      "tip": "N/A."
+    },
+    "games-platform:epic-games": {
+      "what": "Games installed through the Epic Games Launcher.",
+      "advice": "Deleting equals uninstalling; Epic's installed record does not sync automatically, and leftover records can make the launcher error out before a reinstall. Keep them; use Epic's own uninstall feature to remove games.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-platform:epic-launcher-cache": {
+      "what": "Logs, embedded web caches, and crash reports of the Epic launcher.",
+      "advice": "The launcher opens the store slightly slower the first time after cleaning. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "games-platform:epic-launcher-data": {
+      "what": "Login credentials, installed-game manifests, and settings.",
+      "advice": "After deletion you must log in again, and the launcher loses its record of installed games. Keep.",
+      "tip": "Does not rebuild automatically."
+    },
+    "games-platform:gog-games": {
+      "what": "Games installed through GOG Galaxy or offline installers.",
+      "advice": "Deleting equals uninstalling. GOG saves often live inside the game folder and may be lost with it. Keep.",
+      "tip": "N/A: re-download or reinstall to play again."
+    },
+    "games-platform:gog-galaxy-cache": {
+      "what": "Logs and web caches of the GOG Galaxy client.",
+      "advice": "The client opens slightly slower the first time after cleaning. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "games-platform:game-saves-generic": {
+      "what": "Many games keep saves, configuration, and screenshots in these folders under Documents.",
+      "advice": "Deleting loses save progress. Some games have cloud saves, but not all, and syncing may lag. Always keep — this is a protect-list category this tool will not touch.",
+      "tip": "Does not rebuild automatically."
+    },
+    "games-platform:game-shadercache-local": {
+      "what": "Shader compilation results generated by the GPU driver or the game itself, avoiding repeated compilation.",
+      "advice": "The first few runs after cleaning may stutter, then recover. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "games-platform:unreal-ddc": {
+      "what": "Unreal Engine's Derived Data Cache — cached material and shader compilation results, easily tens of GB.",
+      "advice": "Cleaning while a project is in progress makes the next compile noticeably slower. Developers who switch projects often save time by keeping it; as a pure player you can clean it. Note: in-progress projects may hold uncommitted intermediates here.",
+      "tip": "Rebuilds automatically, but the editor and games load very slowly while it does."
+    },
+    "games-platform:unity-cache": {
+      "what": "Asset import caches and Asset Store download caches of the Unity editor.",
+      "advice": "The first project open after cleaning re-imports assets. Keep while a project is in progress to save time.",
+      "tip": "Rebuilds, but import takes longer."
+    },
+    "games-platform:game-anticheat-logs": {
+      "what": "Logs and run records of anti-cheat components.",
+      "advice": "Cleaning is usually harmless, but individual games may ask you to reinstall the anti-cheat component. If a game fails to launch over anti-cheat, keeping the logs helps troubleshooting.",
+      "tip": "Rebuilds automatically."
+    },
+    "windows-system:win-temp": {
+      "what": "System-level temp folder: installers, system components, and some software write intermediate files here.",
+      "advice": "Files held by running programs cannot be deleted and are skipped; already-written but unused content may need to regenerate — a one-time time cost. Almost never worth keeping; if a system update or big install is running, clean after it finishes.",
+      "tip": "Rebuilds on demand automatically; no manual intervention needed."
+    },
+    "windows-system:win-prefetch": {
+      "what": "Windows' index of which files programs read at launch, used to speed up the next start.",
+      "advice": "For a while after cleaning, frequently used programs may start slightly slower. Keep it if this machine has a mechanical disk and you care about launch speed; on SSDs the impact is tiny.",
+      "tip": "Rebuilds automatically: after a few more launches the index is close to its original state."
+    },
+    "windows-system:win-update-download": {
+      "what": "Update install packages already downloaded; useless once installed.",
+      "advice": "If an update is in the 'downloaded, pending install' state, cleaning means one more download. When the system says updates are waiting for a restart, install them before cleaning.",
+      "tip": "Windows re-downloads when needed."
+    },
+    "windows-system:win-delivery-optimization": {
+      "what": "Local cache of peer-to-peer distribution for Windows Update and Store apps, served to other devices on the LAN.",
+      "advice": "Cleaning itself is risk-free; it is also the 'upload to others' cache, so cleaning clears the record of uploaded share. No need to keep; if you care about upload traffic, turn it off under Settings → Windows Update → Delivery Optimization.",
+      "tip": "Rebuilds automatically."
+    },
+    "windows-system:win-logs": {
+      "what": "Run logs, setup logs, and troubleshooting records written by the system and components.",
+      "advice": "If you happen to be debugging a failure, its logs are gone after cleaning. Keep them while investigating system problems; otherwise no need to keep.",
+      "tip": "New logs keep being written as needed."
+    },
+    "windows-system:win-minidump": {
+      "what": "Small memory images saved when the system blue-screens, for post-mortem crash analysis.",
+      "advice": "After cleaning you can no longer analyze that crash. Keep these files if the system has been blue-screening often recently.",
+      "tip": "Does not rebuild automatically; regenerated only at the next crash."
+    },
+    "windows-system:win-livekernelreports": {
+      "what": "Diagnostic reports generated when the system detects anomalies at runtime; can be large.",
+      "advice": "After cleaning you can no longer analyze that anomaly. No need to keep unless troubleshooting.",
+      "tip": "Does not rebuild automatically; regenerated when a problem occurs."
+    },
+    "windows-system:win-wer": {
+      "what": "Error reports and dump files collected after program crashes.",
+      "advice": "After cleaning you can no longer analyze that crash. No need to keep unless troubleshooting.",
+      "tip": "Keeps being generated as needed."
+    },
+    "windows-system:win-iedownloadedprogramfiles": {
+      "what": "ActiveX component cache downloaded by legacy Internet Explorer; rarely used on modern Windows.",
+      "advice": "Intranet systems relying on legacy ActiveX may be affected. Keep only while legacy IE-kernel apps are still in use.",
+      "tip": "Re-downloaded when needed."
+    },
+    "windows-system:win-inetcache": {
+      "what": "System-level HTTP cache, used by IE-kernel components and parts of the system UI.",
+      "advice": "The first few accesses are slightly slower. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "windows-system:win-thumbcache": {
+      "what": "The thumbnail database Explorer builds for images and videos, making folder previews faster.",
+      "advice": "The first open of an image-heavy folder regenerates thumbnails and is briefly slower. No need to keep. Note this folder also holds Explorer settings like window positions — this tool cleans only the cache files.",
+      "tip": "Rebuilds automatically as you browse the folders again."
+    },
+    "windows-system:win-fontcache": {
+      "what": "Cache files the system generates to speed up font loading.",
+      "advice": "Interfaces with lots of text may be slightly slower the first time. No need to keep; if deletion reports the file in use, clean again after a reboot.",
+      "tip": "Rebuilds automatically."
+    },
+    "windows-system:win-crashdumps": {
+      "what": "Memory dumps saved when ordinary programs crash; a single file can reach hundreds of MB.",
+      "advice": "After cleaning you can no longer analyze that crash. No need to keep unless debugging crashes.",
+      "tip": "Does not rebuild automatically; regenerated at the next crash."
+    },
+    "windows-system:win-recycle-bin": {
+      "what": "Staging area for deleted files that can still be restored.",
+      "advice": "After emptying, these files can no longer be brought back with Restore. Do not empty right after accidentally deleting something you plan to restore.",
+      "tip": "N/A — this is a staging area for real files, not a cache."
+    },
+    "windows-system:win-newsystemold": {
+      "what": "The complete previous Windows installation kept by a feature upgrade for rollback.",
+      "advice": "After deletion you cannot roll back to the pre-upgrade version, nor recover the old system's personal files from it. Keep it within 10 days of the upgrade or until the new system is confirmed fine; Windows cleans it up automatically when it expires.",
+      "tip": "N/A: this is a backup — once deleted, it is gone."
+    },
+    "windows-system:win-hiberfil": {
+      "what": "The system writes RAM contents here when hibernating; usually close to the size of physical memory.",
+      "advice": "Deleting it directly does nothing — the system holds it open, and the next hibernation recreates it. The only way to reclaim the space is to turn hibernation off: run powercfg /h off as administrator. Keep it while you use hibernation or Fast Startup; disabling hibernation also disables Fast Startup.",
+      "tip": "It stays; it does not go away."
+    },
+    "windows-system:win-pagefile": {
+      "what": "The swap files backing virtual memory, managed by the system.",
+      "advice": "Deleting it gets the file rebuilt immediately — no space freed and stability may suffer. Always keep. Resize it under System Properties → Advanced → Performance → Virtual memory.",
+      "tip": "Rebuilds automatically."
+    },
+    "windows-system:win-installer": {
+      "what": "Cache of MSI packages and uninstall information for patches; many programs reference it when repairing, upgrading, or uninstalling.",
+      "advice": "After cleaning you may see 'cannot uninstall', 'cannot repair', or 'upgrade failed', with the cause hard to track down. Keep it — this tool puts it on the protect list and never cleans it.",
+      "tip": "Does not rebuild automatically."
+    },
+    "windows-system:win-winsxs": {
+      "what": "The component store holding side-by-side versions of system components; most of it is hard links, so real usage is far below the shown size.",
+      "advice": "Manual deletion breaks system updating and component repair, and in bad cases the system will not boot. Keep it; to reclaim space use the official command DISM /Online /Cleanup-Image /StartComponentCleanup.",
+      "tip": "Maintained by the system."
+    },
+    "windows-system:win-servicing": {
+      "what": "Staging area and component manifests for system updates.",
+      "advice": "Deletion can break updates or corrupt system components. Keep.",
+      "tip": "Maintained by the system."
+    },
+    "windows-system:win-csc": {
+      "what": "Local copies kept by the Offline Files feature for when network shares are unavailable.",
+      "advice": "Deleting directly may lose changes not yet synced back to the server. Keep it; with Offline Files disabled it is basically empty.",
+      "tip": "Refills after the next sync."
+    },
+    "windows-system:win-search-index": {
+      "what": "The index database Windows Search uses to match file contents quickly.",
+      "advice": "For a while after cleaning, search results are incomplete. Recommended to keep; to rebuild use Indexing Options → Advanced → Rebuild.",
+      "tip": "It rebuilds, but search is noticeably degraded during the rebuild and needs time to become complete again."
+    },
+    "windows-system:win-uwp-packages": {
+      "what": "Per-app data, settings, and caches of each Store app (including some system components).",
+      "advice": "Bulk deletion resets apps, requires re-login, and may upset individual system components. Keep it; clean per app instead — for example remove WSL distros with wsl --unregister.",
+      "tip": "Some parts rebuild automatically, but app settings and login state are lost."
+    },
+    "windows-system:win-speech-ime": {
+      "what": "Language resources used by speech recognition and input methods.",
+      "advice": "After cleaning, speech/typing for the affected language may be temporarily unavailable. Keep them; these folders are usually small.",
+      "tip": "Language packs re-download on demand."
+    },
+    "windows-system:win-assembly": {
+      "what": "The .NET framework assembly cache; many older programs reference it at startup.",
+      "advice": "Deletion breaks programs that depend on .NET. Keep.",
+      "tip": "Does not rebuild automatically."
+    },
+    "windows-system:win-security": {
+      "what": "System files related to security policy and credentials.",
+      "advice": "Deletion may affect login and permission checks. Keep.",
+      "tip": "Maintained by the system."
+    },
+    "windows-system:win-recovery": {
+      "what": "The system recovery environment plus temp folders left behind by upgrades.",
+      "advice": "$Windows.~BT / ~WS are upgrade leftovers, usually cleanable some time after the upgrade completes; \\Recovery is the recovery environment — deleting it weakens system repair. Keep \\Recovery; clean upgrade leftovers once the system is confirmed fine.",
+      "tip": "N/A."
+    },
+    "windows-system:win-setup-temp": {
+      "what": "Logs and temp files left by system installation and upgrades.",
+      "advice": "If an upgrade later fails, its setup logs are missing after cleaning. Keep them while an upgrade is in progress; clean after it completes and checks out.",
+      "tip": "N/A: one-time byproducts."
+    },
+    "apps-common:pip-cache": {
+      "what": "Cache of wheels and source packages downloaded by pip; installed libraries can be reused from it.",
+      "advice": "Reinstalling the same libraries re-downloads them after cleaning. Keep it on poor connections or when you re-create environments often.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:uv-cache": {
+      "what": "Package cache downloaded and built by uv.",
+      "advice": "First installs are slower after cleaning. No need to keep; use uv cache clean for a more proper cleanup when needed.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:npm-cache": {
+      "what": "Package cache downloaded by npm, often several GB.",
+      "advice": "Reinstalling dependencies re-downloads them after cleaning. Keep it when you often install dependencies offline.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:yarn-pnpm-store": {
+      "what": "Global package stores of yarn and pnpm; pnpm also hard-links from it to save space.",
+      "advice": "After cleaning, every project's first dependency install is slower; pnpm's hard links break and re-fetch. The pnpm store is part of its space-saving mechanism — recommended to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:gradle-caches": {
+      "what": "Dependencies downloaded by Gradle and its build caches.",
+      "advice": "The first build after cleaning is noticeably slower; the wrapper may also hold the pinned Gradle distribution. Keep it when you build Android/Java projects often.",
+      "tip": "Rebuilds, but dependencies re-download from the network."
+    },
+    "apps-common:maven-repo": {
+      "what": "The local repository of jars downloaded by Maven.",
+      "advice": "Builds re-download dependencies after cleaning; offline builds fail outright. Keep it when you must build without network.",
+      "tip": "Rebuilds."
+    },
+    "apps-common:nuget-packages": {
+      "what": "NuGet package cache of .NET projects.",
+      "advice": "Restoring dependencies re-downloads them after cleaning. Keep it when you build .NET projects often.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:go-modcache": {
+      "what": "Go module download cache and build intermediates; the build cache can reach tens of GB.",
+      "advice": "The first compile after cleaning starts from scratch and takes clearly longer. Keep it when compiling big projects frequently; go clean -cache is the more proper way.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:cargo-registry": {
+      "what": "Rust's crate download cache and copies of git dependencies.",
+      "advice": "Builds re-download dependencies after cleaning. Keep it when you build Rust projects often.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:hf-cache": {
+      "what": "Model weights downloaded from Hugging Face; a single model is often tens of GB.",
+      "advice": "Deleting means re-downloading, and some models may have been taken down by their authors and cannot be fetched again. Recommended to keep — this is a protect-list category this tool will not touch.",
+      "tip": "It re-downloads, but at a high cost."
+    },
+    "apps-common:ollama-models": {
+      "what": "LLM weights downloaded by Ollama.",
+      "advice": "After deletion you must re-download and the same space is taken again. Keep them; to remove, use ollama rm <model>.",
+      "tip": "Can be re-pulled with ollama pull."
+    },
+    "apps-common:torch-hub": {
+      "what": "PyTorch pretrained-model and checkpoint caches.",
+      "advice": "Deleting means re-downloading, possibly tens of GB. Keeping them is the easier path.",
+      "tip": "They re-download."
+    },
+    "apps-common:wechat-files": {
+      "what": "Chat images, videos, files, and the chat history database saved by WeChat.",
+      "advice": "After deletion, local chat history and received files are unrecoverable, and expired content is no longer served by the servers. Always keep; slim it down with WeChat's own storage management. This tool never cleans it.",
+      "tip": "Does not rebuild automatically; servers usually keep content only for a limited time."
+    },
+    "apps-common:wechat-cache": {
+      "what": "Cache data shared across WeChat accounts (stickers, thumbnails, etc.).",
+      "advice": "Stickers and thumbnails reload after cleaning. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:qq-files": {
+      "what": "Files received by QQ, chat history, and images.",
+      "advice": "Local history and files cannot be recovered after deletion. Keep; use QQ's own cleanup feature.",
+      "tip": "Does not rebuild automatically."
+    },
+    "apps-common:telegram-tdata": {
+      "what": "Telegram's login state, session keys, and local caches.",
+      "advice": "After deletion you must log in again and receive a verification code on your phone. Keep it; to clear caches use Telegram's Settings → Advanced → Storage Usage.",
+      "tip": "Does not rebuild automatically."
+    },
+    "apps-common:wecom-cache": {
+      "what": "Images, stickers, and temp files downloaded by workplace collaboration apps.",
+      "advice": "Local copies of historical images and files disappear after cleaning and must be re-downloaded when needed. Confirm important files were saved elsewhere first.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:discord-cache": {
+      "what": "Caches of Discord's embedded browser, stickers, and images.",
+      "advice": "Channels reload their images the first time after cleaning. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:slack-teams-zoom-cache": {
+      "what": "Logs, caches, and temp files of these meeting and collaboration apps.",
+      "advice": "First launch and loading history messages are slightly slower after cleaning. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:nvidia-shadercache": {
+      "what": "Shader caches compiled by the GPU driver for games and graphics software.",
+      "advice": "Games and graphics apps may stutter the first few runs after cleaning. No need to keep — one of the common large caches.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:nvidia-installer": {
+      "what": "Temp files left after driver installers unpack, plus old installer packages.",
+      "advice": "Cleaning does not affect installed drivers; rolling back a driver version needs the old package re-downloaded. No need to keep.",
+      "tip": "N/A: one-time byproducts."
+    },
+    "apps-common:amd-intel-shadercache": {
+      "what": "Shader caches generated by AMD and Intel GPU drivers.",
+      "advice": "Graphics programs stutter slightly the first few runs after cleaning. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:vscode-cache": {
+      "what": "Extension caches, logs, and UI caches of VS Code.",
+      "advice": "First launch after cleaning rebuilds caches and is slightly slower; extensions themselves are unaffected. No need to keep. Do not delete the neighboring User folder — that holds settings and keybindings.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:jetbrains-cache": {
+      "what": "Index caches, logs, and plug-in temp files of IDEA / PyCharm and other JetBrains IDEs.",
+      "advice": "The first project open after cleaning spends a long time 'indexing' — large projects can take ten-plus minutes. Keep caches for very large projects, or use the IDE's Invalidate Caches instead.",
+      "tip": "It rebuilds, but the whole project must be re-indexed first."
+    },
+    "apps-common:adobe-media-cache": {
+      "what": "Preview and audio-waveform caches generated by Premiere / After Effects, often tens of GB.",
+      "advice": "Reopening a project regenerates previews and waveforms, and the editor stutters for a while. Keep caches for projects in progress, or you wait on every open.",
+      "tip": "It rebuilds, but previews must regenerate."
+    },
+    "apps-common:davinci-cache": {
+      "what": "Optimized media and render caches generated by the editor.",
+      "advice": "Playback and rendering regenerate caches after cleaning and are noticeably slower meanwhile. Keeping them suits projects in progress.",
+      "tip": "It rebuilds."
+    },
+    "apps-common:blender-cache": {
+      "what": "Blender's temp render files, autosaves, and collage caches.",
+      "advice": "Cleaning also removes the autosave files used for crash recovery. Keep while rendering or working — autosaves sometimes rescue unsaved work.",
+      "tip": "It rebuilds."
+    },
+    "apps-common:office-filecache": {
+      "what": "Local copies and upload caches Office keeps when saving documents; noticeable mainly with OneDrive.",
+      "advice": "If a local copy still holds changes not yet synced to the cloud, cleaning can lose those changes. Confirm all documents finished syncing before cleaning.",
+      "tip": "Rebuilds automatically."
+    },
+    "apps-common:onedrive": {
+      "what": "Local copies of cloud files and on-demand placeholder files.",
+      "advice": "Deleting local copies does not delete the cloud files, but it scrambles sync state and may trigger a full re-sync. Keep them; to free space use the file's right-click 'Free up space'.",
+      "tip": "Re-downloads on demand."
+    },
+    "apps-common:baidu-netdisk": {
+      "what": "Download caches, thumbnails, and logs of the cloud-drive client.",
+      "advice": "Cleaning also removes in-flight download chunks; unfinished downloads start over. Keep while download tasks are running.",
+      "tip": "It rebuilds."
+    },
+    "apps-common:thunder-idm": {
+      "what": "Chunk temp files and metadata of download managers.",
+      "advice": "Cleaning an unfinished task's temp files forces that task to re-download. Keep while tasks are unfinished.",
+      "tip": "N/A."
+    },
+    "apps-common:docker-desktop": {
+      "what": "Docker's images, containers, and volume data.",
+      "advice": "Deletion loses all local images and container data, including un-exported database contents. Keep; slim down with docker system prune.",
+      "tip": "Does not rebuild automatically."
+    },
+    "apps-common:wsl-vhdx": {
+      "what": "The virtual disk file of each WSL distro; the more you install, the bigger it gets.",
+      "advice": "Deleting equals removing every file and configuration inside that Linux environment. Keep; to reclaim space, run docker system prune first and then compact the vhdx.",
+      "tip": "Does not rebuild automatically."
+    },
+    "apps-common:windows-store-cache": {
+      "what": "Download and UI caches of the Microsoft Store.",
+      "advice": "After cleaning, rebuild with wsreset, otherwise Store pages may misload. No need to keep.",
+      "tip": "Rebuilds automatically."
+    },
+    "games-titles:the-witcher-3": {
+      "what": "Game files of The Witcher 3: Wild Hunt, including both large expansions.",
+      "advice": "Deleting equals uninstalling; progress saves usually live under Documents, not in this folder. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:cyberpunk-2077": {
+      "what": "Game files of Cyberpunk 2077.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\CD Projekt Red and are not deleted with it. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:gta-v": {
+      "what": "Game files of Grand Theft Auto V, including Online.",
+      "advice": "Deleting equals uninstalling; Online character data lives on the servers and is unaffected. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:rdr2": {
+      "what": "Game files of Red Dead Redemption 2.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:elden-ring": {
+      "what": "Game files of ELDEN RING.",
+      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\EldenRing. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:baldurs-gate-3": {
+      "what": "Game files of Baldur's Gate 3.",
+      "advice": "Deleting equals uninstalling; saves live under AppData\\Local\\Larian Studios. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:starfield": {
+      "what": "Game files of Starfield.",
+      "advice": "Deleting equals uninstalling; mods and saves must be rebuilt as well. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:hogwarts-legacy": {
+      "what": "Game files of Hogwarts Legacy.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:cs2": {
+      "what": "Game files of Counter-Strike 2, still using the old CS:GO folder name.",
+      "advice": "Deleting equals uninstalling; about 30 GB must be re-downloaded. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:dota2": {
+      "what": "Game files of Dota 2; the folder name still carries the beta suffix.",
+      "advice": "Deleting equals uninstalling. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:pubg": {
+      "what": "Game files of PUBG: BATTLEGROUNDS.",
+      "advice": "Deleting equals uninstalling. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:apex": {
+      "what": "Game files of Apex Legends.",
+      "advice": "Deleting equals uninstalling. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:destiny2": {
+      "what": "Game files of Destiny 2.",
+      "advice": "Deleting equals uninstalling. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:mhw": {
+      "what": "Game files of Monster Hunter: World.",
+      "advice": "Deleting equals uninstalling; saves live in Steam Cloud or the local userdata folder. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:mh-wilds": {
+      "what": "Game files of Monster Hunter Wilds.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:sekiro": {
+      "what": "Game files of Sekiro: Shadows Die Twice.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:dark-souls-3": {
+      "what": "Game files of Dark Souls III.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:terraria": {
+      "what": "Game files of Terraria; the install is small.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\My Games\\Terraria. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:stardew-valley": {
+      "what": "Game files of Stardew Valley.",
+      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\StardewValley. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:hollow-knight": {
+      "what": "Game files of Hollow Knight.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:hades": {
+      "what": "Game files of Hades.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:rimworld": {
+      "what": "Game files of RimWorld.",
+      "advice": "Deleting equals uninstalling; mods and saves live under AppData\\LocalLow\\Ludeon Studios and stop working with it. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:factorio": {
+      "what": "Game files of Factorio.",
+      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\Factorio. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:cities-skylines-2": {
+      "what": "Game files of Cities: Skylines II.",
+      "advice": "Deleting equals uninstalling; mods and saves need to be set up again. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:total-war-wh3": {
+      "what": "Game files of Total War: WARHAMMER III.",
+      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\The Creative Assembly. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:ac-valhalla": {
+      "what": "Game files of Assassin's Creed Valhalla.",
+      "advice": "Deleting equals uninstalling; Ubisoft Connect cloud saves can usually be restored. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:far-cry-6": {
+      "what": "Game files of Far Cry 6.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:forza-horizon-5": {
+      "what": "Game files of Forza Horizon 5.",
+      "advice": "Deleting equals uninstalling; saves live in the Microsoft account cloud. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:aoe4": {
+      "what": "Game files of Age of Empires IV.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:it-takes-two": {
+      "what": "Game files of It Takes Two.",
+      "advice": "Deleting equals uninstalling; both players must re-download to play online again. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:palworld": {
+      "what": "Game files of Palworld.",
+      "advice": "Deleting equals uninstalling; self-hosted servers and saves live under Pal\\Saved and may be lost with it. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:black-myth-wukong": {
+      "what": "Game files of Black Myth: Wukong.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\BlackMythWukong or in Steam Cloud. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:naraka": {
+      "what": "Game files of Naraka: Bladepoint.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:genshin": {
+      "what": "Game files of Genshin Impact.",
+      "advice": "Deleting equals uninstalling, with tens of GB to re-download. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:star-rail": {
+      "what": "Game files of Honkai: Star Rail.",
+      "advice": "Deleting equals uninstalling. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:wuthering-waves": {
+      "what": "Game files of Wuthering Waves.",
+      "advice": "Deleting equals uninstalling. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:zenless-zone-zero": {
+      "what": "Game files of Zenless Zone Zero.",
+      "advice": "Deleting equals uninstalling. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:ffxiv": {
+      "what": "Client files of FINAL FANTASY XIV.",
+      "advice": "Deleting equals uninstalling; re-downloading takes a long time. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again, and patches are large."
+    },
+    "games-titles:lost-ark": {
+      "what": "Game files of Lost Ark.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:path-of-exile": {
+      "what": "Game files of Path of Exile.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:warframe": {
+      "what": "Game files of Warframe.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:wot": {
+      "what": "Game files of World of Tanks.",
+      "advice": "Deleting equals uninstalling; progress lives on the servers and is unaffected. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:lol": {
+      "what": "Client and game files of League of Legends.",
+      "advice": "Deletion breaks the client; a reinstall and re-download are required. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:valorant": {
+      "what": "Game files of VALORANT, installed together with the Vanguard anti-cheat component.",
+      "advice": "Deletion breaks the client; Vanguard must be reinstalled and the system rebooted. Keep while you still play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:overwatch": {
+      "what": "Game files of Overwatch 2.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:ea-sports-fc": {
+      "what": "Game files of the EA SPORTS FC series (formerly FIFA).",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:call-of-duty": {
+      "what": "Files of the Call of Duty series; new entries install under the Call of Duty HQ folder and often exceed 100 GB.",
+      "advice": "Deleting equals uninstalling, and re-downloading takes a very long time. Recommended to keep — the re-download cost is high.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:civilization-6": {
+      "what": "Game files of Sid Meier's Civilization VI.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\My Games. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:rust": {
+      "what": "Game files of Rust; the client grows further when you host your own server.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:valheim": {
+      "what": "Game files of Valheim.",
+      "advice": "Deleting equals uninstalling; world saves live under AppData\\LocalLow\\IronGate. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:ark": {
+      "what": "Game files of the ARK series, with large amounts of map and mod data; often over 200 GB.",
+      "advice": "Deleting equals uninstalling; if you hosted a local server, its saves are lost too. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:no-mans-sky": {
+      "what": "Game files of No Man's Sky.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:subnautica": {
+      "what": "Game files of Subnautica.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:the-sims-4": {
+      "what": "Game files and expansions of The Sims 4.",
+      "advice": "Deleting equals uninstalling; household and build saves live under Documents\\Electronic Arts. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:ets2": {
+      "what": "Game files of Euro Truck Simulator 2; large with map DLCs.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\Euro Truck Simulator 2. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:helldivers-2": {
+      "what": "Game files of Helldivers 2.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:ghost-of-tsushima": {
+      "what": "Game files of Ghost of Tsushima Director's Cut.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:god-of-war": {
+      "what": "Game files of the PC version of God of War.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\God of War. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:persona-5-royal": {
+      "what": "Game files of Persona 5 Royal.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:nier-automata": {
+      "what": "Game files of NieR:Automata.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:death-stranding": {
+      "what": "Game files of Death Stranding.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:deep-rock-galactic": {
+      "what": "Game files of Deep Rock Galactic.",
+      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:dont-starve-together": {
+      "what": "Game files of Don't Starve Together.",
+      "advice": "Deleting equals uninstalling; world saves of locally hosted games go with it. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:oxygen-not-included": {
+      "what": "Game files of Oxygen Not Included.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\Klei. Keep while you still want to play it.",
+      "tip": "N/A: re-download to play again."
+    },
+    "games-titles:msfs": {
+      "what": "Game files of Microsoft Flight Simulator.",
+      "advice": "Deleting equals uninstalling; reinstalling means re-downloading over 100 GB of scenery data. Recommended to keep — the re-download cost is high.",
+      "tip": "N/A: re-download to play again, and the download is very large."
     }
   }
 }
