@@ -52,6 +52,7 @@ INCLUDE = [
     "config/targets.json",
     "config/convert.json",
     "config/filetypes.json",
+    "config/kb-en.json",
     "config/game-names.json",
     "packs/index.json",
     "packs/README.md",

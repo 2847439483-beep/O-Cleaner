@@ -996,6 +996,8 @@ async function revealPath(path, select) {
 function qs() {
   const q = new URLSearchParams({ drive, scope });
   if (customPath) q.set("custom", customPath);
+  // 界面语言随请求上行：英文界面时后端用英文知识库文案覆盖长文本
+  q.set("lang", i18nLocale() === "en" ? "en" : "zh");
   return q;
 }
 async function loadState() {
@@ -1847,13 +1849,13 @@ let GAMES = null;   // 全平台游戏库（/​__oc__/games）：Epic/GOG 从�
 async function loadSteam(force) {
   if (STEAM && !force) return STEAM;
   try {
-    STEAM = await (await fetch(`${API}/__oc__/steam`)).json();
+    STEAM = await (await fetch(`${API}/__oc__/steam?lang=${i18nLocale() === "en" ? "en" : "zh"}`)).json();
   } catch (e) {
     STEAM = { found: false, error: String(e) };
   }
   // Epic/GOG 清单是独立接口，失败不影响 Steam 主面板
   try {
-    GAMES = await (await fetch(`${API}/__oc__/games`)).json();
+    GAMES = await (await fetch(`${API}/__oc__/games?lang=${i18nLocale() === "en" ? "en" : "zh"}`)).json();
   } catch (e) {
     GAMES = null;
   }
@@ -2619,7 +2621,7 @@ async function startFullScan() {
   const timer = setInterval(poll, 500);
   try {
     const r = await (await fetch(`${API}/__oc__/overview?drive=${drive}`
-                                 + `&depth=${depth}`,
+                                 + `&depth=${depth}&lang=${i18nLocale() === "en" ? "en" : "zh"}`,
                                  { signal: ac.signal })).json();
     if (r.error) throw new Error(r.error);
     FS = r;
@@ -2804,7 +2806,7 @@ async function loadSubLevel(node) {
   try {
     const res = await fetch(`${API}/__oc__/subdirs?drive=${
       encodeURIComponent(FS.drive || "")}&path=${
-      encodeURIComponent(node.path)}&limit=400`);
+      encodeURIComponent(node.path)}&limit=400&lang=${i18nLocale() === "en" ? "en" : "zh"}`);
     const r = await res.json();
     if (r.error || !(r.children || []).length) return;
     const added = r.children.map(c => ({
@@ -3165,7 +3167,7 @@ async function toggleInlineKids(wrap, item, btn) {
 
   container.innerHTML = '<div class="loading"><span class="spin"></span>正在按需扫描子项…</div>';
   try {
-    const res = await fetch(`${API}/__oc__/subdirs?drive=${encodeURIComponent(FS?.drive || drive)}&path=${encodeURIComponent(item.path)}&limit=100`);
+    const res = await fetch(`${API}/__oc__/subdirs?drive=${encodeURIComponent(FS?.drive || drive)}&path=${encodeURIComponent(item.path)}&limit=100&lang=${i18nLocale() === "en" ? "en" : "zh"}`);
     const r = await res.json();
     if (r.error || !(r.children || []).length) {
       container.innerHTML = '<div class="empty" style="margin:4px 0">此项暂无可见子目录或为空。</div>';
@@ -3697,7 +3699,7 @@ async function showPartition(it) {
   let r = null;
   try {
     const res = await fetch(`${API}/__oc__/subdirs?drive=${
-      encodeURIComponent(FS.drive || "")}&path=${encodeURIComponent(it.path)}&limit=400`);
+      encodeURIComponent(FS.drive || "")}&path=${encodeURIComponent(it.path)}&limit=400&lang=${i18nLocale() === "en" ? "en" : "zh"}`);
     r = await res.json();
   } catch (e) { /* 落到下面的 partition 兜底 */ }
   if (r && !r.error && r.engine === "wiztree" && (r.children || []).length) {
@@ -3708,7 +3710,7 @@ async function showPartition(it) {
 
   try {
     const res = await fetch(`${API}/__oc__/partition?path=${
-      encodeURIComponent(it.path)}`);
+      encodeURIComponent(it.path)}&lang=${i18nLocale() === "en" ? "en" : "zh"}`);
     r = await res.json();
   } catch (e) {
     $("pBody").innerHTML = `<div class="dadv no"><b>分析失败</b><br>${

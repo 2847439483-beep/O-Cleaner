@@ -87,6 +87,10 @@ CUSTOM_PATH = CONFIG_DIR / "custom-rules.json"
 OVERRIDES_PATH = CONFIG_DIR / "custom-overrides.json"
 # 游戏中文名映射：纯显示用，不参与任何清理判断
 GAMENAMES_PATH = CONFIG_DIR / "game-names.json"
+# 内置知识库的英文文案（i18n L3）：随仓库分发、进版本库。
+# 英文界面请求接口时带 lang=en，后端在响应出口按 rule_id 覆盖
+# what/advice/tip 与置信度标签；缺键回落中文。只影响显示，不影响判定。
+KB_EN_PATH = CONFIG_DIR / "kb-en.json"
 # 资源包：随仓库分发的内置包 + 用户自己导入的包（后者不进版本库）
 PACKS_DIR = BASE_DIR / "packs"
 USER_PACKS_DIR = CONFIG_DIR / "packs-user"
@@ -1185,6 +1189,7 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
         parent_low = os.path.dirname(low)
         if parent_low in steam_common:
             item["steam_game"] = True
+            item["rule_id"] = "steam-game"   # 内联分支伪 id：英文文案按它覆盖
             item["category"] = "游戏"
             # 游戏本体是「可清理项」：一台机器上最大的可回收空间往往就是
             # 几款没在玩的大作。允许删，但风险等级保持「高」—— 删掉的是
@@ -1214,6 +1219,7 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
             # Epic/GOG 游戏本体：按清单里的精确安装路径命中，宁缺毋滥
             plat = other_game_dirs[low]
             item["game_platform"] = plat
+            item["rule_id"] = "epic-game" if plat == "epic" else "gog-game"
             item["category"] = "游戏"
             # 与 Steam 游戏本体同一待遇：可清理，但给出完整中文说明
             item["cleanable"] = True
@@ -1233,6 +1239,7 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
                   "安装目录或 文档\\My Games 里，删前确认没有想保留的存档。")
         elif low in other_game_libs:
             item["game_library"] = True
+            item["rule_id"] = "other-game-lib"
             item["category"] = "游戏"
             if not item.get("what"):
                 item["what"] = "Epic/GOG 游戏库目录，下面是各款游戏的安装目录。"
@@ -1673,6 +1680,56 @@ def load_filetypes() -> dict:
 def load_game_names() -> dict:
     """游戏中文名映射（appid → 中文名）。缺失时返回空表，不影响任何功能。"""
     return _load_json(GAMENAMES_PATH, {"games": {}})
+
+
+def load_kb_en() -> dict:
+    """内置知识库的英文文案。缺失/损坏时返回空表，全部回落中文。"""
+    data = _load_json(KB_EN_PATH, {})
+    return data if isinstance(data, dict) else {}
+
+
+def apply_lang_payload(obj, lang: str):
+    """英文界面下深度覆盖负载里的知识库长文本（i18n L3）。
+
+    递归遍历 dict/list：凡是带 rule_id 的节点，用 kb-en.json 里同 id 的
+    what/advice/tip（非空才覆盖）与置信度标签替换中文原文；其它字段
+    （cleanable/risk/category/路径/体积等）一律不动。lang 不是 en 时
+    原样返回。放在响应出口做而不是改识别器，是因为同一段文本可能来自
+    内置知识库，也可能来自资源包 —— 按 rule_id 覆盖与来源无关。
+    """
+    if str(lang or "").lower() != "en":
+        return obj
+    kb = load_kb_en()
+    rules = kb.get("rules") if isinstance(kb.get("rules"), dict) else {}
+    labels = kb.get("confidence_labels") if isinstance(kb.get("confidence_labels"), dict) else {}
+    risk_labels = kb.get("risk_labels") if isinstance(kb.get("risk_labels"), dict) else {}
+
+    def walk(node):
+        if isinstance(node, list):
+            for x in node:
+                walk(x)
+            return
+        if not isinstance(node, dict):
+            return
+        rid = str(node.get("rule_id") or "")
+        entry = rules.get(rid) if rid else None
+        if isinstance(entry, dict):
+            for f in ("what", "advice", "tip"):
+                en = entry.get(f)
+                if isinstance(en, str) and en.strip() and node.get(f):
+                    node[f] = en
+        conf = str(node.get("confidence") or "")
+        en_label = labels.get(conf)
+        if isinstance(en_label, str) and en_label and node.get("confidence_label"):
+            node["confidence_label"] = en_label
+        en_risk = risk_labels.get(str(node.get("risk") or ""))
+        if en_risk and node.get("risk"):
+            node["risk"] = en_risk
+        for v in node.values():
+            walk(v)
+
+    walk(obj)
+    return obj
 
 
 def game_display_name(appid, name: str, installdir: str = "") -> tuple[str, str]:
@@ -5190,8 +5247,9 @@ class Handler(BaseHTTPRequestHandler):
                 html = "<h1>web/index.html 缺失</h1>".encode("utf-8")
             return self._send(200, html, "text/html; charset=utf-8")
         if route == "/__oc__/state":
-            return self._json(build_state(q.get("drive"), q.get("custom"),
-                                          q.get("scope", "all")))
+            return self._json(apply_lang_payload(
+                build_state(q.get("drive"), q.get("custom"),
+                            q.get("scope", "all")), q.get("lang")))
         if route == "/__oc__/progress":
             # 前端在全盘扫描期间每 0.5 秒轮询一次，用来画真实进度条
             return self._json(prog_snapshot())
@@ -5200,8 +5258,9 @@ class Handler(BaseHTTPRequestHandler):
                                "remote": load_packs_state().get("remote") or "",
                                "user_dir": str(USER_PACKS_DIR)})
         if route == "/__oc__/scan":
-            return self._json(build_scan(q.get("drive"), q.get("custom"),
-                                         q.get("scope", "all")))
+            return self._json(apply_lang_payload(
+                build_scan(q.get("drive"), q.get("custom"),
+                           q.get("scope", "all")), q.get("lang")))
         if route == "/__oc__/history":
             return self._json(load_history())
         if route == "/__oc__/disk-trend":
@@ -5214,15 +5273,16 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/__oc__/bundle/export":
             return self._json(_export_bundle())
         if route == "/__oc__/steam":
-            return self._json(discover_steam())
+            return self._json(apply_lang_payload(discover_steam(), q.get("lang")))
         if route == "/__oc__/games":
             # 全平台游戏库（Steam + Epic + GOG），steam 负载原样透传在 .steam 里
-            return self._json(discover_games())
+            return self._json(apply_lang_payload(discover_games(), q.get("lang")))
         if route == "/__oc__/partition":
             p = q.get("path") or ""
             if not p:
                 return self._json({"error": "缺少 path 参数"}, 400)
-            return self._json(analyze_dir_partition(p))
+            return self._json(apply_lang_payload(
+                analyze_dir_partition(p), q.get("lang")))
         if route == "/__oc__/subdirs":
             # 大清理项逐层拆子项：查 WizTree 常驻表，任意深度都是 O(1)
             p = q.get("path") or ""
@@ -5232,7 +5292,8 @@ class Handler(BaseHTTPRequestHandler):
                 limit = min(400, max(1, int(q.get("limit") or 80)))
             except ValueError:
                 return self._json({"error": "limit 必须是整数"}, 400)
-            return self._json(list_subdirs(q.get("drive") or "", p, limit))
+            return self._json(apply_lang_payload(
+                list_subdirs(q.get("drive") or "", p, limit), q.get("lang")))
         if route == "/__oc__/wiztree":
             # 新用户引导要的信息全在这里：找到没有、是不是本目录自带、怎么装
             return self._json(wiztree_status())
@@ -5241,7 +5302,8 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/__oc__/fullscan":
             # 旧接口名保留为别名，指向新的占用树
             letter = (q.get("drive") or "C").rstrip(":").upper()
-            return self._json(scan_disk_overview(letter))
+            return self._json(apply_lang_payload(
+                scan_disk_overview(letter), q.get("lang")))
         if route == "/__oc__/overview":
             letter = (q.get("drive") or "C").rstrip(":").upper()
             try:
@@ -5257,7 +5319,7 @@ class Handler(BaseHTTPRequestHandler):
                       file=sys.stderr)
                 return self._json({"error": f"扫描线程异常退出"
                                             f"（{type(e).__name__}）"}, 500)
-            return self._json(r)
+            return self._json(apply_lang_payload(r, q.get("lang")))
         if route == "/__oc__/dirlevel":
             # 整棵树已在 overview 里一次扫完，这里不再单独扫一层。
             # 保留该路由但明确返回提示，避免旧前端静默失败。
