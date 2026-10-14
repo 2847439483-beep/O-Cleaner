@@ -687,7 +687,7 @@ def phase3_http() -> None:
               'class="panel acc' in html and "data-acc=" in html
               and "initAccordions" in html)
         check("侧栏不再有磁盘概览面板（已并入左栏）",
-              'id="paneDisk"' in html and 'id="driveHint"' in html
+              'id="driveHint"' in html and 'id="diskInfo"' in html
               and html.count('id="driveHint"') == 1)
         check("全盘页的面板改称扫描概览，避免与左栏重名",
               'data-i18n="pane.fs">扫描概览</span>' in html and 'id="fsHint"' in html)
