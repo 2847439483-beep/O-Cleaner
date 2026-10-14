@@ -702,7 +702,21 @@ def phase3_http() -> None:
         # 界面回落中文。同键重复定义会让后者静默覆盖前者，也一并拦下。
         _t_keys = set(re.findall(r'\bt\(\s*"([a-zA-Z0-9]+\.[A-Za-z0-9]+)"', html))
         _t_keys |= set(re.findall(r'data-i18n="([a-zA-Z0-9.]+)"', html))
-        _en_keys = re.findall(r'"([a-z][a-zA-Z0-9]*\.[A-Za-z0-9]+)"\s*:\s*["\']', html)
+        # 重复定义只在 I18N_EN 词典对象内检测 —— 全文检测会把其它 JS 对象的
+        # 单字键卷进来；词典键不强制带点（页头词条键是裸单词 "tag"）。
+        _en_start = html.find("const I18N_EN = {")
+        _en_dict = ""
+        if _en_start >= 0:
+            _depth = 0
+            for _i in range(_en_start + len("const I18N_EN = "), len(html)):
+                if html[_i] == "{":
+                    _depth += 1
+                elif html[_i] == "}":
+                    _depth -= 1
+                    if _depth == 0:
+                        _en_dict = html[_en_start:_i + 1]
+                        break
+        _en_keys = re.findall(r'"([A-Za-z0-9]+(?:\.[A-Za-z0-9]+)?)"\s*:\s*["\']', _en_dict)
         _en_set = set(_en_keys)
         _en_dup = sorted({k for k in _en_keys if _en_keys.count(k) > 1})
         _i18n_missing = sorted(k for k in _t_keys if k not in _en_set)
