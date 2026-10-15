@@ -12,211 +12,253 @@
   },
   "rules": {
     "steam-library": {
+      "label": "Steam library",
       "what": "Steam's game installation library: each subfolder is usually one game, plus appmanifest_*.acf files that record install state.",
       "advice": "Do not delete files here. Uninstall games from the Steam client instead, otherwise you leave broken install records behind.",
       "tip": "To reclaim space, sort your Steam library by size (Installed → Sort by size) and find the big games you no longer play."
     },
     "game-generic": {
+      "label": "Game folder",
       "what": "A folder that, by name, stores games or game platforms. Game installs are usually the single largest items on this machine.",
       "advice": "Not recommended for bulk cleanup. What can usually be cleaned inside: installers, logs, crash dumps, and old update packages.",
       "tip": "Subfolders named install / setup / patch / backup can usually be rebuilt by the launcher's 'verify files' feature."
     },
     "emulator": {
+      "label": "Android emulator",
       "what": "Android emulator program and its virtual machine images. Images (.vdi/.vmdk) easily reach tens of GB and contain the apps and data you installed inside the emulator.",
       "advice": "Do not delete directly. To reclaim space, remove unused instances in the emulator's multi-instance manager / disk cleanup, or uninstall the whole emulator.",
       "tip": "Emulators often leave leftovers behind — watch for stray image files elsewhere."
     },
     "gopro-exports": {
+      "label": "GoPro video exports",
       "what": "GoPro camera footage or exported edits. 4K/5K video runs hundreds of MB per minute, so these folders easily reach tens of GB.",
       "advice": "Irreplaceable personal footage — the last thing you should clean. Archive to an external drive or cloud storage first, verify, then delete the local copy.",
       "tip": "Archive the raw footage first; for finished edits you may only need the final cut."
     },
     "video-media": {
+      "label": "Movie & TV library",
       "what": "A folder holding movies, TV shows, or recordings — the fastest-growing category of disk usage.",
       "advice": "Personal data; deleting it is unrecoverable. Decide yourself which items you have watched and no longer need.",
       "tip": "This tool never suggests cleaning such folders on its own; it only shows you the usage."
     },
     "photo-cloud": {
+      "label": "Photos / cloud sync",
       "what": "Local sync folder of a photo library or cloud drive; files are usually already — or currently being — synced to the cloud.",
       "advice": "Do not delete local files directly — some cloud drives sync deletions to the cloud. Use the client's 'online-only / free up space' feature instead.",
       "tip": "After confirming a complete cloud copy exists, set files to 'online-only' in the client rather than deleting them."
     },
     "download-dir": {
+      "label": "Downloads",
       "what": "Default download location of a browser or download tool. Download folders mix uninstalled software, documents you want to keep, and other files — names alone cannot tell which are still needed. An external security audit (2026-10) confirmed that 'treat every download folder as cleanable' is a high-risk design that leads to accidental deletion, so this tool now defaults to keep.",
       "advice": "Open the folder and look through it yourself: redundant .exe/.msi installers, .iso images, and unfinished .part files can go; documents, photos, and project files should not. When cleaning, select items manually in the usage list (the UI asks for a second confirmation).",
       "tip": "Cleaning a download folder by name alone is a capability this tool deliberately removed — deleted downloads usually have no second copy."
     },
     "chat-cache": {
+      "label": "Chat app data",
       "what": "Data folder of chat apps such as WeChat / QQ / Telegram: chat history, received images and videos, voice caches. Growing to tens of GB is common.",
       "advice": "Do not delete the folder itself — you would lose chat history. Use the client instead: Settings → Storage, and clean by conversation or by date.",
       "tip": "Telegram's media cache has copies in the cloud, so clearing it is safer than for WeChat; for WeChat use the in-app cleaner to avoid index corruption."
     },
     "cloud-disk": {
+      "label": "Cloud drive data",
       "what": "Local data folder of a cloud-drive client: caches, streamed-video caches, and transfer files. Sync drives such as OneDrive fall into this category too.",
       "advice": "Playback caches and transfer files can be cleaned (originals are in the cloud). Do not delete files of a sync drive directly — the deletion syncs to the cloud.",
       "tip": "Once you cancel an unfinished transfer, its chunk files can be cleaned."
     },
     "editing-project": {
+      "label": "Video editing projects",
       "what": "Project folder of a video editor or other creative software. Besides project files it usually holds large preview/render caches (proxy/preview/cache).",
       "advice": "Do not delete the folder as a whole. Only cache / preview / proxy subfolders may be cleaned; the project files themselves must stay.",
       "tip": "Jianying (CapCut CN) drafts live under AppData\\Local\\JianyingPro; exported videos usually land elsewhere."
     },
     "photoshop": {
+      "label": "Photoshop / Adobe data",
       "what": "Data folder of Adobe software: scratch files, Camera Raw cache, preview caches, and possibly your artwork project files.",
       "advice": "Scratch and cache folders can be cleaned. Do not delete project files (.psd/.psb/.tif) or source assets.",
       "tip": "Photoshop's scratch can grow to tens of GB with large images; it is released automatically when you close PS."
     },
     "office-tools": {
+      "label": "Office deployment / WPS",
       "what": "Data folder of Office deployment tools (e.g. Office Tool Plus) or WPS. The former caches Office installation sources (several GB); the latter holds a backup center and cloud-document caches.",
       "advice": "Keep the programs themselves. Installation-source caches and cloud-document caches can be cleaned; WPS's backup center may hold historical versions of your documents — confirm before deleting.",
       "tip": "WPSDrive and the backup center often keep older versions of important documents; do not treat them as junk."
     },
     "browser-data": {
+      "label": "Browser data",
       "what": "Browser data folder in a non-default location (portable or custom install). It holds both caches (deletable) and bookmarks, passwords, cookies, sessions, and extensions (not deletable).",
       "advice": "Do not delete the folder as a whole — you would lose bookmarks, passwords, and every login session. This tool splits it up for you: only cache subfolders such as Cache / Code Cache / GPUCache are listed as cleanable; the rest is marked keep.",
       "tip": "Expand this item to see which subfolders can go and which must stay. The 'Chrome/Edge web cache' entry in the main list is the easier way to clear caches."
     },
     "game-launcher": {
+      "label": "Game launchers & version caches",
       "what": "Game launcher folder with version libraries, dependency files, and download caches. Minecraft's version library alone often reaches several GB.",
       "advice": "Download caches and old versions you no longer play can be cleaned; keep saves and versions you are actively playing.",
       "tip": "After deleting old versions, the launcher re-downloads them on demand."
     },
     "music-app": {
+      "label": "Music app caches & downloads",
       "what": "Cache and download folder of a music app: preview caches, downloaded songs, lyrics and cover art.",
       "advice": "Cache folders can be cleaned. Keep downloaded songs if you still want offline listening; deleting them means re-downloading.",
       "tip": "Many music apps store downloads in an encrypted format playable only inside their own client."
     },
     "model-weights": {
+      "label": "AI model weights",
       "what": "Weights of local LLM / image-generation models, several GB to tens of GB each, and slow to download.",
       "advice": "This is 'delete it and you re-download it' data. Unused models can be removed to save space, but make sure you no longer need them.",
       "tip": "The classic trade-off: big space savings, paid back in re-download time. Whether to clean depends entirely on whether you still use the model."
     },
     "docker-vm": {
+      "label": "Virtualization images",
       "what": "Docker images, WSL distro disks, or VM disk files — commonly tens of GB each, and they keep growing with use.",
       "advice": "Do not delete the files directly; that corrupts images. For Docker use docker system prune; for WSL use wsl --unregister; remove VMs from within their software.",
       "tip": "These virtual disks never shrink automatically, even after you delete files inside them."
     },
     "software-dir": {
+      "label": "Installed software",
       "what": "By name, a folder where you centralize software — either installed programs or a collection of installers.",
       "advice": "First tell apart 'installed programs' from 'installer archives': the former must be uninstalled properly; old versions of the latter can be cleaned.",
       "tip": "Expand and look: folders containing .exe and dll files should not be touched; folders holding only versioned installers are usually archives."
     },
     "drivers": {
+      "label": "Driver backups / driver packages",
       "what": "Download cache of driver-manager software (Driver Genius and the like) or a driver backup folder you created yourself. Once drivers are installed, these packages are no longer needed.",
       "advice": "Cleanable, but keep the most recent working GPU/network-driver backup so you can roll back if something breaks.",
       "tip": "Old driver packages with dates or version numbers are safe to delete; keep only the latest. A bare 'driver/drivers' name is no longer used as evidence by itself — GPU driver packages and programs' own drivers folders share the name, and deleting the wrong one causes trouble."
     },
     "windows-update-cache": {
+      "label": "Windows Update cache / leftovers",
       "what": "Windows Update download caches, peer-distribution caches, or old-system files kept by a feature update for rollback. Can reach 10-30 GB.",
       "advice": "Cleanable. Once upgrade leftovers are removed you cannot roll back to the previous version — wait until the system has run stably for a while.",
       "tip": "The proper way is Settings → System → Storage → Cleanup recommendations; do not delete by hand."
     },
     "game-shadercache": {
+      "label": "Game shader caches",
       "what": "Shader pre-compilation cache generated by the game itself, inside the game's install folder.",
       "advice": "Cleanable and reclaims space. The game's next launch will be slightly slower (the cache rebuilds), then back to normal.",
       "tip": "These folders commonly grow to several GB — 'delete for real savings, the cost is one slow launch'."
     },
     "cache-temp": {
+      "label": "Caches / temp folders",
       "what": "By name, a cache or temporary-files folder; contents can generally be deleted and regenerated by the program.",
       "advice": "Cleanable. Files currently in use are skipped automatically.",
       "tip": "After cleanup, affected programs may start slightly slower the first time (caches rebuild)."
     },
     "logs-dumps": {
+      "label": "Logs / crash dumps",
       "what": "Program runtime logs or crash-time memory dumps. Useless for daily use; useful only while debugging a problem.",
       "advice": "Usually cleanable. If you are currently debugging a program's issue, keep those for now.",
       "tip": "Some misbehaving programs write tens of GB of logs — worth checking first."
     },
     "node-modules": {
+      "label": "Node.js dependencies",
       "what": "npm project dependencies. A single project easily takes hundreds of MB, and several projects add up fast.",
       "advice": "Deletable; run npm install in the project to fully restore it later. Ideal cleanup target for unmaintained old projects.",
       "tip": "Do not delete for projects still in development — reinstalling dependencies takes time and needs a network connection."
     },
     "python-env": {
+      "label": "Python environments / caches",
       "what": "Python virtual environments, Conda environments, or bytecode caches. Each environment contains all third-party packages installed into it.",
       "advice": "Old unused environments can be deleted; rebuilding means reinstalling dependencies. __pycache__ is pure cache — delete freely.",
       "tip": "The pkgs folder inside a Conda installation is a download cache and can be cleaned on its own."
     },
     "recycle-bin": {
+      "label": "Recycle Bin",
       "what": "This drive's Recycle Bin: files already deleted once. Emptying it is unrecoverable.",
       "advice": "Make sure nothing inside is still needed, then empty it. The main list has a dedicated Recycle Bin entry that lists large items one by one.",
       "tip": "Every drive has its own Recycle Bin; deleted files go to the bin of the drive they lived on."
     },
     "system-volume": {
+      "label": "System restore points & shadow copies",
       "what": "System restore points, shadow copies, file history — system-level snapshots. Usage depends on how much space you allotted to restore.",
       "advice": "Do not delete manually (it fails on permissions anyway). Configure it under System Properties → System Protection.",
       "tip": "If this folder is unusually large, the restore-point space cap is probably set high."
     },
     "backup-dir": {
+      "label": "Backup folders",
       "what": "Backup files — system backups, automatic software backups, or backups you placed here yourself.",
       "advice": "Before deleting, confirm the data exists elsewhere. Clean only clearly outdated old backups and keep at least the most recent one.",
       "tip": "For rolling automatic backups, keeping the latest 1-2 copies is usually enough."
     },
     "game-exe": {
+      "label": "Game executables",
       "what": "A game's main executable or launcher. Such .exe files live inside the game's install folder; deleting one breaks the game.",
       "advice": "Do not delete. Uninstall games via Steam / Epic / the launcher — the client cleans everything up properly.",
       "tip": "How to tell: it sits in the game's common folder, not in a download folder — the same-named file in a download folder is just an installer."
     },
     "game-data-pack": {
+      "label": "Game data packs",
       "what": "Game resource data packs (Rockstar .rpf, EA .big/.bdt, Valve .vpk, etc.). These ARE the game's maps, textures, models, and audio — often several GB each.",
       "advice": "Never delete them individually — one missing file and the game errors out or will not start. To reclaim space, uninstall the game through its launcher.",
       "tip": "Names like levels_3.rpf or packs_1.rpf mean this is core game content."
     },
     "pagefile": {
+      "label": "Page file (virtual memory)",
       "what": "Windows virtual memory file. When physical RAM runs short the system swaps data here. Usually as large as, or larger than, your RAM.",
       "advice": "Cannot be deleted; the system is using it (manual deletion fails). Resize it under Advanced system settings → Performance → Virtual memory, or move it to another drive.",
       "tip": "This tool marks it non-cleanable and explains only."
     },
     "hiberfil": {
+      "label": "Hibernation file",
       "what": "File backing hibernation and Fast Startup, about 40%-100% of physical RAM, pre-allocated and held.",
       "advice": "Cannot be deleted directly. The only way to reclaim it is to turn hibernation off: run powercfg /h off as administrator (this also disables Fast Startup; powercfg /h on restores it).",
       "tip": "One of the most common 'single large files' on the system drive. This tool never runs powercfg for you, to avoid changing your startup experience."
     },
     "installer-pkg": {
+      "label": "Installers",
       "what": "A software installer package. Once the software is installed, the package itself is usually no longer needed.",
       "advice": "Usually cleanable. Confirm the software is installed, or that you no longer need the package.",
       "tip": "Clean old installers with version numbers and dates first; keep the most recent one for reinstalls."
     },
     "iso-image": {
+      "label": "Disk / system images",
       "what": "Optical disc image or system image. System install images are commonly 4-6 GB; VM disks can be tens of GB.",
       "advice": "After the system is installed, its image is usually cleanable. Do not delete VM disks (.vhd/.vhdx) directly — manage them from the VM software.",
       "tip": "If the system image is already installed out, deleting it reclaims several GB."
     },
     "archive": {
+      "label": "Archives",
       "what": "Compressed archive — could be a software distribution, asset pack, or backup. Big archives are invisible space hogs.",
       "advice": "Archives you have already extracted and used are usually cleanable. If it is the only copy (e.g. a backup), confirm before deleting.",
       "tip": "If the extracted folder still exists, the archive is generally redundant."
     },
     "video-file": {
+      "label": "Video files",
       "what": "Video files — the fastest-growing disk usage category. A 4K movie over 20 GB is common.",
       "advice": "Personal data; deletion is unrecoverable. Decide yourself which ones you have watched and no longer need.",
       "tip": "This tool never suggests deleting videos; it shows the usage and lets you decide."
     },
     "audio-file": {
+      "label": "Audio files",
       "what": "Music or recording files. Lossless formats (.flac/.wav/.ape) can reach tens to hundreds of MB each.",
       "advice": "Personal data. If it came from a music app, it can usually be re-downloaded there.",
       "tip": "Locally recorded original audio is irreplaceable — be careful."
     },
     "disk-image-backup": {
+      "label": "System backup images",
       "what": "System or partition-level backup (Ghost, Acronis, etc.), commonly tens of GB each.",
       "advice": "Your lifeline when reinstalling the system — not recommended to delete. If a newer backup exists, the old one can go.",
       "tip": "Delete an old backup only after confirming the newer one actually restores."
     },
     "ai-weights": {
+      "label": "AI model weight files",
       "what": "LLM or image-model weight files, commonly 2-40 GB each.",
       "advice": "Deleting means re-downloading (slow and data-hungry). Unused models can be removed.",
       "tip": "The test is simple: do you still use this model?"
     },
     "game-asset": {
+      "label": "Game assets",
       "what": "Game engine asset packs (Unreal .pak/.ucas/.utoc, etc.). These ARE the game's art and audio resources.",
       "advice": "Never delete them individually — one missing file and the game fails to start or crashes constantly. To reclaim space, uninstall the game through its launcher.",
       "tip": "Names like pakchunk10-WindowsClient.ucas mean this is core content of an Unreal Engine game."
     },
     "log-dump-file": {
+      "label": "Logs / dump files",
       "what": "Program logs or crash dumps; useful only while debugging.",
       "advice": "Usually cleanable. Keep them if you are currently troubleshooting a failure.",
       "tip": "Some misbehaving programs write tens of GB of logs."
     },
     "office-doc": {
+      "label": "Documents / design files",
       "what": "Office documents or design source files. Shown so you can see where space goes — not a suggestion to delete.",
       "advice": "Personal data; decide yourself. Back up important documents elsewhere regularly.",
       "tip": "This tool never lists documents as cleanup suggestions."

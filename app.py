@@ -1713,10 +1713,11 @@ def apply_lang_payload(obj, lang: str):
     """英文界面下深度覆盖负载里的知识库长文本（i18n L3）。
 
     递归遍历 dict/list：凡是带 rule_id 的节点，用 kb-en.json 里同 id 的
-    what/advice/tip（非空才覆盖）与置信度标签替换中文原文；其它字段
-    （cleanable/risk/category/路径/体积等）一律不动。lang 不是 en 时
-    原样返回。放在响应出口做而不是改识别器，是因为同一段文本可能来自
-    内置知识库，也可能来自资源包 —— 按 rule_id 覆盖与来源无关。
+    what/advice/tip（非空才覆盖）、识别名 label（覆盖 title/display_name/
+    zh_name）与置信度标签替换中文原文；其它字段（cleanable/risk/category/
+    路径/体积等）一律不动。lang 不是 en 时原样返回。放在响应出口做而不是
+    改识别器，是因为同一段文本可能来自内置知识库，也可能来自资源包 ——
+    按 rule_id 覆盖与来源无关。
     """
     if str(lang or "").lower() != "en":
         return obj
@@ -1739,6 +1740,14 @@ def apply_lang_payload(obj, lang: str):
                 en = entry.get(f)
                 if isinstance(en, str) and en.strip() and node.get(f):
                     node[f] = en
+            # 识别名：title / display_name / zh_name 都来自规则的中文 title，
+            # 英文界面换成条目的 label。缺 label 不覆盖 —— 资源包条目的
+            # title 多为游戏名 / 软件名，本就不该翻译。
+            en_name = entry.get("label")
+            if isinstance(en_name, str) and en_name.strip():
+                for f in ("title", "display_name", "zh_name"):
+                    if node.get(f):
+                        node[f] = en_name
         conf = str(node.get("confidence") or "")
         en_label = labels.get(conf)
         if isinstance(en_label, str) and en_label and node.get("confidence_label"):

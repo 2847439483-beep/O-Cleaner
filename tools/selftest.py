@@ -709,17 +709,33 @@ def phase3_http() -> None:
         check("知识库英文文案覆盖全部规则与资源包条目 id",
               not _kb_missing and not _kb_empty_what,
               "缺 id: " + ", ".join(_kb_missing) + "; what 为空: " + ", ".join(_kb_empty_what))
+        # 识别名 label（2026-10-15）：内置规则的 title 是中文（「驱动备份 /
+        # 驱动包」），英文界面排行行的识别名必须换英文 —— 每条内置规则都
+        # 要有 label；资源包条目多为游戏名 / 软件名不强制。
+        _kb_no_label = sorted(
+            k for k in _kb_ids
+            if not str((_kb_en.get(k) or {}).get("label") or "").strip())
+        check("内置规则都有英文识别名 label", not _kb_no_label,
+              "缺 label: " + ", ".join(_kb_no_label))
         _lang_sample = {"children": [{"rule_id": "cache-temp", "what": "中文",
+                                      "title": "缓存 / 临时目录",
+                                      "display_name": "缓存 / 临时目录",
+                                      "zh_name": "缓存 / 临时目录",
                                       "confidence": "high", "confidence_label": "中文",
                                       "risk": "高", "cleanable": True}]}
         _lang_out = app.apply_lang_payload(json.loads(json.dumps(_lang_sample)), "en")
         _lang_node = _lang_out["children"][0]
         _lang_off = app.apply_lang_payload(json.loads(json.dumps(_lang_sample)), None)
-        check("英文覆盖：长文本/风险/置信度换英文，判定字段不动",
+        _en_name = (_kb_en.get("cache-temp") or {}).get("label") or "Caches"
+        check("英文覆盖：长文本/识别名/风险/置信度换英文，判定字段不动",
               _lang_node["what"] != "中文" and _lang_node["risk"] == "High"
               and _lang_node["confidence_label"] != "中文"
+              and _lang_node["title"] == _en_name
+              and _lang_node["display_name"] == _en_name
+              and _lang_node["zh_name"] == _en_name
               and _lang_node["cleanable"] is True
-              and _lang_off["children"][0]["what"] == "中文")
+              and _lang_off["children"][0]["what"] == "中文"
+              and _lang_off["children"][0]["title"] == "缓存 / 临时目录")
         check("前端含自定义换算单位表单", "btnUnitAdd" in html and "btnUnitExample" in html)
         # 行显示类别统一（2026-10-14）：徽章文字/底色/柱条颜色三者由同一个
         # rowKind 决定；编辑弹窗用可选标签（chip）选样式，说明预填当前值，
