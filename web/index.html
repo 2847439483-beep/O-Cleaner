@@ -1297,9 +1297,10 @@ async function aiFetchModels() {
   const out = $("aiOut");
   const old = btn.textContent;
   btn.disabled = true; btn.textContent = t("ai.fetching","获取中…");
-  // 先把当前填的接口与密钥存下去，拉列表用的就是刚填的这组
-  await aiSave();
   try {
+    // 先把当前填的接口与密钥存下去，拉列表用的就是刚填的这组；
+    // 放进 try 里 —— aiSave 挂了也要走 finally 复位按钮
+    await aiSave();
     const r = await (await fetch(`${API}/__oc__/ai/models`, { method: "POST" })).json();
     if (out) out.innerHTML = r.ok
       ? `<span class="res-ok">${t("ai.modelsGot","识别到 {n} 个模型，点击「模型」输入框从下拉建议里选择").replace("{n}", (r.models || []).length)}</span>`
@@ -1478,6 +1479,7 @@ function drawDiskTrend() {
   const W = cv.width / dpr, H = cv.height / dpr;
   ctx.clearRect(0, 0, W, H);
   if (!freeNow) {
+    _TREND_GEO = null;              // 换盘/无数据：清掉旧几何，悬停不再显示上一块盘的点
     if (lbl) lbl.textContent = "";
     return;
   }
@@ -2863,12 +2865,19 @@ function renderOverview() {
   // 三色汇总必须「每字节只算一次」：扫描树是父目录与其下探出的子项并存
   // 的（为了支持下钻），父目录体积已经包含子项。若对全量节点扁平求和，
   // 同一段空间会被父、子各算一遍 —— 曾实测三项加总 1.9 TB，远超盘的实际
-  // 已用量。口径：当一个节点的路径落在另一个节点（祖先）之下时，
-  // 只按最浅一层的归类统计。
+  // 已用量。口径：路径沿「\」逐段向上查，任一祖先节点在清单里就只按
+  // 最浅一层归类统计（O(节点数×路径深度)，不做两两比对）。
   const _ns = FS.nodes || [];
-  const _ps = _ns.map(n => normKey(n.path));
-  const uniqueNodes = _ns.filter((n, i) =>
-    !_ps.some((p, j) => j !== i && _ps[i].startsWith(p + "\\")));
+  const _pset = new Set(_ns.map(n => normKey(n.path)));
+  const hasAncestorNode = p => {
+    let i;
+    while ((i = p.lastIndexOf("\\")) > 2) {   // 砍到「d:」这一段之前收手：盘根不是节点
+      p = p.slice(0, i);
+      if (_pset.has(p)) return true;
+    }
+    return false;
+  };
+  const uniqueNodes = _ns.filter(n => !hasAncestorNode(normKey(n.path)));
   const cleanSum = uniqueNodes.filter(n => n.cleanable).reduce((a, n) => a + n.size, 0);
   const keepSum = uniqueNodes.filter(n => !n.cleanable && n.recognized).reduce((a, n) => a + n.size, 0);
   const unkSum = uniqueNodes.filter(n => !n.recognized).reduce((a, n) => a + n.size, 0);
