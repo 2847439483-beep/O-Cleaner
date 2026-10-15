@@ -2200,8 +2200,10 @@ function renderHistory() {
 
 /* ==================== 确认与执行 ==================== */
 function confirmDialog() {
-  const rows = [...selected].map(id => {
-    const t = STATE.targets.find(x => x.id === id), i = SCAN[id];
+  // 只处理 SCAN 里有体积信息的 id；不在 SCAN 的 id（如自动发现项）应早已
+  // 走按路径勾选，这里兜底跳过，绝不让 i.size 抛异常把整个弹窗炸掉。
+  const rows = [...selected].filter(id => SCAN[id]).map(id => {
+    const tg = STATE.targets.find(x => x.id === id), i = SCAN[id];
     const subs = subSel[id];
     let size = i.size, files = i.files, note = "";
     if (i.items?.length) {
@@ -2211,8 +2213,9 @@ function confirmDialog() {
         files = chosen.length; note = t("cc.selectedOnly","仅删勾选的 {n} 项").replace("{n}", chosen.length);
       } else note = t("cc.emptyAll","清空整个回收站");
     }
-    return { id, label: t.label, risk: t.risk, size, files, note,
-             path: t.path, admin: t.needs_admin };
+    return { id, label: (tg && tg.label) || id, risk: (tg && tg.risk) || "中",
+             size, files, note,
+             path: (tg && tg.path) || "", admin: !!(tg && tg.needs_admin) };
   });
   // 占用排行里按路径勾选的行：体积取树节点，最终以服务端重新识别为准。
   // 建议保留 / 未识别行也可勾选（2026-10-13），如实标注并集中警告。
@@ -3072,7 +3075,11 @@ function renderChart() {
   $("fsChart").querySelectorAll(".rowsel").forEach(cb =>
     cb.addEventListener("change", () => {
       const tid = cb.dataset.tid;
-      if (tid) setSel(tid, cb.checked);
+      // 树行的 target_id 未必在 SCAN 里（如自动发现项 auto-*：/state 的
+      // targets 不含它们、扫描也不产 SCAN 条目）——此时回退按路径清理，
+      // 服务端照常重新识别校验。否则 selTotal 计 0 B、confirmDialog 读
+      // SCAN[id].size 直接抛 TypeError，按钮看起来「点了没反应」。
+      if (tid && SCAN[tid]) setSel(tid, cb.checked);
       else if (cb.checked) selPaths.add(cb.dataset.path);
       else selPaths.delete(cb.dataset.path);
       updateFooter();
@@ -4011,7 +4018,7 @@ $("btnAll").addEventListener("click", () => {
   document.querySelectorAll("#fsChart .rowsel").forEach(cb => {
     cb.checked = true;
     const tid = cb.dataset.tid;
-    if (tid) selected.add(tid); else selPaths.add(cb.dataset.path);
+    if (tid && SCAN[tid]) selected.add(tid); else selPaths.add(cb.dataset.path);
   });
   updateFooter(); renderRules();
 });
