@@ -1019,7 +1019,7 @@ function qs() {
   const q = new URLSearchParams({ drive, scope });
   if (customPath) q.set("custom", customPath);
   // 界面语言随请求上行：英文界面时后端用英文知识库文案覆盖长文本
-  q.set("lang", i18nLocale() === "en" ? "en" : "zh");
+  q.set("lang", langParam());
   return q;
 }
 async function loadState() {
@@ -1946,7 +1946,7 @@ async function runRule(rule, silent) {
                  t("rule.run2","预计释放 {v}。\n\n直接删除、不经过回收站，确认继续？").replace("{v}", fmt(freed)))) return;
   }
   try {
-    const res = await fetch(`${API}/__oc__/run-rule?lang=${i18nLocale() === "en" ? "en" : "zh"}`, {
+    const res = await fetch(`${API}/__oc__/run-rule?lang=${langParam()}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: rule.id, custom_path: customPath })
     });
@@ -1965,13 +1965,13 @@ let GAMES = null;   // 全平台游戏库（/​__oc__/games）：Epic/GOG 从�
 async function loadSteam(force) {
   if (STEAM && !force) return STEAM;
   try {
-    STEAM = await (await fetch(`${API}/__oc__/steam?lang=${i18nLocale() === "en" ? "en" : "zh"}`)).json();
+    STEAM = await (await fetch(`${API}/__oc__/steam?lang=${langParam()}`)).json();
   } catch (e) {
     STEAM = { found: false, error: String(e) };
   }
   // Epic/GOG 清单是独立接口，失败不影响 Steam 主面板
   try {
-    GAMES = await (await fetch(`${API}/__oc__/games?lang=${i18nLocale() === "en" ? "en" : "zh"}`)).json();
+    GAMES = await (await fetch(`${API}/__oc__/games?lang=${langParam()}`)).json();
   } catch (e) {
     GAMES = null;
   }
@@ -2385,7 +2385,7 @@ async function doClean() {
   const t0 = Date.now();
   const trashBox = document.getElementById("mTrash");
   try {
-    const res = await fetch(`${API}/__oc__/clean?lang=${i18nLocale() === "en" ? "en" : "zh"}`, {
+    const res = await fetch(`${API}/__oc__/clean?lang=${langParam()}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: [...selected], paths: [...selPaths],
                              only_paths: only,
@@ -2773,7 +2773,7 @@ async function startFullScan() {
   const timer = setInterval(poll, 500);
   try {
     const r = await (await fetch(`${API}/__oc__/overview?drive=${drive}`
-                                 + `&depth=${depth}&lang=${i18nLocale() === "en" ? "en" : "zh"}`,
+                                 + `&depth=${depth}&lang=${langParam()}`,
                                  { signal: ac.signal })).json();
     if (r.error) throw new Error(r.error);
     FS = r;
@@ -2869,28 +2869,32 @@ function buildKidsIndex() {
   FS.kids = m;
 }
 
+/** 三色汇总的「每字节只算一次」节点集：扫描树是父目录与其下探出的子项
+    并存的（为了支持下钻），父目录体积已经包含子项，扁平求和会把同一段
+    空间父、子各算一遍 —— 曾实测三项加总 1.9 TB，远超盘的实际已用量。
+    口径：路径沿「\」逐段向上查，任一祖先节点在清单里就只按最浅一层归类
+    （O(节点数×路径深度)，不做两两比对）。 */
+function fsUniqueNodes() {
+  const ns = FS?.nodes || [];
+  const pset = new Set(ns.map(n => normKey(n.path)));
+  const hasAncestorNode = p => {
+    let i;
+    while ((i = p.lastIndexOf("\\")) > 2) {   // 砍到「d:」这一段之前收手：盘根不是节点
+      p = p.slice(0, i);
+      if (pset.has(p)) return true;
+    }
+    return false;
+  };
+  return ns.filter(n => !hasAncestorNode(normKey(n.path)));
+}
+
 function renderOverview() {
   const d = FS.disk || {};
   const usedPct = d.percent || 0;
   const color = usedPct > 85 ? "var(--danger)" : usedPct > 65 ? "var(--warn)" : "var(--accent)";
   const cur = fsStack.length ? fsStack[fsStack.length - 1] : null;
   const here = fsChildren();
-  // 三色汇总必须「每字节只算一次」：扫描树是父目录与其下探出的子项并存
-  // 的（为了支持下钻），父目录体积已经包含子项。若对全量节点扁平求和，
-  // 同一段空间会被父、子各算一遍 —— 曾实测三项加总 1.9 TB，远超盘的实际
-  // 已用量。口径：路径沿「\」逐段向上查，任一祖先节点在清单里就只按
-  // 最浅一层归类统计（O(节点数×路径深度)，不做两两比对）。
-  const _ns = FS.nodes || [];
-  const _pset = new Set(_ns.map(n => normKey(n.path)));
-  const hasAncestorNode = p => {
-    let i;
-    while ((i = p.lastIndexOf("\\")) > 2) {   // 砍到「d:」这一段之前收手：盘根不是节点
-      p = p.slice(0, i);
-      if (_pset.has(p)) return true;
-    }
-    return false;
-  };
-  const uniqueNodes = _ns.filter(n => !hasAncestorNode(normKey(n.path)));
+  const uniqueNodes = fsUniqueNodes();
   const cleanSum = uniqueNodes.filter(n => n.cleanable).reduce((a, n) => a + n.size, 0);
   const keepSum = uniqueNodes.filter(n => !n.cleanable && n.recognized).reduce((a, n) => a + n.size, 0);
   const unkSum = uniqueNodes.filter(n => !n.recognized).reduce((a, n) => a + n.size, 0);
@@ -3024,7 +3028,7 @@ async function loadSubLevel(node) {
   try {
     const res = await fetch(`${API}/__oc__/subdirs?drive=${
       encodeURIComponent(FS.drive || "")}&path=${
-      encodeURIComponent(node.path)}&limit=400&lang=${i18nLocale() === "en" ? "en" : "zh"}`);
+      encodeURIComponent(node.path)}&limit=400&lang=${langParam()}`);
     const r = await res.json();
     if (r.error || !(r.children || []).length) return;
     const added = r.children.map(c => ({
@@ -3486,7 +3490,7 @@ async function toggleInlineKids(wrap, item, btn) {
 
   container.innerHTML = `<div class="loading"><span class="spin"></span>${t("sub.scanning","正在按需扫描子项…")}</div>`;
   try {
-    const res = await fetch(`${API}/__oc__/subdirs?drive=${encodeURIComponent(FS?.drive || drive)}&path=${encodeURIComponent(item.path)}&limit=100&lang=${i18nLocale() === "en" ? "en" : "zh"}`);
+    const res = await fetch(`${API}/__oc__/subdirs?drive=${encodeURIComponent(FS?.drive || drive)}&path=${encodeURIComponent(item.path)}&limit=100&lang=${langParam()}`);
     const r = await res.json();
     if (r.error || !(r.children || []).length) {
       container.innerHTML = `<div class="empty" style="margin:4px 0">${t("sub.none","此项暂无可见子目录或为空。")}</div>`;
@@ -4014,7 +4018,7 @@ async function showPartition(it) {
   let r = null;
   try {
     const res = await fetch(`${API}/__oc__/subdirs?drive=${
-      encodeURIComponent(FS.drive || "")}&path=${encodeURIComponent(it.path)}&limit=400&lang=${i18nLocale() === "en" ? "en" : "zh"}`);
+      encodeURIComponent(FS.drive || "")}&path=${encodeURIComponent(it.path)}&limit=400&lang=${langParam()}`);
     r = await res.json();
   } catch (e) { /* 落到下面的 partition 兜底 */ }
   if (r && !r.error && r.engine === "wiztree" && (r.children || []).length) {
@@ -4025,7 +4029,7 @@ async function showPartition(it) {
 
   try {
     const res = await fetch(`${API}/__oc__/partition?path=${
-      encodeURIComponent(it.path)}&lang=${i18nLocale() === "en" ? "en" : "zh"}`);
+      encodeURIComponent(it.path)}&lang=${langParam()}`);
     r = await res.json();
   } catch (e) {
     $("pBody").innerHTML = `<div class="dadv no"><b>${t("part.fail","分析失败")}</b><br>${
@@ -4938,6 +4942,12 @@ function i18nLocale() {
   } catch (e) {}
   // auto：浏览器语言 zh 开头用中文（即源码默认），其余一律英文
   return (navigator.language || "").toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
+}
+
+/** 后端 ?lang= 参数的统一取值（后端只认 "en"/"zh" 两个值）。
+    此前这个三元在 10 处 fetch 里各写一遍，口径漂移的风险就在那里。 */
+function langParam() {
+  return i18nLocale() === "en" ? "en" : "zh";
 }
 /* 首次应用时把原文缓存到元素上（__i18n），切回中文直接还原，
    不会与动态渲染互相踩 —— applyI18n 只碰带 data-i18n* 的元素。 */

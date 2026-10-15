@@ -1328,7 +1328,7 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
     if max_depth < 4:
         prog_set("inject", "补齐游戏本体节点", 88, indeterminate=True)
         have = {os.path.normpath(n["path"]).lower() for n in nodes if n.get("path")}
-        wiz_tbl = _WIZ_DIRS.get(letter, {}).get("table", {}) or {}
+        wiz_tbl = _wiz_table(letter)
         wiz_dirs_tbl = wiz_tbl.get("dirs") if engine == "wiztree" else None
         cands: list[str] = []
         for common in steam_common:
@@ -1402,7 +1402,7 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
     except Exception:
         _pins = {}
     if _pins:
-        wiz_tbl = (_WIZ_DIRS.get(letter, {}).get("table", {}) or {})
+        wiz_tbl = _wiz_table(letter)
         wiz_dirs_tbl2 = wiz_tbl.get("dirs") if engine == "wiztree" else None
         have2 = {os.path.normpath(n["path"]).lower() for n in nodes if n.get("path")}
         pinned_added = 0
@@ -1462,7 +1462,7 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
     # has_children 表示已经在树里有子节点；此外还有「子项未入树但目录确实可展开」的情况。
     # 有 WizTree 时可以直接查内存表，比只靠树里有没有子节点更准：
     # 被体积门槛挡在树外的目录（<50 MB）照样应该允许点开看。
-    wiz_dirs = (_WIZ_DIRS.get(letter, {}).get("table", {}) or {}).get("dirs") \
+    wiz_dirs = _wiz_table(letter).get("dirs") \
         if engine == "wiztree" else None
     prog_set("finish", "正在整理可下钻信息", 96)
     parent_keys = {n["parent"] for n in nodes}
@@ -1679,8 +1679,14 @@ _lock = threading.Lock()
 _WIZ_CACHE: dict | None = None
 # 最近一次 WizTree 导出的目录体积表：盘符 → {"dirs": {path:size}, "at": 时间戳}
 # 有了它，「点开大项看二级目录」就只是内存查表，不必再扫盘。
+# 表一直保留到同盘符的下一次扫描覆盖 —— 下钻靠它，过期驱逐反而会让
+# 「隔几分钟再点开子项」退化成现场扫盘，不做 TTL。
 _WIZ_DIRS: dict[str, dict] = {}
-_WIZ_TTL = 600.0                    # 10 分钟内的表直接复用
+
+
+def _wiz_table(letter: str) -> dict:
+    """取某盘符已缓存的 WizTree 体积表（可能为空 dict，调用方无需判 None）。"""
+    return _WIZ_DIRS.get(letter, {}).get("table", {}) or {}
 
 
 def _load_json(path: Path, default, use_cache: bool = True):
@@ -3956,14 +3962,9 @@ def clean_target(t: dict, only_paths: list | None = None,
                 f"目标内有 {len(locked)} 个文件正被其他程序占用，"
                 f"已整体中止、未删除任何内容（请先关闭相关程序）：{shown}"
                 f"{'…' if len(locked) > _LOCK_PRECHECK_REPORT_MAX else ''}")
-            hint = _LOCK_OWNER_HINTS.get(str(t.get("base_id") or t.get("id") or ""))
-            if not hint:
-                for key, h in _LOCK_OWNER_HINTS.items():
-                    if key in str(t.get("id") or ""):
-                        hint = h
-                        break
-            if hint:
-                result["lock_hint"] = hint
+            tid = f"{t.get('base_id') or ''} {t.get('id') or ''}"
+            result["lock_hint"] = next(
+                (h for key, h in _LOCK_OWNER_HINTS.items() if key in tid), None)
             result["locked_files"] = locked
             result["seconds"] = round(time.time() - t0, 2)
             return result
