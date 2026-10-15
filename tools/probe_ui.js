@@ -76,7 +76,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const { targetId } = await send("Target.createTarget", { url: "about:blank" });
     const { sessionId: S } = await send("Target.attachToTarget", { targetId, flatten: true });
     const ev = async expr => {
-      const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true }, S);
+      const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true }, S);
       if (r.exceptionDetails) throw new Error("页面异常: " +
         JSON.stringify(r.exceptionDetails).slice(0, 300));
       return r.result.value;
