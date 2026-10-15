@@ -2472,6 +2472,9 @@ function showCleanResult(e, stats, t0, title) {
         <ul>${bad.slice(0, 8).map(r => `<li>${esc(r.label)}：${
           esc((r.skipped || []).slice(0, 4).join("、") || r.error || t("cr.locked","占用中"))}${
           r.failed > 4 ? ` ${t("cr.andNMore","等 {n} 项").replace("{n}", r.failed)}` : ""}</li>`).join("")}</ul>
+        ${bad.filter(r => r.lock_hint).slice(0, 2).map(r => `
+          <div style="margin-top:8px;font-size:12.5px;line-height:1.6">
+            <b>${t("cr.lockHint","提示")}：</b>${esc(r.lock_hint)}</div>`).join("")}
         ${bad.some(r => (r.skipped || []).length || (r.locked_files || []).length) ? `
           <div style="margin-top:9px;display:flex;align-items:center;gap:9px;flex-wrap:wrap">
             <button id="btnFindLock" class="primary" style="font-size:12.5px">
@@ -4887,6 +4890,7 @@ const I18N_EN = {
   "trend.noEvents": "No cleanups in the last 30 days (free {a}); bends appear here after you clean",
   "trend.tipFreed": "Freed",
   "trend.tipAfter": "free after cleanup",
+  "cr.lockHint": "Hint",
   "btn.cleanSelected": "Clean selected",
   "pane.sched": "Scheduled Auto-Clean",
   "pane.history": "Recent Cleanups",

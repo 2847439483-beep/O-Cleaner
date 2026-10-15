@@ -3349,6 +3349,18 @@ _LOCK_PRECHECK_BUDGET = 300          # 最多探测的文件数（CreateFileW �
 _LOCK_PRECHECK_REPORT_MAX = 5        # 结果里最多列出的被占用文件数
 
 
+# 已知缓存持有者的提示：这类文件被系统服务寄在 svchost.exe 里占着，
+# 「一键查找占用进程」的启发式（路径/文件名信号）注定打不中 ——
+# 与其让用户在进程列表里白搜，不如直接告诉他们停哪个服务。
+_LOCK_OWNER_HINTS = {
+    "deliveryoptimization":
+        "这类缓存通常由 Windows「传递优化」服务（DoSvc，寄在 svchost.exe 里）持有，"
+        "在进程列表里搜不到文件名是正常的。管理员 PowerShell 执行 "
+        "Stop-Service DoSvc 后回来重新清理，清完 Start-Service DoSvc 恢复"
+        "（重启电脑也会自动恢复）。",
+}
+
+
 def _precheck_locked_files(path: str) -> list[str]:
     """删除前预检：目录内是否有**确定被占用**的文件。返回被占用文件列表。
 
@@ -3944,6 +3956,14 @@ def clean_target(t: dict, only_paths: list | None = None,
                 f"目标内有 {len(locked)} 个文件正被其他程序占用，"
                 f"已整体中止、未删除任何内容（请先关闭相关程序）：{shown}"
                 f"{'…' if len(locked) > _LOCK_PRECHECK_REPORT_MAX else ''}")
+            hint = _LOCK_OWNER_HINTS.get(str(t.get("base_id") or t.get("id") or ""))
+            if not hint:
+                for key, h in _LOCK_OWNER_HINTS.items():
+                    if key in str(t.get("id") or ""):
+                        hint = h
+                        break
+            if hint:
+                result["lock_hint"] = hint
             result["locked_files"] = locked
             result["seconds"] = round(time.time() - t0, 2)
             return result
