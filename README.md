@@ -10,7 +10,8 @@ Windows 磁盘空间分析与清理工具。本地运行，浏览器访问 Web �
 > optional WizTree (MFT) accelerator. Zero third-party dependencies — standard-library
 > Python only, or use the embeddable-runtime build. Copy the folder to another PC and it
 > just works. Quick start: extract to a writable folder, run `start-ocleaner.bat`,
-> the UI opens at `http://127.0.0.1:8770/`.
+> the UI opens at `http://127.0.0.1:8770/`. Full user guide in English:
+> [docs/USAGE-en.md](docs/USAGE-en.md).
 
 基本约束：
 
@@ -120,6 +121,7 @@ Windows 磁盘空间分析与清理工具。本地运行，浏览器访问 Web �
 ## 文档索引
 
 - [docs/USAGE.md](docs/USAGE.md) — 完整使用指南
+- [docs/USAGE-en.md](docs/USAGE-en.md) — User guide (English)
 - [docs/CUSTOMIZE.md](docs/CUSTOMIZE.md) — 自定义数据格式（可导入，可由 AI 生成）
 - [packs/README.md](packs/README.md) — 资源包格式规范
 - [SECURITY.md](SECURITY.md) — 安全模型与漏洞报告
