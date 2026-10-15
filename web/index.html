@@ -778,12 +778,30 @@
           用它解释可清理项、按你的需求生成清理方案。密钥只存在本机
           <code>config/ai.json</code>，除了你填的接口地址外不发往任何地方。
         </div>
-        <div class="field"><label style="width:64px" data-i18n="ai.base">接口</label>
-          <input type="text" id="aiBase" placeholder="https://api.example.com/v1"></div>
+        <div class="field" style="gap:6px">
+          <label style="width:64px;flex:none" data-i18n="ai.base">接口</label>
+          <input type="text" id="aiBase" placeholder="https://api.example.com/v1" style="flex:1">
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin:-3px 0 8px 70px">
+          <button class="tiny" data-aipreset="https://api.deepseek.com/v1">DeepSeek</button>
+          <button class="tiny" data-aipreset="http://127.0.0.1:11434/v1">Ollama（本机）</button>
+        </div>
         <div class="field"><label style="width:64px" data-i18n="ai.key">密钥</label>
-          <input type="password" id="aiKey" placeholder="sk-..."></div>
+          <input type="password" id="aiKey" placeholder="sk-..." autocomplete="new-password"></div>
         <div class="field"><label style="width:64px" data-i18n="ai.model">模型</label>
-          <input type="text" id="aiModel" placeholder="例如 gpt-4o-mini"></div>
+          <input type="text" id="aiModel" list="aiModelList" placeholder="例如 deepseek-chat" style="flex:1">
+          <datalist id="aiModelList"></datalist>
+          <button id="btnAiModels" class="tiny" style="flex:none" data-i18n="ai.fetchModels">获取列表</button></div>
+        <details style="margin:2px 0 10px;border:1px solid var(--line);border-radius:8px;padding:8px 10px">
+          <summary style="cursor:pointer;font-size:12.5px;color:var(--dim)" data-i18n="ai.guideTitle">怎么接入？—— 接入引导</summary>
+          <ol style="margin:8px 0 0;padding-left:18px;color:var(--dim);font-size:12.5px;line-height:1.8">
+            <li><span data-i18n="ai.guide1">拿一个 OpenAI 兼容接口：DeepSeek 在 platform.deepseek.com 注册并「创建 API key」；本机 Ollama 无需密钥。</span></li>
+            <li><span data-i18n="ai.guide2">点上面的「DeepSeek」或「Ollama」快速填接口地址（也可手填任何兼容地址）。</span></li>
+            <li><span data-i18n="ai.guide3">把密钥粘进「密钥」框 —— 它只存本机 config/ai.json，只发给你填的接口。</span></li>
+            <li><span data-i18n="ai.guide4">点「获取列表」自动识别可用模型，从下拉建议里选一个（DeepSeek 通常是 deepseek-chat；想用推理模型选 deepseek-reasoner）。</span></li>
+            <li><span data-i18n="ai.guide5">勾选「启用」→「保存」→「测试连接」。</span></li>
+          </ol>
+        </details>
         <div class="field" style="gap:10px">
           <label style="display:flex;align-items:center;gap:7px;color:var(--fg);cursor:pointer">
             <input type="checkbox" class="switch" id="aiEnabled"> <span data-i18n="ai.enable">启用</span>
@@ -1269,6 +1287,32 @@ function renderAI() {
     ? t("ai.keyStored","密钥已保存在本机 <code>config/ai.json</code>")
     : t("ai.noKey","尚未填写密钥。只有你自己填的接口会收到它。");
 }
+
+/* 接口预设快速填充 + 拉取模型列表（自动识别可用模型，用户可自选或手填） */
+document.querySelectorAll("[data-aipreset]").forEach(b =>
+  b.addEventListener("click", () => { $("aiBase").value = b.dataset.aipreset; }));
+
+async function aiFetchModels() {
+  const btn = $("btnAiModels");
+  const out = $("aiOut");
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = t("ai.fetching","获取中…");
+  // 先把当前填的接口与密钥存下去，拉列表用的就是刚填的这组
+  await aiSave();
+  try {
+    const r = await (await fetch(`${API}/__oc__/ai/models`, { method: "POST" })).json();
+    if (out) out.innerHTML = r.ok
+      ? `<span class="res-ok">${t("ai.modelsGot","识别到 {n} 个模型，点击「模型」输入框从下拉建议里选择").replace("{n}", (r.models || []).length)}</span>`
+      : `<span class="res-err">${esc(r.error || "获取失败")}</span>`;
+    const dl = $("aiModelList");
+    if (dl) dl.innerHTML = (r.models || []).map(m => `<option value="${esc(m)}">`).join("");
+  } catch (e) {
+    if (out) out.innerHTML = `<span class="res-err">${esc(String(e))}</span>`;
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+$("btnAiModels").addEventListener("click", aiFetchModels);
 
 async function aiSave() {
   const msg = $("packMsg");
@@ -4653,6 +4697,14 @@ const I18N_EN = {
   "ai.keyStored": "Key stored locally in <code>config/ai.json</code>",
   "ai.noKey": "No key yet. Only the endpoint you enter yourself will ever receive it.",
   "ai.saved": "Saved", "ai.saveFail": "Save failed", "ai.requesting2": "Requesting…",
+  "ai.fetchModels": "Fetch list", "ai.fetching": "Fetching…",
+  "ai.modelsGot": "Found {n} models — click the model input to pick one from the suggestions",
+  "ai.guideTitle": "How to connect? — setup guide",
+  "ai.guide1": "Get an OpenAI-compatible endpoint: for DeepSeek, register at platform.deepseek.com and create an API key; local Ollama needs no key.",
+  "ai.guide2": "Click the DeepSeek / Ollama chip above to fill the base URL (or type any compatible URL).",
+  "ai.guide3": "Paste your key into the key box — it stays in local config/ai.json and is only sent to the endpoint you entered.",
+  "ai.guide4": "Click \"Fetch list\" to auto-detect available models and pick one from the suggestions (DeepSeek: deepseek-chat; reasoning model: deepseek-reasoner).",
+  "ai.guide5": "Check \"Enabled\" → Save → Test connection.",
   "ai.unknown": "unknown reason",
   "ai.testOk": "Connection OK, model replied: ", "ai.empty": "(empty)",
   "ai.testFail": "Connection failed: ", "ai.genFail": "Generation failed",

@@ -5121,6 +5121,45 @@ def ai_public_config() -> dict:
     }
 
 
+def ai_list_models() -> dict:
+    """拉取接口的可用模型列表（OpenAI 兼容 GET /models）。
+
+    DeepSeek（https://api.deepseek.com/v1）等主流兼容服务都提供该端点；
+    Ollama 的 /v1/models 也兼容。识别不到标准结构时如实报错，
+    绝不编造模型名 —— 用户仍可在输入框手填。
+    """
+    cfg = load_ai_config()
+    base = str(cfg.get("base_url") or "").strip().rstrip("/")
+    if not re.match(r"^https?://", base, re.I):
+        return {"ok": False,
+                "error": "请先填写接口地址（http:// 或 https:// 开头）再获取模型列表"}
+    headers = {"User-Agent": APP_UA}
+    if cfg.get("api_key"):
+        headers["Authorization"] = f"Bearer {cfg['api_key']}"
+    try:
+        req = _UrlRequest(base + "/models", headers=headers)
+        with _urlopen(req, timeout=min(30, int(cfg.get("timeout") or 60))) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception as e:
+        return {"ok": False, "error": f"获取失败：{e}"}
+    ids: list[str] = []
+    if isinstance(data, dict):
+        for m in (data.get("data") or []):
+            if isinstance(m, dict) and m.get("id"):
+                ids.append(str(m["id"]))
+        if not ids and isinstance(data.get("models"), list):
+            # 兼容把模型列表放在 models 字段下的服务
+            ids = [str(m.get("name") or m.get("model") or m.get("id") or "")
+                   for m in data["models"] if isinstance(m, dict)]
+    elif isinstance(data, list):
+        ids = [str(m) for m in data if isinstance(m, str)]
+    ids = sorted(set(i for i in ids if i))
+    if not ids:
+        return {"ok": False,
+                "error": "接口没有返回可识别的模型列表（不是 OpenAI 兼容的 /models？），仍可手动填写模型名"}
+    return {"ok": True, "models": ids}
+
+
 def ai_chat(messages: list[dict], timeout: int | None = None) -> tuple[bool, str]:
     """调用用户自己的 Chat Completions 接口。返回 (成功, 文本或错误)。"""
     cfg = load_ai_config()
@@ -6169,6 +6208,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "ai": ai_public_config()})
         if route == "/__oc__/ai/test":
             return self._json(ai_test())
+        if route == "/__oc__/ai/models":
+            return self._json(ai_list_models())
         if route == "/__oc__/ai/explain":
             return self._json(ai_explain(body or {}))
         if route == "/__oc__/ai/plan":
