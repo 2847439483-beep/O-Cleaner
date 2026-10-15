@@ -1715,8 +1715,8 @@ def apply_lang_payload(obj, lang: str):
     递归遍历 dict/list：凡是带 rule_id 的节点，用 kb-en.json 里同 id 的
     what/advice/tip（非空才覆盖）、识别名 label（覆盖 title/display_name/
     zh_name）与置信度标签替换中文原文；其它字段（cleanable/risk/category/
-    路径/体积等）一律不动。lang 不是 en 时原样返回。放在响应出口做而不是
-    改识别器，是因为同一段文本可能来自内置知识库，也可能来自资源包 ——
+    路径/体积等）一律不动。lang 不是 en 时原样返回。放在响应出口做而不是改识别器，
+    是因为同一段文本可能来自内置知识库，也可能来自资源包 ——
     按 rule_id 覆盖与来源无关。
     """
     if str(lang or "").lower() != "en":
@@ -3766,6 +3766,10 @@ def clean_target(t: dict, only_paths: list | None = None,
     kind = t.get("kind", "tree")
     letter = (drive or "").rstrip(":").upper()
     use_trash = bool(trash) and t.get("risk") == "高" and kind != "recyclebin"
+    # 会再生吗：rebuild 文案里带「自动重建」= 缓存类（删了会回来）；
+    # 以「不重建」开头 = 一次性文件（删了就没有）；都没有 = 不确定
+    # （自动发现 / 自定义目录），前端按「未分类」如实展示，不硬归类。
+    rb_txt = str(t.get("rebuild") or "").strip()
     result = {
         "id": target_id_for(t, drive if is_drive_specific(t) else None),
         "target_id": t["id"],
@@ -3776,6 +3780,8 @@ def clean_target(t: dict, only_paths: list | None = None,
         "deleted": 0, "failed": 0, "skipped": [], "error": None,
         "seconds": 0.0, "trashed": 0, "trash_errors": [], "trash_paths": [],
         "partial": 0, "partial_notes": [],
+        "renews": (True if "自动重建" in rb_txt
+                   else False if rb_txt.startswith("不重建") else None),
     }
 
     ok, why = check_deletable(path, kind)
@@ -4647,6 +4653,7 @@ def _error_result(t: dict, drive: str | None, exc: Exception) -> dict:
             "drive": (drive or "").rstrip(":").upper(),
             "before": 0, "after": 0, "freed": 0, "deleted": 0, "failed": 0,
             "skipped": [], "seconds": 0.0,
+            "renews": None,
             "error": f"内部错误：{type(exc).__name__}: {exc}"}
 
 

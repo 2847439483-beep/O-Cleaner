@@ -2340,13 +2340,29 @@ function showCleanResult(e, stats, t0, title) {
       </div>` : ""}
       <table>
         <thead><tr><th>${t("cc.thItem","清理项")}</th><th class="n">${t("cr.thFreed","释放")}</th><th class="n">${t("cr.thDeleted","已删")}</th><th class="n">${t("cr.thSkipped","跳过")}</th></tr></thead>
-        <tbody>${e.results.map(r => `<tr>
+        <tbody>${(() => {
+          // 按「会不会再生」分组（2026-10-15）：一次性文件排在最前（删了
+          // 就没有，最值得核对），缓存类排最后（删了会自动回来，不用惦记）；
+          // 不确定（自动发现/自定义目录）居中。只有一种类别时不出小标题。
+          const rowHtml = r => `<tr>
           <td>${esc(r.label)}${r.error ? ` <span class="res-err">${esc(r.error)}</span>` : ""}${r.trashed > 0 ? `
             <div style="color:var(--dim2);font-size:11.5px">${t("cr.inBin","已移入回收站 {n} 项，清空回收站后释放").replace("{n}", r.trashed)}</div>` : ""}</td>
           <td class="n ${r.freed > 0 ? "res-ok" : ""}">${r.trashed > 0 ? `<span style="color:var(--dim2)">${t("cr.toBin","→ 回收站")}</span>` : fmt(r.freed)}</td>
           <td class="n">${r.deleted}</td>
           <td class="n ${r.failed > 0 ? "res-warn" : ""}">${r.failed}</td>
-        </tr>`).join("")}</tbody>
+        </tr>`;
+          const once = e.results.filter(r => r.renews === false);
+          const regen = e.results.filter(r => r.renews === true);
+          const unk = e.results.filter(r => r.renews == null);
+          const head = (k, zh) => `<tr><td colspan="4" style="padding:7px 8px 5px;color:var(--dim2);
+            font-size:11.5px;border-bottom:1px solid var(--line);background:var(--panel2)">
+            ${t(k, zh)}</td></tr>`;
+          const mixed = [once.length, unk.length, regen.length].filter(n => n > 0).length > 1;
+          if (!mixed) return e.results.map(rowHtml).join("");
+          return (once.length ? head("cr.onceHead", "一次性文件 —— 已彻底删除，不会再生") + once.map(rowHtml).join("") : "")
+               + (unk.length ? head("cr.unkHead", "其它项（无重建信息）") + unk.map(rowHtml).join("") : "")
+               + (regen.length ? head("cr.regenHead", "缓存类 —— 会自动重建，不用惦记") + regen.map(rowHtml).join("") : "");
+        })()}</tbody>
       </table>
       ${bad.length ? `<div class="warnpane warm" style="margin-top:14px">
         <b>${t("cr.skippedHead","以下项被占用、无权限或路径不存在，已跳过（不是错误）：")}</b>
@@ -3066,6 +3082,7 @@ const CAT_EN = {
   "开发": "Development", "文档": "Documents", "显卡缓存": "GPU caches",
   "模拟器": "Emulators", "浏览器": "Browsers", "游戏": "Games",
   "系统": "System", "缓存": "Caches", "缩略图": "Thumbnails",
+  "未识别": "Unrecognized", "其它": "Other",
   "聊天软件": "Chat apps", "自定义目录": "Custom folders", "虚拟机": "Virtual machines",
   "视频": "Video", "诊断": "Diagnostics", "软件": "Software",
   "通用": "General", "镜像": "Disk images", "音乐": "Music", "音频": "Audio",
@@ -3074,6 +3091,7 @@ function catLabel(c) {
   if (!c) return c;
   return i18nLocale() === "en" ? (CAT_EN[c] || c) : c;
 }
+
 async function openRowOverride(node) {
   if (!node || !node.path) return;
   const key = normOvKey(node.path);
@@ -4480,6 +4498,9 @@ const I18N_EN = {
   "cr.skippedHead": "These were skipped — in use, no permission, or path missing (not an error):",
   "cr.locked": "in use", "cr.andNMore": "and {n} more",
   "cr.cumulative": "Total released so far {v}; conversions on the right panel are updated.",
+  "cr.onceHead": "One-time files — deleted for good, they will not come back",
+  "cr.unkHead": "Other items (no rebuild info)",
+  "cr.regenHead": "Caches — rebuilt automatically, no need to worry",
   "cr.done": "Done",
   "eb.scopeNote": "Only removes the {n} items this run moved into the bin and frees their space for good; other contents of the bin are untouched. Unrecoverable.",
   "eb.armConfirm": "Confirm empty (unrecoverable)", "eb.emptying": "Emptying",
