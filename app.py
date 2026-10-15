@@ -30,6 +30,7 @@ import platform
 import re
 import shutil
 import socket
+import stat
 import string
 import subprocess
 import sys
@@ -3677,6 +3678,64 @@ def dedup_nested_targets(selected: list[dict]) -> tuple[list[dict], list[dict]]:
     return kept, merged
 
 
+def _purge_recycle_bin(letter: str) -> dict:
+    """直接删 {letter}:\\$Recycle.Bin 下各 SID 目录里的 $I/$R 文件。
+
+    为什么不用 Clear-RecycleBin：它对非系统盘有「静默无效」的已知缺陷 ——
+    本机实测（2026-10-15，D 盘）：命令成功返回、进度条照走，12 个文件
+    原样全在；C 盘（系统盘）却正常。用户看到的「E 盘回收站清不掉」就是它。
+    直接删文件与 recycle-purge 两段式同一把尺：普通权限能删当前用户 SID
+    的内容，其他 SID 会 PermissionError（管理员运行时可一并清掉）。
+    desktop.ini 等结构文件不动。
+    返回 deleted/failed/freed/fail_notes。"""
+    root = os.path.join(letter + ":", "$Recycle.Bin")
+    out = {"deleted": 0, "failed": 0, "freed": 0, "fail_notes": []}
+    if not os.path.isdir(root):
+        return out
+
+    def _rm_any(p: str) -> None:
+        """删一个 $I/$R 条目（可能是文件也可能是目录），失败抛 OSError。"""
+        if os.path.isdir(p) and not os.path.islink(p):
+            shutil.rmtree(p)
+        else:
+            os.chmod(p, stat.S_IWRITE)
+            os.remove(p)
+
+    for sid in os.listdir(root):
+        sid_dir = os.path.join(root, sid)
+        if not os.path.isdir(sid_dir):
+            continue
+        try:
+            names = os.listdir(sid_dir)
+        except OSError:
+            out["fail_notes"].append(f"{sid}\\（无法读取，权限不足）")
+            continue
+        for n in names:
+            if n[:2].upper() not in ("$I", "$R"):
+                continue
+            p = os.path.join(sid_dir, n)
+            try:
+                sz = _size_of(p)
+                _rm_any(p)
+                out["deleted"] += 1
+                out["freed"] += sz
+            except OSError as exc:
+                # $R 条目常带隐藏/系统属性或只读位，先清属性再试一次
+                try:
+                    ctypes.windll.kernel32.SetFileAttributesW(p, 0x80)  # NORMAL
+                    sz2 = _size_of(p)
+                    _rm_any(p)
+                    out["deleted"] += 1
+                    out["freed"] += sz2
+                    continue
+                except OSError:
+                    pass
+                out["failed"] += 1
+                if len(out["fail_notes"]) < 4:
+                    out["fail_notes"].append(f"{sid}\\{n}（{exc.winerror or '拒绝访问'}）")
+    return out
+
+
 def clean_target(t: dict, only_paths: list | None = None,
                  drive: str | None = None, trash: bool = False) -> dict:
     """删除一个目标的文件。only_paths 非空时只删这些子项。
@@ -3712,9 +3771,9 @@ def clean_target(t: dict, only_paths: list | None = None,
         return result
 
     if kind == "recyclebin":
-        # 统计在普通权限下可能被拒（读 $Recycle.Bin 需要管理员），但
-        # Clear-RecycleBin 清当前用户回收站不需要 —— 清空照常执行，
-        # 统计失败要如实告诉用户「释放量未知」，不能静默当 0。
+        # 统计在普通权限下可能被拒（读其他 SID 的回收站内容需要管理员），
+        # 但删当前用户 SID 的文件不需要 —— 清空照常执行，统计失败要如实
+        # 告诉用户「释放量未知」，不能静默当 0。
         m = measure_target(t, drive)
         before = m.get("size", 0)
         if m.get("error"):
@@ -3736,15 +3795,36 @@ def clean_target(t: dict, only_paths: list | None = None,
             result["after"] = max(0, before - result["freed"])
         else:
             d = expand(str(t.get("drive_letter") or ""), drive).rstrip(":") or letter
-            ps = ("Clear-RecycleBin -DriveLetter " + d +
-                  " -Force -ErrorAction SilentlyContinue; '{\"ok\":1}'")
-            r = run_ps(ps)
-            if "error" in r:
-                result["error"] = r["error"]
-            after = measure_target(t, drive).get("size", 0)
-            result["after"] = after
-            result["freed"] = max(0, before - after)
-            result["deleted"] = 1 if result["freed"] > 0 else 0
+            purged = _purge_recycle_bin(d)
+            result["deleted"] = purged["deleted"]
+            result["freed"] = purged["freed"]
+            if purged["failed"]:
+                # 兜底：Clear-RecycleBin 对系统盘有效（直删被拒的条目可能被
+                # 它清掉）；非系统盘它无效但无害。只在没有直删成果时才计入
+                # 它的成败，避免统计口径混乱。
+                run_ps("Clear-RecycleBin -DriveLetter "
+                       + d.replace("'", "''") + " -Force -ErrorAction SilentlyContinue")
+                m2 = measure_target(t, drive)
+                if m2.get("size", 0) < m.get("size", 0):
+                    result["freed"] += m.get("size", 0) - m2.get("size", 0)
+                    purged["failed"] = 0
+            if purged["failed"]:
+                result["failed"] = purged["failed"]
+                result["partial_notes"].append(
+                    f"{purged['failed']} 个文件因权限不足未删除（其他账户或系统保护），"
+                    "以管理员身份运行可彻底清空")
+            for note in purged["fail_notes"]:
+                result["partial_notes"].append("跳过: " + note)
+            if purged["deleted"] == 0 and purged["failed"] == 0:
+                # 回收站本来就是空的：不是错误，如实告诉前端
+                result["partial_notes"].append("该盘回收站没有可清空的内容")
+        after = measure_target(t, drive).get("size", 0)
+        result["after"] = after
+        # 逐文件算过 freed（recycle-purge / 整盘直删）就以它为准；
+        # 没算过（统计被拒前后都为 0 等）用前后统计差兜底
+        result["freed"] = result["freed"] or max(0, before - after)
+        if result["freed"] > 0 and not result["deleted"]:
+            result["deleted"] = 1  # 整盘清空的成功形态
         result.update(before=before, seconds=round(time.time() - t0, 2))
         return result
 

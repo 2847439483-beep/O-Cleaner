@@ -46,3 +46,4 @@ config/.filetypes.linttest.bak
 .idea/
 *.swp
 .DS_Store
+.oc_write_probe_*

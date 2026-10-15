@@ -283,6 +283,40 @@ def phase1() -> None:
           and not app.check_deletable(r"D:\$Recycle.Bin", "tree")[0]
           and not app.check_deletable(r"C:\$Recycle.Bin\sub", "recyclebin")[0])
 
+    # 端到端（CI 门控）：真实的「移入回收站 -> 清空回收站」链路。
+    # 背景：Clear-RecycleBin -DriveLetter 对非系统盘有「静默无效」的已知缺陷
+    # （2026-10-15 本机 D 盘实测复现：命令成功返回、进度条照走、文件原样全在；
+    # C 盘正常），clean 现改为直删 $I/$R 文件 + Clear-RecycleBin 兜底。
+    # 本机宿主环境对 $Recycle.Bin 下的 $R 文件有会话级删除拦截（对本会话
+    # 一切子进程生效），端到端只能在 CI 验证；本机记跳过并注明原因。
+    if os.environ.get("CI", "").lower() == "true":
+        import ctypes as _ct
+
+        class _SHFILEOP(_ct.Structure):
+            _fields_ = [("hwnd", _ct.c_void_p), ("wFunc", _ct.c_uint),
+                        ("pFrom", _ct.c_wchar_p), ("pTo", _ct.c_wchar_p),
+                        ("fFlags", _ct.c_ushort),
+                        ("fAnyOperationsAborted", _ct.c_int),
+                        ("hNameMappings", _ct.c_void_p),
+                        ("lpszProgressTitle", _ct.c_wchar_p)]
+
+        probe = Path(tempfile.gettempdir()) / "oc_selftest_rb_probe.txt"
+        probe.write_text("recycle-bin e2e probe", encoding="ascii")
+        op = _SHFILEOP(hwnd=None, wFunc=3, pFrom=str(probe) + "\0", pTo=None,
+                       fFlags=0x40 | 0x10,   # FOF_ALLOWUNDO | FOF_NOCONFIRMATION
+                       fAnyOperationsAborted=0, hNameMappings=None,
+                       lpszProgressTitle=None)
+        rc = _ct.windll.shell32.SHFileOperationW(_ct.byref(op))
+        moved_in = rc == 0 and not probe.exists()
+        purged = app._purge_recycle_bin(probe.drive.rstrip(":"))
+        check("移入回收站的文件可被清空链路真实删除（含数据 $R）",
+              moved_in and purged["deleted"] >= 1 and purged["freed"] >= 20,
+              f"moved_in={moved_in} deleted={purged['deleted']} "
+              f"freed={purged['freed']} failed={purged['failed']}")
+    else:
+        skip("移入回收站 -> 清空回收站端到端",
+             "本机宿主对回收站 $R 文件有会话级删除拦截，只能进 CI 验证")
+
     # 回归：非绝对路径必须拒绝。
     # os.path.abspath 会把「盘符相对」路径按**当前工作目录**解析 ——
     # abspath("E:") 得到的是 E 盘上的 CWD（本机即仓库自身），而不是盘符根，
