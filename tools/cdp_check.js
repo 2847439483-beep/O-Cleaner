@@ -970,17 +970,30 @@ class CDP {
         checkScan("细分查看的体积不是全 0（回归盯防）",
               part.sizes.some(s => !/^0 B$/.test(s.trim())),
               part.sizes.slice(0, 4).join(" / "));
-        checkScan("细分查看给出识别结论（可清理/保留/未识别徽章）",
-              part.badges > 0, `${part.badges}/${part.rows} 行有徽章`);
-        checkScan("细分查看提供继续展开的入口",
-              part.drillable > 0, `${part.drillable} 行可继续展开`);
+        // 行上有没有徽章、能不能继续展开，取决于该目录的子项是什么 ——
+        // 树瘦（<8 节点）的盘上 4 行全是不可展开的无徽章行是正常的；
+        // 树肥时 0 徽章才是识别器退化的真缺陷。
+        if (nodeN >= 8) {
+          checkScan("细分查看给出识别结论（可清理/保留/未识别徽章）",
+                part.badges > 0, `${part.badges}/${part.rows} 行有徽章`);
+          checkScan("细分查看提供继续展开的入口",
+                part.drillable > 0, `${part.drillable} 行可继续展开`);
+        } else {
+          skip2(`细分查看给出识别结论（扫描树仅 ${nodeN} 个节点，徽章内容依赖，不足以验证）`);
+          skip2(`细分查看提供继续展开的入口（扫描树仅 ${nodeN} 个节点，可展开性内容依赖，不足以验证）`);
+        }
       }
-      // 合计卡两类标签收双语：part.dirs 中文「子目录」/英文 "Subfolders"，
-      // part.files 中文「文件」/英文 "Files"
-      checkScan("细分查看区分目录与文件两类合计",
-            part.boxes.length === 2
-            && part.boxes.some(b => /子?目录|Subfolders/i.test(b.label))
-            && part.boxes.some(b => /文件|Files/i.test(b.label)),
+      // 合计卡有两种形态：普通目录给「子目录/文件」合计（part.dirs/part.files），
+      // 浏览器/游戏等已知身份给「可清理的缓存子目录/建议保留」分类卡
+      // （part.cacheBox/badge.keep）——两种形态都收双语。
+      const boxesSum = part.boxes.length === 2
+            && part.boxes.some(b => /子目录|Subfolders/i.test(b.label))
+            && part.boxes.some(b => /^文件|Files/i.test(b.label));
+      const boxesKind = part.boxes.length === 2
+            && part.boxes.some(b => /缓存子目录|Cleanable cache/i.test(b.label))
+            && part.boxes.some(b => /保留|Keep/i.test(b.label));
+      checkScan("细分查看给出两类合计卡片（合计或分类形态）",
+            boxesSum || boxesKind,
             part.boxes.map(b => b.label + "=" + b.value).join(" / "));
       checkScan("细分查看的子项可打开所在目录", part.hasReveal);
       checkScan("细分查看可返回上一层详情", part.hasBack);
@@ -1161,8 +1174,12 @@ class CDP {
       check("快速扫描完成并渲染出排行",
             qInfo.rows > 0 && qInfo.maxDepth >= 1 && qInfo.maxDepth <= 3,
             `${qSec} 秒 / max_depth=${qInfo.maxDepth}（1 层树 + 游戏本体注入）`);
+      // hint 的合法形态有两种：真扫了给 tagline（层数标注）；
+      // 同盘同层数命中 FS_CACHE（10 分钟 TTL）时如实显示「N 分钟前的扫描结果」
+      // （fs.cachedResult），层数就是缓存那份的层数，同样是如实标注。
       check("扫描层数在面板上如实标注",
-            /\d+ 层/.test(qInfo.hint) || /\d+ level/.test(qInfo.hint), qInfo.hint);
+            /\d+ 层/.test(qInfo.hint) || /\d+ level/.test(qInfo.hint)
+            || /分钟前|scanned \d+ min/.test(qInfo.hint), qInfo.hint);
       const g = await evaluate(`(() => {
         const ns = (typeof FS !== 'undefined' && FS && FS.nodes) ? FS.nodes : [];
         const games = ns.filter(n => n.steam_game || n.game_platform);
