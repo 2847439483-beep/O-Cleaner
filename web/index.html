@@ -2704,7 +2704,35 @@ function fsChildren() {
   const key = fsStack.length
     ? normKey(fsStack[fsStack.length - 1].path)
     : fsRootKey();
-  return (FS.kids && FS.kids[key]) || FS.nodes.filter(n => n.parent === key);
+  // 下钻进了「隐藏系统项」聚合组：直接返回组成员
+  if (FS.hiddenKids && FS.hiddenKids[key]) return FS.hiddenKids[key];
+  const raw = (FS.kids && FS.kids[key]) || FS.nodes.filter(n => n.parent === key);
+  return groupHiddenSys(raw, key);
+}
+
+/** 把本层「默认隐藏的系统项」（$RECYCLE.BIN / System Volume Information 等，
+    资源管理器默认不显示）聚成一个可展开的独立项。
+    资源管理器默认勾着「隐藏受保护的操作系统文件」，这些项出现在扫描结果里
+    会让人以为「多扫出了东西」；聚成一组并注明缘由，既不丢信息也不吓人。
+    组员仍可通过下钻逐个查看；单个隐藏项不包一层（没有信息增益）。 */
+function groupHiddenSys(raw, key) {
+  const hid = raw.filter(n => n.hidden_sys);
+  if (hid.length < 2) return raw;
+  const gpath = key + "\\__hiddensys__";
+  const group = {
+    name: t("fs.hiddenSys", "默认隐藏的系统项"),
+    path: gpath,
+    size: hid.reduce((a, n) => a + (n.size || 0), 0),
+    type: "dir", depth: hid[0].depth || 1,
+    hidden_group: true, recognized: false, cleanable: false,
+    can_drill: true, modified: "", size_h: "", category: "",
+  };
+  FS.hiddenKids = FS.hiddenKids || {};
+  FS.hiddenKids[normKey(gpath)] = hid;
+  const rest = raw.filter(n => !n.hidden_sys);
+  rest.push(group);
+  rest.sort((a, b) => (b.size || 0) - (a.size || 0));
+  return rest;
 }
 /* 路径归一化唯一实现：统一斜杠方向 → 去掉结尾分隔符 → 小写。
    此前有三份逐字符等价的实现（normKey / normOvKey / selTotal 内联），
@@ -2740,9 +2768,18 @@ function renderOverview() {
   const color = usedPct > 85 ? "var(--danger)" : usedPct > 65 ? "var(--warn)" : "var(--accent)";
   const cur = fsStack.length ? fsStack[fsStack.length - 1] : null;
   const here = fsChildren();
-  const cleanSum = FS.nodes.filter(n => n.cleanable).reduce((a, n) => a + n.size, 0);
-  const keepSum = FS.nodes.filter(n => !n.cleanable && n.recognized).reduce((a, n) => a + n.size, 0);
-  const unkSum = FS.nodes.filter(n => !n.recognized).reduce((a, n) => a + n.size, 0);
+  // 三色汇总必须「每字节只算一次」：扫描树是父目录与其下探出的子项并存
+  // 的（为了支持下钻），父目录体积已经包含子项。若对全量节点扁平求和，
+  // 同一段空间会被父、子各算一遍 —— 曾实测三项加总 1.9 TB，远超盘的实际
+  // 已用量。口径：当一个节点的路径落在另一个节点（祖先）之下时，
+  // 只按最浅一层的归类统计。
+  const _ns = FS.nodes || [];
+  const _ps = _ns.map(n => normKey(n.path));
+  const uniqueNodes = _ns.filter((n, i) =>
+    !_ps.some((p, j) => j !== i && _ps[i].startsWith(p + "\\")));
+  const cleanSum = uniqueNodes.filter(n => n.cleanable).reduce((a, n) => a + n.size, 0);
+  const keepSum = uniqueNodes.filter(n => !n.cleanable && n.recognized).reduce((a, n) => a + n.size, 0);
+  const unkSum = uniqueNodes.filter(n => !n.recognized).reduce((a, n) => a + n.size, 0);
   const mix = Math.max(keepSum + unkSum, 1);
 
   $("fsHint").textContent =
@@ -2829,6 +2866,14 @@ function renderOverview() {
 async function fsDrill(node) {
   if (!node) return;
   if (node.type !== "dir") { showDetail(node); return; }
+  // 聚合组的子项是纯前端合成（FS.hiddenKids），不请求服务端
+  if (node.hidden_group) {
+    fsStack.push({ path: node.path, name: node.name, size: node.size });
+    fsMode = "dirs";
+    renderOverview();
+    renderChart();
+    return;
+  }
   const key = normKey(node.path);
   const hasKids = !!(FS.kids && FS.kids[key] && FS.kids[key].length);
   if (!hasKids) {
@@ -2968,7 +3013,7 @@ function renderChart() {
     // 2026-10-13：**所有行都可勾选** —— 「建议保留 / 未识别」不再是勾选禁区。
     // 用户看过内容、明确要删的目录不该被工具拦死；对应的安全约束转移到
     // 确认弹窗（明确提示包含非推荐项）与服务端（系统目录保护、占用预检照常）。
-    const canCheck = true;
+    const canCheck = !it.hidden_group;   // 聚合组是纯前端合成项，勾选它没有服务端对应物
     const rowChecked = canCheck &&
       (it.target_id ? selected.has(it.target_id) : selPaths.has(it.path));
     // 全盘视图里必须显示它在哪里，否则只看到一个名字不知道归属
@@ -2995,7 +3040,7 @@ function renderChart() {
       <div class="vrow ${cls}" data-i="${idx}" data-can-drill="${drillable ? 1 : 0}">
         <div class="vtop">
           ${canCheck ? `<input type="checkbox" class="rowsel" data-path="${esc(it.path)}"${it.target_id ? ` data-tid="${esc(it.target_id)}"` : ""}${rowChecked ? " checked" : ""} title="${t("fs.tickTitle","勾选这项参与清理")}">` : ""}
-          ${drillable ? `<button class="tiny ghost expinline" data-tree="${idx}" title="${t("sub.expandTitle","就地展开查看子目录")}">${t("sub.expand","展开 ▾")}</button>` : ""}
+          ${drillable && !it.hidden_group ? `<button class="tiny ghost expinline" data-tree="${idx}" title="${t("sub.expandTitle","就地展开查看子目录")}">${t("sub.expand","展开 ▾")}</button>` : ""}
           <span class="fname">${esc(it.name)}${badge}${pinBadge}${
             drillable ? `<span class="vgo">${t("fs.drillHint","点开看子项 ›")}</span>` : ""}</span>
           <button class="tiny ghost rowinfo" data-info="${idx}">${t("fs.detailBtn","详情")}</button>
@@ -4360,6 +4405,7 @@ const I18N_EN = {
   "fs.hintBiggest": "Big items sorted by size across all levels (container dirs excluded)",
   "fs.hintClean": "Everything judged cleanable in the whole tree",
   "fs.hintDrill": "Click a folder to drill down, a file for details",
+  "fs.hiddenSys": "Hidden system items",
   "fs.hintWizOn": " (WizTree enabled — drill to any level)",
   "fs.hintWizOff": " (No WizTree — deep drills scan on the fly, slower but work)",
   "fs.emptyLayer": "Nothing above {h} at this level.",

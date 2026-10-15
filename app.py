@@ -823,7 +823,12 @@ def _wiztree_parse(csv_path: str, on_progress=None) -> dict:
                 continue
             low = os.path.normpath(path).lower()
             if path.endswith("\\"):
-                if size >= floor:
+                # 盘根第一层目录无条件保留：资源管理器里看得到的每一项
+                # 都必须出现在顶层视图里。此前 System Volume Information、
+                # Config.Msi 这类小体积隐藏项被门槛整个挡掉，
+                # 「扫出来的比资源管理器少几项」就是这么来的。
+                # 深层子目录仍按体积门槛裁剪，内存不受影响。
+                if size >= floor or low.count("\\") <= 1:
                     dirs[low] = size
             elif size >= floor:
                 parent = os.path.dirname(low)
@@ -835,6 +840,16 @@ def _wiztree_parse(csv_path: str, on_progress=None) -> dict:
         except Exception:
             pass
     return {"dirs": dirs, "files": files, "rows": n}
+
+
+# 默认隐藏的系统项：资源管理器勾着「隐藏受保护的操作系统文件」时不显示，
+# 但 MFT/完整递归都能扫到。前端把这些聚成一个可展开的独立项，
+# 避免「扫出来的和资源管理器看到的不一样」让用户困惑。
+_HIDDEN_SYS_NAMES = {
+    "$recycle.bin", "recycler", "system volume information", "config.msi",
+    "pagefile.sys", "hiberfil.sys", "swapfile.sys",
+    "dumpstack.log", "dumpstack.log.tmp", "$winreagent",
+}
 
 
 def _wiztree_raw_nodes(root: str, table: dict,
@@ -923,10 +938,11 @@ def _wiztree_raw_nodes(root: str, table: dict,
         if has_kids:
             walk(t["path"], 2, t["path"], t["size"])
 
-    # 盘符根下的大文件（原版同样单独列在根层）
+    # 盘符根下的大文件（原版同样单独列在根层）；
+    # 隐藏系统文件（pagefile/hiberfil/DumpStack 等）不受门槛限制，保证聚合组完整
     rootfiles = []
     for name, sz, full in files.get(root_key, ()):
-        if sz >= min_child:
+        if sz >= min_child or name.lower() in _HIDDEN_SYS_NAMES:
             rootfiles.append({"name": name, "path": full.lower(),
                               "size": sz, "modified": ""})
     return out, rootfiles, total
@@ -1196,6 +1212,8 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
             "size": int(n.get("size") or 0),
             "modified": str(n.get("modified") or ""),
             "has_children": bool(n.get("hasChildren")),
+            # 默认隐藏的系统项标记：前端据此把同层这些项聚成一组
+            "hidden_sys": name.lower() in _HIDDEN_SYS_NAMES,
         }
         info = identify(name, path, item["type"])
         info.pop("match_score", None)      # 内部打分不进 payload
@@ -1563,6 +1581,8 @@ def list_subdirs(drive: str, path: str, limit: int = 80) -> dict:
 
     for c in children:
         c["size_h"] = human(c["size"])
+        # 与占用树同一套标记：下钻视图里前端才能把同层隐藏项聚成一组
+        c["hidden_sys"] = str(c.get("name") or "").lower() in _HIDDEN_SYS_NAMES
         info = identify(c["name"], c["path"], c.get("type") or "dir")
         info.pop("match_score", None)
         c.update(info)
