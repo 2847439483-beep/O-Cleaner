@@ -711,9 +711,11 @@ def phase3_http() -> None:
               "缺 id: " + ", ".join(_kb_missing) + "; what 为空: " + ", ".join(_kb_empty_what))
         # 识别名 label（2026-10-15）：内置规则的 title 是中文（「驱动备份 /
         # 驱动包」），英文界面排行行的识别名必须换英文 —— 每条内置规则都
-        # 要有 label；资源包条目多为游戏名 / 软件名不强制。
+        # 要有 label；资源包条目多为游戏名 / 软件名不强制，不在本检查内。
+        _ft_ids = {r.get("id") for sec in ("folder_rules", "file_rules")
+                   for r in (app.load_filetypes().get(sec) or [])}
         _kb_no_label = sorted(
-            k for k in _kb_ids
+            k for k in _ft_ids
             if not str((_kb_en.get(k) or {}).get("label") or "").strip())
         check("内置规则都有英文识别名 label", not _kb_no_label,
               "缺 label: " + ", ".join(_kb_no_label))
