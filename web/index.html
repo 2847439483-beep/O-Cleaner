@@ -3039,7 +3039,7 @@ function renderChart() {
       ? it.display_name
       : (it.title && it.title !== it.name ? it.title : "");
     return `
-    <div class="vrow-wrap" data-path="${esc(it.path)}">
+    <div class="vrow-wrap" data-path="${esc(it.path)}"${it.hidden_group ? ' data-synth="1"' : ""}>
       <div class="vrow ${cls}" data-i="${idx}" data-can-drill="${drillable ? 1 : 0}">
         <div class="vtop">
           ${canCheck ? `<input type="checkbox" class="rowsel" data-path="${esc(it.path)}"${it.target_id ? ` data-tid="${esc(it.target_id)}"` : ""}${rowChecked ? " checked" : ""} title="${t("fs.tickTitle","勾选这项参与清理")}">` : ""}

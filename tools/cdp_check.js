@@ -1082,7 +1082,8 @@ class CDP {
     const pathNow = await evaluate(
       `(document.querySelector('.drillhint b')||{}).innerText || ''`);
     const drilled = await evaluate(`(() => {
-      const r = [...document.querySelectorAll('#fsChart .vrow')].find(x => x.querySelector('.vgo'));
+      const r = [...document.querySelectorAll('#fsChart .vrow')]
+        .find(x => x.querySelector('.vgo'));
       if (!r) return false;
       r.click(); return true;
     })()`);
