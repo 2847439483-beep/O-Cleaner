@@ -1713,9 +1713,10 @@ def apply_lang_payload(obj, lang: str):
     """英文界面下深度覆盖负载里的知识库长文本（i18n L3）。
 
     递归遍历 dict/list：凡是带 rule_id 的节点，用 kb-en.json 里同 id 的
-    what/advice/tip（非空才覆盖）、识别名 label（覆盖 title/display_name/
-    zh_name）与置信度标签替换中文原文；其它字段（cleanable/risk/category/
-    路径/体积等）一律不动。lang 不是 en 时原样返回。放在响应出口做而不是改识别器，
+    what/advice/tip/rebuild/impact/keep_if/short（非空才覆盖）、识别名
+    label（支持 {drive} 盘符模板，覆盖节点自身的 label 字段）与置信度
+    标签替换中文原文；其它字段（cleanable/risk/category/路径/体积等）
+    一律不动。lang 不是 en 时原样返回。放在响应出口做而不是改识别器，
     是因为同一段文本可能来自内置知识库，也可能来自资源包 ——
     按 rule_id 覆盖与来源无关。
     """
@@ -1734,20 +1735,46 @@ def apply_lang_payload(obj, lang: str):
         if not isinstance(node, dict):
             return
         rid = str(node.get("rule_id") or "")
+        # 游戏中文名（zh_name）是给中文用户准备的：英文界面下显示原始名
+        # 更自然 —— 中英夹杂反而难读。先做这一步，资源包条目的英文
+        # label 随后覆盖（顺序保证：pack 的官方英文名优先于目录名）。
+        # 只动显示字段，不碰判定。
+        if str(node.get("zh_name") or "").strip() and node.get("name"):
+            node["display_name"] = node["name"]
+            node["zh_name"] = node["name"]
+            # title 也一并还原：树行 / 游戏行的 title 来自内置规则的中文
+            # 标题（「Steam 游戏库」）或包的中文 title，英文界面下同样
+            # 应显示原始名。资源包条目的英文 label 随后仍会覆盖它。
+            node["title"] = node["name"]
         entry = rules.get(rid) if rid else None
         if isinstance(entry, dict):
-            for f in ("what", "advice", "tip"):
+            for f in ("what", "advice", "tip", "rebuild", "impact",
+                      "keep_if", "short"):
                 en = entry.get(f)
                 if isinstance(en, str) and en.strip() and node.get(f):
                     node[f] = en
             # 识别名：title / display_name / zh_name 都来自规则的中文 title，
-            # 英文界面换成条目的 label。缺 label 不覆盖 —— 资源包条目的
-            # title 多为游戏名 / 软件名，本就不该翻译。
+            # 英文界面换成条目的 label（内置 42 条 + 资源包条目均已补齐；
+            # 游戏本体行 rule_id=steam-game 等无 label，保持原始目录名）。
             en_name = entry.get("label")
             if isinstance(en_name, str) and en_name.strip():
                 for f in ("title", "display_name", "zh_name"):
                     if node.get(f):
                         node[f] = en_name
+            # 目标 / 结果行自身的显示名（label 字段）：支持 {drive} 盘符
+            # 模板。盘符优先取节点自带的 drive 字段（清理结果行有），
+            # 否则从展开后的绝对路径首字符取（state 的 targets 有）。
+            # 拿不到盘符就放弃覆盖 —— 宁可显示中文也不显示「 盘回收站」。
+            en_label = entry.get("label")
+            if isinstance(en_label, str) and en_label.strip() and node.get("label"):
+                if "{drive}" in en_label:
+                    drv = str(node.get("drive") or "").rstrip(":").upper()
+                    if not drv:
+                        pth = str(node.get("path") or "")
+                        drv = pth[0].upper() if len(pth) > 1 and pth[1] == ":" else ""
+                    en_label = en_label.replace("{drive}", drv) if drv else ""
+                if en_label:
+                    node["label"] = en_label
         conf = str(node.get("confidence") or "")
         en_label = labels.get(conf)
         if isinstance(en_label, str) and en_label and node.get("confidence_label"):
@@ -1755,6 +1782,14 @@ def apply_lang_payload(obj, lang: str):
         en_risk = risk_labels.get(str(node.get("risk") or ""))
         if en_risk and node.get("risk"):
             node["risk"] = en_risk
+        # 兜底：英文界面下 title / display_name 仍含中文（没有 label 的
+        # 内置标题、上层目录匹配残留等）时，回退为原始名 —— 宁可显示
+        # 目录原名，也不在英文界面里残留中文识别名。
+        for f in ("title", "display_name"):
+            v = node.get(f)
+            if isinstance(v, str) and any("一" <= ch <= "\u9fff" for ch in v) \
+                    and node.get("name"):
+                node[f] = node["name"]
         for v in node.values():
             walk(v)
 
@@ -3773,6 +3808,8 @@ def clean_target(t: dict, only_paths: list | None = None,
     result = {
         "id": target_id_for(t, drive if is_drive_specific(t) else None),
         "target_id": t["id"],
+        # rule_id：英文界面按它在 kb-en.json 里找识别名 / 长文本覆盖
+        "rule_id": "target:" + str(t.get("base_id", t["id"])),
         "label": expand(t.get("label", t["id"]), drive),
         "category": t.get("category", "其它"),
         "path": path, "drive": letter,
@@ -4648,6 +4685,7 @@ def _run_scheduled(s: dict) -> None:
 
 def _error_result(t: dict, drive: str | None, exc: Exception) -> dict:
     return {"id": target_id_for(t, drive), "target_id": t.get("base_id", t.get("id")),
+            "rule_id": "target:" + str(t.get("base_id", t.get("id"))),
             "label": t.get("label", t.get("id")), "category": t.get("category", "其它"),
             "path": expand(t.get("path", ""), drive),
             "drive": (drive or "").rstrip(":").upper(),
@@ -5218,6 +5256,8 @@ def build_state(drive: str | None = None, custom_path: str | None = None,
             "id": t["id"], "base_id": t.get("base_id", t["id"]),
             # 自定义释义的键：前端编辑器保存时回传这个键，后端按它应用覆盖
             "ovkey": _override_key(t),
+            # rule_id：英文界面按它在 kb-en.json 里找识别名与长文本的英文版
+            "rule_id": "target:" + str(t.get("base_id", t["id"])),
             "label": expand(t.get("label", t["id"]), letter),
             "path": expand(t["path"], letter), "category": t.get("category", "其它"),
             "risk": t.get("risk", "无"), "needs_admin": bool(t.get("needs_admin")),
@@ -5578,10 +5618,11 @@ class Handler(BaseHTTPRequestHandler):
                     entry["failed"] += r["failed"]
                 entry["freed_h"] = human(entry["freed"])
                 append_history(entry)
-                return self._json({"entry": entry, "disk": get_disk_info(drive),
-                                   "stats": history_stats(),
-                                   "skipped_paths": skipped_paths,
-                                   "merged": merged})
+                return self._json(apply_lang_payload(
+                    {"entry": entry, "disk": get_disk_info(drive),
+                     "stats": history_stats(),
+                     "skipped_paths": skipped_paths,
+                     "merged": merged}, self._query().get("lang")))
             finally:
                 self.server.busy = False
 
@@ -6023,8 +6064,10 @@ class Handler(BaseHTTPRequestHandler):
                     entry["failed"] += r["failed"]
                 entry["freed_h"] = human(entry["freed"])
                 append_history(entry)
-                return self._json({"entry": entry, "disk": get_disk_info(drive),
-                                   "stats": history_stats(), "rule": rule["name"]})
+                return self._json(apply_lang_payload(
+                    {"entry": entry, "disk": get_disk_info(drive),
+                     "stats": history_stats(), "rule": rule["name"]},
+                    self._query().get("lang")))
             finally:
                 self.server.busy = False
 

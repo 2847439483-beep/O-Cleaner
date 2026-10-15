@@ -632,8 +632,8 @@
       <button data-t="system" data-i18n="theme.system" data-i18n-title="theme.system.title">随</button>
     </div>
     <div class="themeseg" id="langSeg" role="group" aria-label="Language / 语言" data-i18n-title="lang.aria">
-      <button data-l="auto" title="跟随系统语言">A</button>
-      <button data-l="zh" title="中文">中</button>
+      <button data-l="auto" data-i18n-title="lang.autoTitle" title="跟随系统语言">A</button>
+      <button data-l="zh" data-i18n-title="lang.zhTitle" title="中文">中</button>
       <button data-l="en" title="English">EN</button>
     </div>
     <div class="drives" id="drives"></div>
@@ -753,7 +753,8 @@
     <div class="panel acc" data-acc="packs">
       <h3><span data-i18n="pane.packs">资源包</span> <span class="hint" id="packsHint"></span></h3>
       <div class="ab">
-        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6">
+        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6"
+             data-i18n-html="packs.intro">
           资源包是纯 JSON 的「识别与释义」数据：某个目录/文件是什么、能不能自动重建、
           删掉有什么影响、什么情况该保留。装得越多，卡片与磁盘树里「已识别」的比例越高。
           也可以把自己的包丢进来，或用 AI 按本机情况生成一份。
@@ -771,7 +772,8 @@
     <div class="panel acc" data-acc="ai">
       <h3><span data-i18n="pane.ai">AI 助手</span> <span class="hint" id="aiHint" data-i18n="ai.optional">可选</span></h3>
       <div class="ab">
-        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6">
+        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6"
+             data-i18n-html="ai.intro">
           接入自己的 AI 服务（任何兼容 OpenAI Chat Completions 的接口），
           用它解释可清理项、按你的需求生成清理方案。密钥只存在本机
           <code>config/ai.json</code>，除了你填的接口地址外不发往任何地方。
@@ -841,35 +843,42 @@
     <div class="panel acc open" data-acc="rules">
       <h3><span data-i18n="pane.rules">自定义规则</span> <span class="hint" data-i18n="rules.hint">勾选固定项，命名保存</span></h3>
       <div class="ab">
-        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6">
+        <div style="color:var(--dim);font-size:12.5px;margin-bottom:11px;line-height:1.6"
+             data-i18n-html="rules.help">
           把当前勾选的清理项存成一条规则，以后一键套用；勾选「保存后立即清理」
           则保存时直接清理这些项。
         </div>
         <div class="field">
-          <input type="text" id="ruleName" placeholder="给规则起个名字，例如「每周清缓存」">
+          <input type="text" id="ruleName" data-i18n-ph="rules.namePh"
+                 placeholder="给规则起个名字，例如「每周清缓存」">
         </div>
         <div class="field" style="gap:14px">
           <label style="display:flex;align-items:center;gap:7px;color:var(--fg);cursor:pointer">
             <input type="checkbox" class="switch" id="ruleAuto" style="accent-color:var(--danger)">
-            保存后立即清理
+            <span data-i18n="rules.auto">保存后立即清理</span>
           </label>
           <span style="color:var(--dim2);font-size:11.5px" id="ruleSelInfo"></span>
         </div>
         <div class="field" style="margin-bottom:12px">
-          <button id="btnRuleSave" class="primary" style="flex:1">保存当前勾选为规则</button>
+          <button id="btnRuleSave" class="primary" style="flex:1"
+                  data-i18n="rules.saveBtn">保存当前勾选为规则</button>
         </div>
         <div id="ruleList"></div>
         <details style="margin-top:12px">
-          <summary style="cursor:pointer;color:var(--dim);font-size:12px">导入 / 导出自定义数据（含换算单位与释义）</summary>
+          <summary style="cursor:pointer;color:var(--dim);font-size:12px"
+                   data-i18n="rules.bundleHead">导入 / 导出自定义数据（含换算单位与释义）</summary>
           <div style="margin-top:9px">
-            <div style="color:var(--dim2);font-size:11.5px;line-height:1.6;margin-bottom:8px">
+            <div style="color:var(--dim2);font-size:11.5px;line-height:1.6;margin-bottom:8px"
+                 data-i18n-html="rules.bundleDesc">
               把换算单位、释义/结论覆盖和固定项规则打包成一个 JSON，
               便于换机迁移或让 AI 按规范生成后导回。格式见
               docs\CUSTOMIZE.md；导入时逐项校验，不合格的会说明原因。
             </div>
             <div class="field" style="gap:8px">
-              <button id="btnBundleExport" class="tiny ghost" style="flex:1">导出自定义数据</button>
-              <button id="btnBundleImport" class="tiny ghost" style="flex:1">导入自定义数据</button>
+              <button id="btnBundleExport" class="tiny ghost" style="flex:1"
+                      data-i18n="bundle.export">导出自定义数据</button>
+              <button id="btnBundleImport" class="tiny ghost" style="flex:1"
+                      data-i18n="bundle.import">导入自定义数据</button>
             </div>
             <input type="file" id="bundleFile" accept=".json,application/json" style="display:none">
           </div>
@@ -882,15 +891,15 @@
       <div class="ab">
         <div class="field">
           <input type="checkbox" class="switch" id="schEnabled">
-          <label for="schEnabled">启用（服务运行时生效）</label>
+          <label for="schEnabled" data-i18n="sch.enable">启用（服务运行时生效）</label>
         </div>
         <div class="field">
-          <label>每</label><input type="number" id="schHours" min="0.25" step="0.25" value="24"
-                style="width:74px"><label>小时，按预设</label>
+          <label data-i18n="sch.every">每</label><input type="number" id="schHours" min="0.25" step="0.25" value="24"
+                style="width:74px"><label data-i18n="sch.hoursPreset">小时，按预设</label>
         </div>
         <div class="field"><select id="schPreset"></select>
           <select id="schDrive" style="width:96px"></select></div>
-        <button id="btnSchSave" style="width:100%">保存定时设置</button>
+        <button id="btnSchSave" style="width:100%" data-i18n="sch.saveBtn">保存定时设置</button>
         <div id="schInfo" style="color:var(--dim2);font-size:12px;margin-top:9px"></div>
       </div>
     </div>
@@ -1195,8 +1204,8 @@ function renderPacks() {
       <label class="pkhead">
         <input type="checkbox" class="switch" data-pk-toggle
                ${p.enabled ? "checked" : ""} ${p.ok ? "" : "disabled"}>
-        <span class="pkname">${esc(p.name)}</span>
-        <span class="pktag">${esc(p.type_label)}</span>
+        <span class="pkname">${esc(packName(p))}</span>
+        <span class="pktag">${esc(packTypeLabel(p))}</span>
       </label>
       <div class="pkmeta">${[
         p.version ? "v" + p.version : "", p.updated || "",
@@ -1204,7 +1213,7 @@ function renderPacks() {
         p.source === "user" ? t("packs.userSrc","自己导入") : t("packs.builtinSrc","内置"),
       ].filter(Boolean).map(esc).join(" · ")}</div>
       ${p.ok ? "" : `<div class="pkbad">${t("packs.cantEnable","无法启用：")}${esc(p.error)}</div>`}
-      ${p.description ? `<div class="pkdesc">${esc(p.description)}</div>` : ""}
+      ${p.description ? `<div class="pkdesc">${esc(packDesc(p))}</div>` : ""}
       ${p.source === "user"
         ? `<div class="pkactions"><button class="tiny ghost" data-pk-del>${t("packs.del","删除")}</button></div>`
         : ""}
@@ -1486,13 +1495,13 @@ window.addEventListener("resize", () => {
 function renderPresets() {
   $("presets").innerHTML = STATE.presets.map(p =>
     `<button class="preset" data-id="${esc(p.id)}">
-       <strong>${esc(p.label)}</strong><span>${esc(p.desc)}</span>
+       <strong>${esc(presetLabel(p))}</strong><span>${esc(presetDesc(p))}</span>
      </button>`).join("");
   $("presets").querySelectorAll(".preset").forEach(b =>
     b.addEventListener("click", () =>
       applyPreset(STATE.presets.find(p => p.id === b.dataset.id))));
   $("schPreset").innerHTML = STATE.presets.filter(p => p.id !== "none")
-    .map(p => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("");
+    .map(p => `<option value="${esc(p.id)}">${esc(presetLabel(p))}</option>`).join("");
   $("schDrive").innerHTML = (STATE.drives || [])
     .map(d => `<option value="${d.letter}">${d.letter}:</option>`).join("");
   if (STATE.schedule?.drive) $("schDrive").value = STATE.schedule.drive;
@@ -1846,7 +1855,7 @@ async function runRule(rule, silent) {
                  t("rule.run2","预计释放 {v}。\n\n直接删除、不经过回收站，确认继续？").replace("{v}", fmt(freed)))) return;
   }
   try {
-    const res = await fetch(`${API}/__oc__/run-rule`, {
+    const res = await fetch(`${API}/__oc__/run-rule?lang=${i18nLocale() === "en" ? "en" : "zh"}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: rule.id, custom_path: customPath })
     });
@@ -2282,7 +2291,7 @@ async function doClean() {
   const t0 = Date.now();
   const trashBox = document.getElementById("mTrash");
   try {
-    const res = await fetch(`${API}/__oc__/clean`, {
+    const res = await fetch(`${API}/__oc__/clean?lang=${i18nLocale() === "en" ? "en" : "zh"}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: [...selected], paths: [...selPaths],
                              only_paths: only,
@@ -3092,6 +3101,78 @@ function catLabel(c) {
   return i18nLocale() === "en" ? (CAT_EN[c] || c) : c;
 }
 
+/* 预设名称与描述的英文映射（i18n L3）：presets 的 label/desc 存在
+   targets.json 里是中文；英文界面按 id 换英文显示，映射没有的 id 原样。
+   纯显示，不影响预设的勾选逻辑。 */
+const PRESET_EN = {
+  "safe": {
+    label: "Safe cleanup",
+    desc: "Only caches and temp files that rebuild automatically; skips the Recycle Bin and anything needing admin rights."
+  },
+  "deep": {
+    label: "Deep clean",
+    desc: "Safe cleanup plus shader caches, thumbnail caches, crash dumps and system logs. First run is a bit slower — everything rebuilds automatically."
+  },
+  "dev": {
+    label: "Developer cleanup",
+    desc: "Only package manager caches (uv / pip) — for tight disks when you don't want to lose browser caches. Reinstalling dependencies afterwards re-downloads."
+  },
+  "recycle": {
+    label: "Recycle Bin only",
+    desc: "Selects only the Recycle Bin and empties it drive by drive. Expand it to pick single large files to delete."
+  },
+  "none": {
+    label: "Deselect all",
+    desc: "Clears every checkmark."
+  },
+};
+function presetLabel(p) {
+  const en = i18nLocale() === "en" && PRESET_EN[p.id];
+  return (en && en.label) || p.label || p.id;
+}
+function presetDesc(p) {
+  const en = i18nLocale() === "en" && PRESET_EN[p.id];
+  return (en && en.desc) || p.desc || "";
+}
+
+/* 资源包名称/描述与类型标签的英文映射（i18n L3）：元数据存在各包 JSON
+   里是中文；英文界面按包 id / type 换英文显示，映射没有的原样。
+   纯显示，不影响包的加载与启用。 */
+const PACK_EN = {
+  "apps-common": {
+    name: "Common app caches",
+    desc: "Cache and data folders of common software — dev tools, chat apps, creative suites, GPU drivers. Separates \"cache, safe to clean\" from \"data, don't touch\" so chat history, model files and project assets are never mistaken for junk."
+  },
+  "explanations": {
+    name: "General explanations",
+    desc: "Deeper explanations for the built-in general categories (caches, logs, download folders, installers and so on): what it is, what happens if deleted, when to keep it. Only covers explanatory text — the cleanable verdict always stays with the built-in knowledge base."
+  },
+  "games-platform": {
+    name: "Steam / Epic / GOG folders",
+    desc: "Entry-by-entry explanations of the three game platforms' library folders, download caches, shader caches, Workshop content, saves and more. Answers \"what is this tens-of-GB folder and can it be deleted\"."
+  },
+  "games-titles": {
+    name: "Game names & explanations",
+    desc: "Well-known games' display names and per-game explanations. When matched, the disk tree and detail dialogs show the localized name directly. Matches are restricted to Steam library (steamapps\\common) or platform install paths to avoid false positives."
+  },
+  "windows-system": {
+    name: "Windows system items",
+    desc: "Entry-by-entry explanations of Windows' own folders and system files: what it is, whether it rebuilds, the impact of deleting, when to keep it. Fills in the built-in rules whose notes are brief."
+  },
+};
+const PACK_TYPE_EN = { "apps": "Apps", "games": "Games", "system": "System", "custom": "Custom" };
+function packName(p) {
+  const en = i18nLocale() === "en" && PACK_EN[p.id];
+  return (en && en.name) || p.name || p.id;
+}
+function packDesc(p) {
+  const en = i18nLocale() === "en" && PACK_EN[p.id];
+  return (en && en.desc) || p.description || "";
+}
+function packTypeLabel(p) {
+  if (i18nLocale() !== "en") return p.type_label;
+  return PACK_TYPE_EN[p.type] || p.type_label;
+}
 async function openRowOverride(node) {
   if (!node || !node.path) return;
   const key = normOvKey(node.path);
@@ -4214,6 +4295,7 @@ const I18N_EN = {
   "nav.full": "Scan Overview", "nav.steam": "Steam Library",
   "theme.aria": "UI Theme",
   "theme.light": "Light", "theme.light.title": "Light mode",
+  "lang.autoTitle": "Follow system language", "lang.zhTitle": "Chinese",
   "theme.dark": "Dark", "theme.dark.title": "Dark mode",
   "theme.system": "Auto", "theme.system.title": "Follow system",
   "lang.aria": "Language / 语言",
@@ -4247,7 +4329,9 @@ const I18N_EN = {
   "pane.steamPanel": "Steam Library",
   "pane.packs": "Resource Packs",
   "packs.import": "Import local pack", "packs.update": "Check updates on GitHub",
+  "packs.intro": "Resource packs are pure-JSON \"recognition & explanation\" data: what a folder/file is, whether it rebuilds automatically, what deleting means, when to keep it. The more packs installed, the higher the \"recognized\" share in cards and the disk tree. Drop in your own pack, or have the AI generate one for this machine.",
   "pane.ai": "AI Assistant", "ai.optional": "optional",
+  "ai.intro": "Connect your own AI service (any OpenAI Chat Completions compatible endpoint) to explain cleanable items and generate cleanup plans from your requests. The key is stored only in <code>config/ai.json</code> on this machine and is sent nowhere except the endpoint you enter.",
   "ai.base": "Endpoint", "ai.key": "API key", "ai.model": "Model",
   "ai.enable": "Enabled", "ai.test": "Test connection",
   "ai.planTitle": "Generate a cleanup plan",
@@ -4260,6 +4344,13 @@ const I18N_EN = {
   "unit.note": "Note", "unit.add": "Add unit", "unit.example": "Fill example",
   "pane.rules": "Custom Rules",
   "rules.hint": "Check fixed items and save them under a name",
+  "rules.help": "Save the current selection as a rule to re-apply it with one click later; tick \"Clean right after saving\" to clean these items immediately upon saving.",
+  "rules.namePh": "Name the rule, e.g. \"Weekly cache cleanup\"",
+  "rules.auto": "Clean right after saving",
+  "rules.saveBtn": "Save current selection as rule",
+  "rules.bundleHead": "Import / export custom data (units & explanations)",
+  "rules.bundleDesc": "Bundles conversion units, explanation/verdict overrides and fixed-item rules into one JSON for machine migration or for the AI to generate from the spec and import back. Format: docs\\CUSTOMIZE.md; every item is validated on import with a reason for each rejection.",
+  "bundle.export": "Export custom data", "bundle.import": "Import custom data",
   /* ---- 动态文案（L2）：JS 渲染的提示、徽章、结论 ---- */
   "badge.unk": "Unrecognized", "badge.clean": "Cleanable", "badge.keep": "Keep",
   "fs.this": "This level ({n})", "fs.top": "Top level ({n})",
@@ -4507,6 +4598,8 @@ const I18N_EN = {
   "sch.off": "Not enabled. Enable it and keep this service window open for runs to happen.",
   "sch.never": "never", "sch.next": "Next: ", "sch.last": "Last: ",
   "sch.saved": "Saved", "sch.saveBtn": "Save schedule",
+  "sch.enable": "Enable (takes effect while the service runs)",
+  "sch.every": "Every", "sch.hoursPreset": "hours, with preset",
   "hist.none": "No records yet", "hist.lockedN": "{label} ({n} items in use)",
   "hist.freed": "Released {v}", "hist.nothing": "Nothing cleanable", "hist.skipped": "Skipped: ",
   "foot.afterClean": "after cleaning {drive}: would have about",

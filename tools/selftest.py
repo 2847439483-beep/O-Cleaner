@@ -689,7 +689,7 @@ def phase3_http() -> None:
         _i18n_keys = set(re.findall(
             r'"([a-zA-Z][\w.]*)"\s*:',
             html[html.index("const I18N_EN"):html.index("function i18nLocale")]))
-        _i18n_refs = set(re.findall(r'data-i18n(?:-ph|-title)?="([^"]+)"', html))
+        _i18n_refs = set(re.findall(r'data-i18n(?:-ph|-title|-html)?="([^"]+)"', html))
         _i18n_missing = sorted(_i18n_refs - _i18n_keys)
         check("i18n 字典键覆盖所有 data-i18n 引用",
               not _i18n_missing, "缺键: " + ", ".join(_i18n_missing))
