@@ -1409,6 +1409,8 @@ function hexToRgba(hex, alpha) {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 let DISK_TREND = null;
+/* 悬停提示：记录最近一次绘制的几何信息，mousemove 时找最近的事件点 */
+let _TREND_GEO = null;
 async function loadDiskTrend() {
   try {
     const d = await (await fetch(`${API}/__oc__/history`)).json();
@@ -1473,6 +1475,8 @@ function drawDiskTrend() {
   evs.forEach(e => {
     ctx.beginPath(); ctx.arc(X(e.t), Y(e.after), 2.2, 0, Math.PI * 2); ctx.fill();
   });
+  // 记录几何信息供悬停查询（鼠标放到转折点附近 → 显示该次清理的时间与释放量）
+  _TREND_GEO = evs.length ? { evs, X, Y, W } : null;
   if (lbl) {
     lbl.textContent = evs.length
       ? t("trend.withEvents","近 30 天 {n} 次清理 · 可用 {a} → {b}（+{d}），转折点即清理行为")
@@ -1480,6 +1484,47 @@ function drawDiskTrend() {
       : t("trend.noEvents","近 30 天暂无清理记录（可用 {a}）；执行清理后这里会出现转折点").replace("{a}", fmt(freeNow));
   }
 }
+
+/* 趋势图悬停：鼠标靠近转折点时显示该次清理的时间与释放容量（简略）。
+   提示框挂在 body 上用固定定位，不挤占面板布局。 */
+let _trendTip = null;
+function trendTipEl() {
+  if (!_trendTip) {
+    _trendTip = document.createElement("div");
+    _trendTip.style.cssText = "position:fixed;z-index:9999;pointer-events:none;" +
+      "background:var(--panel,#1c1c1c);color:var(--fg,#eee);border:1px solid var(--line);" +
+      "border-radius:8px;padding:6px 9px;font-size:12px;line-height:1.55;display:none;" +
+      "box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:260px";
+    document.body.appendChild(_trendTip);
+  }
+  return _trendTip;
+}
+window.addEventListener("mousemove", ev => {
+  const cv = document.getElementById("trendCv");
+  const g = _TREND_GEO;
+  if (!cv || !g) return;
+  const r = cv.getBoundingClientRect();
+  if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top - 8 || ev.clientY > r.bottom + 8) {
+    trendTipEl().style.display = "none";
+    return;
+  }
+  const mx = ev.clientX - r.left;
+  let best = null, bestD = 14;                  // 14px 命中半径
+  for (const e of g.evs) {
+    const d = Math.abs(g.X(e.t) - mx);
+    if (d < bestD) { bestD = d; best = e; }
+  }
+  const tip = trendTipEl();
+  if (!best) { tip.style.display = "none"; return; }
+  const timeStr = new Date(best.t).toLocaleString([], {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  tip.innerHTML = `<b>${t("trend.tipFreed","释放")}: ${fmt(best.freed)}</b><br>` +
+    `<span style="color:var(--dim2)">${esc(timeStr)} · ${t("trend.tipAfter","清理后可用")} ${fmt(best.after)}</span>`;
+  tip.style.display = "block";
+  const tw = tip.offsetWidth;
+  tip.style.left = Math.min(window.innerWidth - tw - 8, ev.clientX + 12) + "px";
+  tip.style.top = Math.max(8, r.top - tip.offsetHeight - 8) + "px";
+});
 
 // 窗口尺寸变化（拖小浏览器窗口、分屏、收起侧栏）时重绘趋势画布：
 // 画布宽度来自 clientWidth，不重绘会拉伸模糊或留白。
@@ -4769,6 +4814,8 @@ const I18N_EN = {
   "sel.items": "items", "sel.free": "Estimated free", "sel.picked": "Picked",
   "trend.withEvents": "Last 30 days: {n} cleanups · free {a} → {b} (+{d}); each bend is a cleanup",
   "trend.noEvents": "No cleanups in the last 30 days (free {a}); bends appear here after you clean",
+  "trend.tipFreed": "Freed",
+  "trend.tipAfter": "free after cleanup",
   "btn.cleanSelected": "Clean selected",
   "pane.sched": "Scheduled Auto-Clean",
   "pane.history": "Recent Cleanups",
