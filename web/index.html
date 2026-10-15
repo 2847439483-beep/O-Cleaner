@@ -2472,7 +2472,7 @@ function showCleanResult(e, stats, t0, title) {
         <ul>${bad.slice(0, 8).map(r => `<li>${esc(r.label)}：${
           esc((r.skipped || []).slice(0, 4).join("、") || r.error || t("cr.locked","占用中"))}${
           r.failed > 4 ? ` ${t("cr.andNMore","等 {n} 项").replace("{n}", r.failed)}` : ""}</li>`).join("")}</ul>
-        ${bad.some(r => (r.skipped || []).length) ? `
+        ${bad.some(r => (r.skipped || []).length || (r.locked_files || []).length) ? `
           <div style="margin-top:9px;display:flex;align-items:center;gap:9px;flex-wrap:wrap">
             <button id="btnFindLock" class="primary" style="font-size:12.5px">
               ${t("lk.open","一键查找占用进程")}</button>
@@ -2545,14 +2545,24 @@ function showCleanResult(e, stats, t0, title) {
  *  Windows 没有公开 API 能把句柄反查成进程。所以这里只列候选、按可能性排序，
  *  由使用者自己确认后**手动**关闭，工具不代关进程。 */
 async function findLockHolders(bad, btn) {
-  // 把「目标目录 + 被跳过的文件名」还原成完整路径
+  // 把「目标目录 + 被跳过的文件名」还原成完整路径；
+  // 整体中止的目标（占用预检拦截）手里本来就有 locked_files 完整路径，直接用。
   const paths = [];
-  (bad || []).forEach(r => (r.skipped || []).forEach(n => {
-    if (r.path && n) paths.push(r.path.replace(/[\\/]+$/, "") + "\\" + n);
-  }));
+  (bad || []).forEach(r => {
+    (r.locked_files || []).forEach(p => { if (p) paths.push(String(p)); });
+    (r.skipped || []).forEach(n => {
+      if (r.path && n) paths.push(r.path.replace(/[\\/]+$/, "") + "\\" + n);
+    });
+  });
+  const _seen = new Set();
+  const uniq = paths.filter(p => {
+    const k = p.toLowerCase();
+    if (_seen.has(k)) return false;
+    _seen.add(k); return true;
+  });
   const pane = $("lockPane");
   if (!pane) return;
-  if (!paths.length) {
+  if (!uniq.length) {
     pane.innerHTML = `<div style="margin-top:10px;font-size:12.5px">
       ${t("lk.notLocked","这些项不是「被占用」，而是路径不存在或权限不足，没有可查的进程。")}</div>`;
     return;
@@ -2560,7 +2570,7 @@ async function findLockHolders(bad, btn) {
   const old = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = t("lk.searching","正在查找…"); }
   pane.innerHTML = `<div style="margin-top:10px;font-size:12.5px;color:var(--dim2)">
-    ${t("lk.checking","正在检查 {n} 个文件并枚举系统进程，请稍候…").replace("{n}", paths.length)}</div>`;
+    ${t("lk.checking","正在检查 {n} 个文件并枚举系统进程，请稍候…").replace("{n}", uniq.length)}</div>`;
   try {
     const r = await fetch(`${API}/__oc__/locks`, {
       method: "POST", headers: { "Content-Type": "application/json" },
