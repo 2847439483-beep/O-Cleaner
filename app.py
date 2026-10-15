@@ -1482,6 +1482,10 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
         "engine_note": (f"WizTree 导出 {table['rows']:,} 行，解析 "
                         f"{_WIZ_DIRS.get(letter, {}).get('parse_s', '?')} 秒"
                         if engine == "wiztree" else (werr or "")),
+        # 结构化的行数/秒数：前端英文界面用它拼本地化文案（engine_note 是中文）
+        "engine_rows": (table["rows"] if engine == "wiztree" else None),
+        "engine_secs": (_WIZ_DIRS.get(letter, {}).get("parse_s")
+                        if engine == "wiztree" else None),
         "subdir_ready": bool(engine == "wiztree"),
     }
 
