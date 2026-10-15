@@ -651,10 +651,10 @@
     <button id="btnScan" class="primary" data-i18n="btn.scan">重新扫描</button>
     <button id="btnFullScan" data-i18n="btn.fullScan">全盘扫描本盘</button>
     <select id="fsDepthSel" style="width:auto"
-            title="扫描展开的层数（2026-10-14 起可自定义，默认 2 层）。层数越少越快，深层目录点击下钻查看（按占用/名称排序）；游戏本体与已提级的目录始终会出现在排行里"
+            title="扫描展开的层数（可自定义，默认 1 层）。层数越少越快，深层目录点击下钻查看（按占用/名称排序）；游戏本体与已提级的目录始终会出现在排行里"
             data-i18n-title="depth.title">
-      <option value="1" data-i18n="depth.1">1 层（最快）</option>
-      <option value="2" selected data-i18n="depth.2">2 层（默认）</option>
+      <option value="1" selected data-i18n="depth.1">1 层（默认）</option>
+      <option value="2" data-i18n="depth.2">2 层</option>
       <option value="3" data-i18n="depth.3">3 层</option>
       <option value="4" data-i18n="depth.4">4 层</option>
       <option value="5" data-i18n="depth.5">5 层（最慢）</option>
@@ -2552,7 +2552,7 @@ async function startFullScan() {
   // 常规清理并入本页后，这个按钮就是纯粹的「（重新）扫描本盘」；
   // 正在扫：同一盘且同一深度就只切到概览，别重复发请求；换了盘或换了扫描
   // 层数换了则作废旧扫描、立即按新参数开扫。
-  const depth = Math.min(5, Math.max(1, parseInt($("fsDepthSel").value, 10) || 2));
+  const depth = Math.min(5, Math.max(1, parseInt($("fsDepthSel").value, 10) || 1));
   // 结果缓存命中：同一个盘、同一层数、10 分钟内 → 直接展示，不重扫
   const hit = FS_CACHE.get(drive);
   if (hit && hit.depth === depth && Date.now() - hit.at < FS_CACHE_TTL) {
@@ -2862,12 +2862,14 @@ function renderChart() {
   else if (fsMode === "biggest") {
     // 全盘最大项目：纯按体积降序，把中间容器（steamapps/common 等）剔掉，
     // 因为容器名对用户没有意义，它的子项才是实体。
+    // 默认扫描 1 层（2026-10-15 起）时只有首层节点，这里从 depth>=1 起取，
+    // 否则该视图在默认档位下会是空的；容器过滤照常生效。
     const containers = new Set([
       "common", "steamapps", "steamlibrary", "downloads", "download",
       "appdata", "programdata", "cache", "caches", "temp", "tmp",
       "binaries", "content", "data", "models", "files",
     ]);
-    rows = FS.nodes.filter(n => n.type === "dir" && n.depth >= 2 && n.size > 0
+    rows = FS.nodes.filter(n => n.type === "dir" && n.depth >= 1 && n.size > 0
       && !containers.has(n.name.toLowerCase()) && !n.in_game_body);
   }
   else rows = here;
@@ -4200,8 +4202,8 @@ const I18N_EN = {
   "scope.label": "Cleanup scope",
   "scope.all": "Current drive + user-level caches",
   "scope.drive": "Current-drive items only",
-  "depth.title": "How many levels to expand (customizable, default 2). Fewer levels scan faster; click deeper folders to drill down (sorted by size/name). Game installs and promoted folders always appear in the ranking",
-  "depth.1": "1 level (fastest)", "depth.2": "2 levels (default)",
+  "depth.title": "How many levels to expand (customizable, default 1). Fewer levels scan faster; click deeper folders to drill down (sorted by size/name). Game installs and promoted folders always appear in the ranking",
+  "depth.1": "1 level (default)", "depth.2": "2 levels",
   "depth.3": "3 levels", "depth.4": "4 levels", "depth.5": "5 levels (slowest)",
   "custom.label": "Custom directory",
   "custom.placeholder": "e.g. D:\\Downloads or E:\\GameCache — press Enter to scan known junk folders inside",

@@ -875,8 +875,8 @@ def phase3_http() -> None:
             shutil.rmtree(_dd, ignore_errors=True)
         check("状态负载带数据存档目录（界面自检面板展示用）",
               '"data_dir"' in (HERE / "app.py").read_text(encoding="utf-8"))
-        check("默认扫描层数 2（HTML 选项与记忆逻辑一致）",
-              '<option value="2" selected data-i18n="depth.2">' in html
+        check("默认扫描层数 1（HTML 选项与记忆逻辑一致）",
+              '<option value="1" selected data-i18n="depth.1">' in html
               and 'saved === "quick" ? 1 : saved === "deep" ? 2' in html)
         check("起始盘默认数据盘并记住选择",
               "find(d => !d.is_system)" in html and '"oc-drive"' in html)
@@ -885,7 +885,7 @@ def phase3_http() -> None:
         check("游戏本体整删不拆：排行过滤内部子项（in_game_body）",
               "in_game_body" in html)
         app_src = (HERE / "app.py").read_text(encoding="utf-8")
-        check("快速扫描注入游戏本体（不受 2 层深度限制）",
+        check("快速扫描注入游戏本体（不受扫描深度限制）",
               "补齐游戏本体节点" in app_src
               and "_is_game_body_path" in app_src)
         check("自检面板含数据目录可写项（后端实测写探针，前端三词条）",

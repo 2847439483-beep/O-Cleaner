@@ -180,11 +180,11 @@ class CDP {
     else check(name, false, detail);
   }
 
-  // 默认层数：全新会话（无本地存储）应落在 2 层——先定位占地大头，
-  // 更多层数在小文件极多的系统盘上可能要几分钟，不该是默认值。
+  // 默认层数：全新会话（无本地存储）应落在 1 层（2026-10-15 起）——
+  // 排行只列首层实体，更快也更少噪音；深层靠下钻按需展开。
   const depth0 = await evaluate(
     `document.querySelector('#fsDepthSel') ? document.querySelector('#fsDepthSel').value : '(missing)'`);
-  check("默认扫描层数为 2", depth0 === "2", String(depth0));
+  check("默认扫描层数为 1", depth0 === "1", String(depth0));
 
   // 起始盘默认数据盘：多盘机器上首个非系统盘（上次用的盘优先，但全新会话
   // 没有本地存储，走数据盘默认）；单盘机器无意义，跳过。
@@ -1123,7 +1123,7 @@ class CDP {
                  hidden: ns.filter(n => n.in_game_body).length };
       })()`);
       if (g.games > 0) {
-        check("快速扫描的排行包含游戏本体（不受 2 层深度限制）",
+        check("快速扫描的排行包含游戏本体（不受扫描深度限制）",
               g.cleanable > 0, JSON.stringify(g));
         check("游戏本体内部子项不重复上榜（同一项目整删不拆）",
               true, `本体 ${g.games} 个 / 内部隐藏 ${g.hidden} 个`);
@@ -1137,10 +1137,10 @@ class CDP {
     } else {
       check("快速扫描完成并渲染出排行", false, `${qSec} 秒超时`);
     }
-    // 恢复默认 2 层，不给后续检查留层数残留
+    // 恢复默认 1 层，不给后续检查留层数残留
     await evaluate(`(() => {
       const s = document.querySelector('#fsDepthSel');
-      if (s) { s.value = '2'; s.dispatchEvent(new Event('change')); }
+      if (s) { s.value = '1'; s.dispatchEvent(new Event('change')); }
     })()`);
   }
 
