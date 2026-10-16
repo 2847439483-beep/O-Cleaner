@@ -1023,7 +1023,7 @@ function qs() {
   return q;
 }
 async function loadState() {
-  STATE = await (await fetch(`${API}/__oc__/state?${qs()}`)).json();
+  STATE = await apiJSON(`${API}/__oc__/state?${qs()}`);
   $("ver").textContent = STATE.app?.version ? "v" + STATE.app.version : "";
   // 后端 tagline 是中文；英文界面下用字典文案，避免覆盖掉翻译
   if (STATE.app?.tagline) {
@@ -1042,7 +1042,7 @@ async function scan() {
   const old = b.textContent; b.disabled = true; b.textContent = t("scan.running","扫描中…");
   $("scantime").innerHTML = `<span class="spin"></span>${t("scan.tallying","正在统计…")}`;
   try {
-    const data = await (await fetch(`${API}/__oc__/scan?${qs()}`)).json();
+    const data = await apiJSON(`${API}/__oc__/scan?${qs()}`);
     SCAN = {};
     (data.results || []).forEach(r => SCAN[r.id] = r);
     renderDisk(data.disk);
@@ -1180,8 +1180,8 @@ async function installWizTree() {
   WIZ_INSTALLING = true;
   b.disabled = true; b.textContent = t("wiz.downloading","正在下载并解压…");
   try {
-    const r = await (await fetch(`${API}/__oc__/wiztree/install`,
-                                 { method: "POST" })).json();
+    const r = await apiJSON(`${API}/__oc__/wiztree/install`,
+                                 { method: "POST" });
     if (r.status) STATE.wiztree = r.status;
     renderGuide();
     if (r.ok) {
@@ -1249,10 +1249,10 @@ function renderPacks() {
 async function packOp(action, body) {
   const msg = $("packMsg");
   try {
-    const r = await (await fetch(`${API}/__oc__/packs/${action}`, {
+    const r = await apiJSON(`${API}/__oc__/packs/${action}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body || {}),
-    })).json();
+    });
     if (r.packs) { STATE.packs = r.packs; renderPacks(); }
     if (action === "update") {
       const okN = (r.updated || []).length, badN = (r.failed || []).length;
@@ -1301,7 +1301,7 @@ async function aiFetchModels() {
     // 先把当前填的接口与密钥存下去，拉列表用的就是刚填的这组；
     // 放进 try 里 —— aiSave 挂了也要走 finally 复位按钮
     await aiSave();
-    const r = await (await fetch(`${API}/__oc__/ai/models`, { method: "POST" })).json();
+    const r = await apiJSON(`${API}/__oc__/ai/models`, { method: "POST" });
     if (out) out.innerHTML = r.ok
       ? `<span class="res-ok">${t("ai.modelsGot","识别到 {n} 个模型，点击「模型」输入框从下拉建议里选择").replace("{n}", (r.models || []).length)}</span>`
       : `<span class="res-err">${esc(r.error || "获取失败")}</span>`;
@@ -1317,13 +1317,13 @@ $("btnAiModels").addEventListener("click", aiFetchModels);
 
 async function aiSave() {
   const msg = $("packMsg");
-  const r = await (await fetch(`${API}/__oc__/ai/config`, {
+  const r = await apiJSON(`${API}/__oc__/ai/config`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       base_url: $("aiBase").value.trim(), model: $("aiModel").value.trim(),
       api_key: $("aiKey").value.trim(), enabled: $("aiEnabled").checked,
     }),
-  })).json();
+  });
   if (r.ai) { STATE.ai = r.ai; renderAI(); }
   const out = $("aiOut");
   if (out) out.innerHTML = r.ok
@@ -1338,10 +1338,10 @@ async function aiRun(which, body, btn, label) {
   btn.disabled = true; btn.textContent = t("ai.requesting","请求中…");
   out.innerHTML = `<div class="loading"><span class="spin"></span>${t("ai.requesting2","正在请求…")}</div>`;
   try {
-    const r = await (await fetch(`${API}/__oc__/ai/${which}`, {
+    const r = await apiJSON(`${API}/__oc__/ai/${which}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    })).json();
+    });
     if (which === "test") {
       out.innerHTML = aiTestHTML(r);
     } else {
@@ -1458,7 +1458,7 @@ let DISK_TREND = null;
 let _TREND_GEO = null;
 async function loadDiskTrend() {
   try {
-    const d = await (await fetch(`${API}/__oc__/history`)).json();
+    const d = await apiJSON(`${API}/__oc__/history`);
     DISK_TREND = Array.isArray(d) ? d : [];
   } catch { DISK_TREND = []; }
   drawDiskTrend();
@@ -1807,10 +1807,10 @@ function renderUnits() {
     </div>`).join("") : `<div class="empty">${t("unit.none","暂无自定义单位。")}</div>`;
   $("unitList").querySelectorAll("[data-del]").forEach(b =>
     b.addEventListener("click", async () => {
-      const r = await (await fetch(`${API}/__oc__/units/delete`, {
+      const r = await apiJSON(`${API}/__oc__/units/delete`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: b.dataset.del })
-      })).json();
+      });
       STATE.units = r.units; STATE.stats = r.stats;
       renderUnits(); renderCumulative(); toast(t("unit.deleted","已删除该单位"));
     }));
@@ -1897,10 +1897,10 @@ function renderRules() {
     const r = rules.find(x => x.id === b.dataset.rename);
     const name = prompt(t("rule.newNamePrompt","新的规则名："), r ? r.name : "");
     if (!name || !name.trim()) return;
-    const res = await (await fetch(`${API}/__oc__/custom-rules`, {
+    const res = await apiJSON(`${API}/__oc__/custom-rules`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "rename", id: b.dataset.rename, name: name.trim() })
-    })).json();
+    });
     if (res.error) { toast(res.error); return; }
     STATE.custom_rules = res.rules; renderRules(); toast(t("toast.renamed","已改名"));
   }));
@@ -1908,10 +1908,10 @@ function renderRules() {
     e.stopPropagation();
     const r = rules.find(x => x.id === b.dataset.rdel);
     if (!confirm(t("confirm.delRule","确定删除规则「{n}」？").replace("{n}", r ? r.name : ""))) return;
-    const res = await (await fetch(`${API}/__oc__/custom-rules`, {
+    const res = await apiJSON(`${API}/__oc__/custom-rules`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "delete", id: b.dataset.rdel })
-    })).json();
+    });
     STATE.custom_rules = res.rules; renderRules(); toast(t("toast.ruleDeleted","已删除规则"));
   }));
 }
@@ -1925,11 +1925,11 @@ async function saveRule() {
       t("rule.auto1","规则「{n}」将保存，并立即清理这 {m} 项，预计释放 ").replace("{n}", name).replace("{m}", selected.size) +
       t("rule.auto2","{v}。\n\n直接删除、不经过回收站，确认继续？").replace("{v}", fmt(selTotal())))) return;
 
-  const res = await (await fetch(`${API}/__oc__/custom-rules`, {
+  const res = await apiJSON(`${API}/__oc__/custom-rules`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "add", name, ids: [...selected],
                            drive, auto, custom_path: customPath })
-  })).json();
+  });
   if (res.error) { toast(res.error); return; }
   STATE.custom_rules = res.rules;
   $("ruleName").value = ""; $("ruleAuto").checked = false;
@@ -1965,13 +1965,13 @@ let GAMES = null;   // 全平台游戏库（/​__oc__/games）：Epic/GOG 从�
 async function loadSteam(force) {
   if (STEAM && !force) return STEAM;
   try {
-    STEAM = await (await fetch(`${API}/__oc__/steam?lang=${langParam()}`)).json();
+    STEAM = await apiJSON(`${API}/__oc__/steam?lang=${langParam()}`);
   } catch (e) {
     STEAM = { found: false, error: String(e) };
   }
   // Epic/GOG 清单是独立接口，失败不影响 Steam 主面板
   try {
-    GAMES = await (await fetch(`${API}/__oc__/games?lang=${langParam()}`)).json();
+    GAMES = await apiJSON(`${API}/__oc__/games?lang=${langParam()}`);
   } catch (e) {
     GAMES = null;
   }
@@ -2766,15 +2766,15 @@ async function startFullScan() {
   };
   const poll = async () => {
     try {
-      paint(await (await fetch(`${API}/__oc__/progress`)).json());
+      paint(await apiJSON(`${API}/__oc__/progress`));
     } catch (e) { /* 进度接口失败不影响扫描本身，忽略即可 */ }
   };
   paint(null);
   const timer = setInterval(poll, 500);
   try {
-    const r = await (await fetch(`${API}/__oc__/overview?drive=${drive}`
+    const r = await apiJSON(`${API}/__oc__/overview?drive=${drive}`
                                  + `&depth=${depth}&lang=${langParam()}`,
-                                 { signal: ac.signal })).json();
+                                 { signal: ac.signal });
     if (r.error) throw new Error(r.error);
     FS = r;
     FS_CACHE.set(fsScanDrive, { fs: r, depth, at: Date.now() });
@@ -3608,7 +3608,7 @@ async function editOverride(node) {
   const key = node.ovkey || node.base_id || node.id;
   let cur = {};
   try {
-    const r = await (await fetch(`${API}/__oc__/overrides`)).json();
+    const r = await apiJSON(`${API}/__oc__/overrides`);
     cur = (r.targets || {})[key] || {};
   } catch { /* 读不到就当没有覆盖 */ }
   const cl = typeof cur.cleanable === "boolean" ? String(cur.cleanable) : "default";
@@ -3655,10 +3655,10 @@ async function editOverride(node) {
         ? null : $("ovClean").value === "true",
     };
     try {
-      const r = await (await fetch(`${API}/__oc__/overrides/set`, {
+      const r = await apiJSON(`${API}/__oc__/overrides/set`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
-      })).json();
+      });
       if (r.error) { toast(r.error); return; }
       closeModal(); toast(t("ov.saved","已保存自定义释义"));
       await loadState();
@@ -3832,10 +3832,10 @@ function confirmDeleteGame(it, plat, orphan) {
     btn.disabled = true; btn.textContent = t("dg.deleting","正在删除…");
     msg.textContent = t("dg.deletingLong","正在删除整个目录，大目录可能要几十秒…");
     try {
-      const r = await (await fetch(`${API}/__oc__/clean-game`, {
+      const r = await apiJSON(`${API}/__oc__/clean-game`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: it.path }),
-      })).json();
+      });
       // 部分删除（目录还在但已腾出空间）也要如实展示，不能只报错误行
       $("modal").innerHTML = `
         <h2>${r.ok ? t("dg.done","已删除") : (r.freed > 0 ? t("dg.partial","部分删除") : t("dg.failed","删除失败"))}</h2>
@@ -3889,14 +3889,14 @@ async function aiExplainInto(it, btn) {
   out.innerHTML = `<div class="dh">${t("ai.explain","AI 解释")}</div><div class="loading">` +
     `<span class="spin"></span>${t("ai.requestingSvc","正在请求你配置的 AI 服务…")}</div>`;
   try {
-    const r = await (await fetch(`${API}/__oc__/ai/explain`, {
+    const r = await apiJSON(`${API}/__oc__/ai/explain`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: it.display_name || it.name, path: it.path, kind: it.type || "dir",
         size_h: fmt(it.size),
         info: { title: it.title, category: it.category, what: it.what },
       })
-    })).json();
+    });
     out.innerHTML = r.ok
       ? `<div class="dh">${t("ai.explain","AI 解释")}<span class="hint">${t("ai.disclaimer","由你自己配置的模型生成，仅供参考")}</span></div>` +
         String(r.text || "").split(/\n+/).filter(Boolean)
@@ -4196,13 +4196,13 @@ $("btnUnitAdd").addEventListener("click", async () => {
   const num = parseFloat($("uBytes").value);
   if (!label) { toast(t("unit.needName","请填写单位名称")); return; }
   if (!num || num <= 0) { toast(t("unit.needSize","请填写一个大于 0 的大小")); return; }
-  const r = await (await fetch(`${API}/__oc__/units`, {
+  const r = await apiJSON(`${API}/__oc__/units`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: "u" + Date.now().toString(36), label, plural: label,
                            bytes_per_unit: num * parseFloat($("uUnit").value),
                            note: $("uNote").value.trim() || t("unit.defaultNote","自定义单位"),
                            category: "自定义" })
-  })).json();
+  });
   if (r.error) { toast(r.error); return; }
   STATE.units = r.units; STATE.stats = r.stats;
   $("uLabel").value = ""; $("uBytes").value = ""; $("uNote").value = "";
@@ -4222,7 +4222,7 @@ $("btnRuleSave").addEventListener("click", saveRule);
 /* ---- 自定义数据包：导出本机三项自定义 / 导入 AI 或别处生成的 JSON ---- */
 $("btnBundleExport").addEventListener("click", async () => {
   try {
-    const r = await (await fetch(`${API}/__oc__/bundle/export`)).json();
+    const r = await apiJSON(`${API}/__oc__/bundle/export`);
     const blob = new Blob([JSON.stringify(r, null, 2)],
                           { type: "application/json" });
     const a = document.createElement("a");
@@ -4242,10 +4242,10 @@ $("bundleFile").addEventListener("change", async e => {
   try { data = JSON.parse(await f.text()); }
   catch { toast(t("io.badJson","文件不是合法 JSON")); return; }
   try {
-    const r = await (await fetch(`${API}/__oc__/bundle/import`, {
+    const r = await apiJSON(`${API}/__oc__/bundle/import`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data)
-    })).json();
+    });
     if (r.error) { toast(r.error); return; }
     const parts = [];
     if (r.units_added) parts.push(t("io.unitsAdded","单位 +{n}").replace("{n}", r.units_added));
@@ -4266,12 +4266,12 @@ $("bundleFile").addEventListener("change", async e => {
 $("ruleName").addEventListener("keydown", e => { if (e.key === "Enter") saveRule(); });
 
 $("btnSchSave").addEventListener("click", async () => {
-  const s = await (await fetch(`${API}/__oc__/schedule`, {
+  const s = await apiJSON(`${API}/__oc__/schedule`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled: $("schEnabled").checked,
                            interval_hours: parseFloat($("schHours").value) || 24,
                            preset: $("schPreset").value, drive: $("schDrive").value })
-  })).json();
+  });
   STATE.schedule = s; renderSchedule();
   $("btnSchSave").textContent = t("sch.saved","已保存");
   setTimeout(() => $("btnSchSave").textContent = t("sch.saveBtn","保存定时设置"), 1400);
@@ -4292,10 +4292,10 @@ $("packFile").addEventListener("change", async e => {
       return;
     }
     msg.innerHTML = `<span class="spin"></span>${t("io.validating","正在校验并导入…")}`;
-    const r = await (await fetch(`${API}/__oc__/packs/import`, {
+    const r = await apiJSON(`${API}/__oc__/packs/import`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: data }),
-    })).json();
+    });
     if (r.packs) { STATE.packs = r.packs; renderPacks(); }
     msg.innerHTML = r.ok
       ? `<span class="res-ok">${t("io.imported2","已导入：")}${esc(r.message || f.name)}</span>`
@@ -4948,6 +4948,12 @@ function i18nLocale() {
     此前这个三元在 10 处 fetch 里各写一遍，口径漂移的风险就在那里。 */
 function langParam() {
   return i18nLocale() === "en" ? "en" : "zh";
+}
+
+/** fetch + JSON 解析的统一入口。网络异常仍由调用方 try/catch 处理 ——
+    这里只收拢「取回再 .json()」这段样板，不吞错误。 */
+async function apiJSON(url, opts) {
+  return (await fetch(url, opts)).json();
 }
 /* 首次应用时把原文缓存到元素上（__i18n），切回中文直接还原，
    不会与动态渲染互相踩 —— applyI18n 只碰带 data-i18n* 的元素。 */
