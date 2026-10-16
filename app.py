@@ -431,8 +431,6 @@ WIZTREE_NAMES = ("WizTree64.exe", "WizTree.exe")
 WIZTREE_HINTS = (
     r"C:\Program Files\WizTree",
     r"C:\Program Files (x86)\WizTree",
-    r"D:\WizTree",
-    r"E:\WizTree",
 )
 
 # 官方下载地址（diskanalyzer.com，Antibody Software Limited）。
@@ -470,8 +468,10 @@ def find_wiztree() -> str | None:
         p = str(WIZTREE_PORTABLE_DIR / n)
         if os.path.isfile(p):
             return p
-    # 2) 常见安装位置
-    for d in WIZTREE_HINTS:
+    # 2) 常见安装位置 + 各盘符根下的 \WizTree。逐盘探测而不是把某台
+    #    机器的安装盘位写死进源码 —— 有人习惯把它装在数据盘根目录。
+    drives = tuple(f"{c}:\\" for c in "CDEFGH")
+    for d in (*WIZTREE_HINTS, *drives):
         for n in WIZTREE_NAMES:
             p = os.path.join(d, n)
             if os.path.isfile(p):

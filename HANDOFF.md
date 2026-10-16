@@ -2,7 +2,7 @@
 
 > **文档版本**：v2.3（资源包 + 自有 AI 接入版；本文最后更新 2026-10-13）
 > **项目定位**：Windows 原生、本地零第三方依赖的磁盘清理与空间占用查看工具。
-> **代码仓库**：`github.com/2847439483-beep/O-Cleaner`（私有），`main` 分支，CI 已接入。
+> **代码仓库**：`github.com/2847439483-beep/O-Cleaner`（公开），`main` 分支，CI 已接入。
 > **分发包**：由 `tools/make_package.py` 生成（内存打包，无暂存目录；版本号 import 自 `app.APP_VERSION`），输出到 `dist\O-Cleaner-<版本>.zip`；免安装版由 `tools/make_exe.py` 生成。
 
 ## 零、接手快速通道（先读这个）
@@ -371,7 +371,7 @@
 ### 8. 接手方优化记录（2026-10-08，数据脱敏 + 文档校准 + 编码契约进 CI）
 
 1. **数据脱敏（可安全外发）**：真实盘符路径、软件目录名、硬件容量、游戏库体积等本机可识别信息全部泛化；本机真实测试用例迁至 `tools/local-cases.json`（已 gitignore），另附干净模板 `tools/local-cases.json.example`；`selftest.py` 新增 `_load_local_cases()`，阶段七改为「填了就测、没填就跳过」。产品知识库关键词（`kugou` / `quark` 等）属功能本体，刻意保留。
-2. **推出 GitHub**：`github.com/2847439483-beep/O-Cleaner`（私有），`main` 分支，CI 已接入。注意：推送 `.github/workflows/*` 需要 token 具备 `workflow` 权限，否则报 `refusing to allow an OAuth App to create or update workflow`。
+2. **推出 GitHub**：`github.com/2847439483-beep/O-Cleaner`（2026-10-17 起公开——公开前做过暴露面审计：全历史无密钥/无本机用户路径，本机痕迹已泛化），`main` 分支，CI 已接入。注意：推送 `.github/workflows/*` 需要 token 具备 `workflow` 权限，否则报 `refusing to allow an OAuth App to create or update workflow`。
 3. **编码契约进 CI**（对应原第八节风险项）：`fix-encoding.ps1 -Check` 已作为 `lint` 作业的第一步，**违反即失败**。配套在 `.gitattributes` 为 `.py/.json/.html/.md/.yml/.js` 写死 `eol=crlf` —— 否则换行符会随 `core.autocrlf` 漂移，CI 上 fresh clone 拿到 LF 就会误报。
 4. **文档数字校准**：修正 §6 / §7 / §9 及 CI 注释中过期的断言数（271→302、72→74、142+→302、15→17）与文件体积（app.py 151→164、index.html 130→133、selftest 65→75、cdp_check 41→42、HANDOFF 16→37、dist 193→199）。
 5. **全量门禁复验**：lint 0 错 / linter 自测 17 / selftest 302（3 跳过）。CDP 的「全盘扫描」类断言在 WorkBuddy 宿主下受安全删除钩子阻断（详见第 6 节第 4、5 条），**属环境限制而非回归**。

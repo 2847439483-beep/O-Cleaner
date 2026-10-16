@@ -2,8 +2,13 @@
 # 汇总结论。完整套件的权威验证仍走 CI 的「自测 / 界面渲染检查」作业
 # （本机跑完整 selftest.py 受环境限制不可行）。
 # 用法: pwsh -NoProfile -ExecutionPolicy Bypass -File tools/selfcheck.ps1
+#       可选参数 -Python / -Node 指定解释器全路径（默认取 PATH 里的 python / node）。
+param(
+    [string]$Python = "python",
+    [string]$Node = "node"
+)
 $ErrorActionPreference = "Continue"
-$py = "C:\Users\<user>\.workbuddy\binaries\python\versions\3.13.12\python.exe"
+$py = $Python
 $root = Split-Path -Parent $PSScriptRoot
 $results = @()
 
@@ -34,9 +39,8 @@ Run-Step "编码与换行契约检查" {
     powershell -NoProfile -ExecutionPolicy Bypass -File tools\fix-encoding.ps1 -Check | Out-Null
 }
 Run-Step "JS 语法检查（cdp_check + probe_ui）" {
-    $node = "C:\Users\<user>\.workbuddy\binaries\node\versions\22.22.2-3\node.exe"
-    & $node --check "$root\tools\cdp_check.js"; if ($LASTEXITCODE -ne 0) { throw "cdp_check.js" }
-    & $node --check "$root\tools\probe_ui.js"; if ($LASTEXITCODE -ne 0) { throw "probe_ui.js" }
+    & $Node --check "$root\tools\cdp_check.js"; if ($LASTEXITCODE -ne 0) { throw "cdp_check.js" }
+    & $Node --check "$root\tools\probe_ui.js"; if ($LASTEXITCODE -ne 0) { throw "probe_ui.js" }
 }
 
 Write-Output ""
