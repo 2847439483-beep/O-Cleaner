@@ -1,5 +1,7 @@
 # O-Cleaner
 
+[![CI](https://github.com/2847439483-beep/O-Cleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/2847439483-beep/O-Cleaner/actions/workflows/ci.yml)
+
 Windows 磁盘空间分析与清理工具。本地运行，浏览器访问 Web 界面操作；
 绿色免安装，不写注册表、不安装系统服务，整个目录复制即可在另一台计算机使用。
 
@@ -112,9 +114,9 @@ Windows 磁盘空间分析与清理工具。本地运行，浏览器访问 Web �
 |---|---|
 | `start-ocleaner.bat` | 启动脚本 |
 | `app.py` | 主程序：扫描、占用分析、清理执行、HTTP 服务 |
-| `web\index.html` | Web 界面（单文件） |
-| `config\targets.json` | 预定义清理目标（可自行增删条目） |
-| `config\filetypes.json` | 识别知识库（目录/文件规则与处置建议） |
+| `web/index.html` | Web 界面（单文件） |
+| `config/targets.json` | 预定义清理目标（可自行增删条目） |
+| `config/filetypes.json` | 识别知识库（目录/文件规则与处置建议） |
 | `packs\` | 内置资源包（释义扩展，支持导入第三方包） |
 | `tools\` | 自测与检查脚本（`selftest.py` 功能自测、`lint_rules.py` 校验知识库与资源包；修改配置后建议运行） |
 
@@ -122,6 +124,7 @@ Windows 磁盘空间分析与清理工具。本地运行，浏览器访问 Web �
 
 - [docs/USAGE.md](docs/USAGE.md) — 完整使用指南
 - [docs/USAGE-en.md](docs/USAGE-en.md) — User guide (English)
+- [docs/ROADMAP.md](docs/ROADMAP.md) — 路线图（近期 / 中期 / 远期规划）
 - [docs/CUSTOMIZE.md](docs/CUSTOMIZE.md) — 自定义数据格式（可导入，可由 AI 生成）
 - [packs/README.md](packs/README.md) — 资源包格式规范
 - [SECURITY.md](SECURITY.md) — 安全模型与漏洞报告
