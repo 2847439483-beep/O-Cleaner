@@ -83,6 +83,9 @@ At the top of the sidebar there is a **panel directory** listing all panel title
 when you can't find a feature, check the directory bar first instead of expanding panels one by one.
 Pressing `Esc` goes back one level (breakdown views, drill-down levels, etc.); while a scan is running it will tell you to wait.
 
+The **disk trend** in the left sidebar is a 30-day step line of this drive's free space; each bend is one cleanup.
+Hover near a bend to see that cleanup's time, freed amount, and free space afterwards.
+
 The disk overview (capacity, usage, cleanable/keep/unrecognized shares) appears in exactly one place — the scan overview page;
 Steam library info lives on the Steam Game Library page and the card to its left; each has its own job, without redundant stacking.
 
@@ -281,7 +284,7 @@ Files locked by browsers or video editors are **skipped rather than errored**, w
 
 ### What to Do When Files Are Locked
 
-As long as the cleanup results contain "skipped" items, an extra **"Find Locking Processes" (一键查找占用进程)** button appears in the dialog. One click does two things:
+As long as the cleanup results contain "skipped" items — or an item was **aborted as a whole** because of locks (nothing deleted) — an extra **"Find Locking Processes" (一键查找占用进程)** button appears in the dialog. One click does two things:
 
 1. **Confirms one by one** whether these files are actually locked right now (this step is a reliable determination);
 2. Lists **the programs that might be holding them** — process name, PID, and "why it's considered suspicious".
@@ -294,6 +297,8 @@ Getting zero candidates is also normal; in that case use the system's built-in t
 **Task Manager → "Performance" → "Open Resource Monitor" at the bottom left → "CPU" → expand "Associated Handles" → type the file name into the search box**, and you'll see the process that truly holds it.
 
 > Do not kill system processes like `System` or `explorer.exe`.
+
+**Shortcuts for known holders**: some files can never be found in the process list — for example `content.bin` in the Windows Delivery Optimization cache is held by the Delivery Optimization service (DoSvc) living inside `svchost.exe`; its command line has no path and the binary is not in the cache folder. In such cases the dialog shows a hint directly: run `Stop-Service DoSvc` in an admin PowerShell, come back and clean again, then `Start-Service DoSvc` to restore (a reboot restores it too).
 
 ### Sidebar Panels: Collapsed Stacking with Independent Scrolling
 
@@ -336,10 +341,12 @@ The "AI Assistant" panel in the sidebar is for connecting a large-model API you 
 
 | Setting | Explanation |
 |---|---|
-| API endpoint | Any OpenAI-compatible `chat/completions` endpoint; filling up to the `/v1` level is enough |
-| Model name | The model identifier required by the provider |
+| API endpoint | Any OpenAI-compatible `chat/completions` endpoint; filling up to the `/v1` level is enough. **DeepSeek / Ollama (local)** preset chips fill it in one click |
+| Model name | Type it manually, or click **"Fetch list" (获取列表)** to auto-detect the models the endpoint offers and pick one from the suggestions |
 | API Key | Stored in `config/ai.json` (already in `.gitignore`, never enters version control) |
 | Temperature / timeout | Adjustable; defaults 0.2 / 60 seconds |
+
+**Quick setup (DeepSeek as an example)**: register at platform.deepseek.com and create an API key → click the "DeepSeek" preset chip → paste the key → click "Fetch list" → pick a model (`deepseek-chat` for everyday use, `deepseek-reasoner` for reasoning) → check "Enabled" → "Save" → "Test connection". The five-step guide stays in the panel; local Ollama needs no key — just click its preset.
 
 Two uses:
 
