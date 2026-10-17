@@ -223,6 +223,30 @@ foreach ($f in $rf) {
 } | ConvertTo-Json -Compress -Depth 4
 """
 
+PS_BIG_FILES = r"""
+$ErrorActionPreference='SilentlyContinue'
+$root = '__ROOT__'
+$floor = __FLOOR__
+$progFile = '__PROGFILE__'
+
+# 只收集超过体积门槛的文件：绝大多数文件远小于门槛，内存与耗时都可控。
+# 大文件排行关心的是视频 / 镜像 / 安装包这个量级的单文件。
+$script:found = 0
+$out = New-Object System.Collections.Generic.List[object]
+Get-ChildItem -LiteralPath $root -Recurse -Force -File -ErrorAction SilentlyContinue |
+  ForEach-Object {
+    if ($_.Length -gt $floor) {
+      $out.Add([pscustomobject]@{ p = $_.FullName; s = [int64]$_.Length })
+      $script:found++
+      if ($progFile -and ($script:found % 200 -eq 0)) {
+        try { [IO.File]::WriteAllText($progFile, [string]$script:found) } catch {}
+      }
+    }
+  }
+if ($progFile) { try { [IO.File]::WriteAllText($progFile, [string]$script:found) } catch {} }
+$out | ConvertTo-Json -Compress -Depth 2
+"""
+
 PS_DIR_KIND = r"""
 $ErrorActionPreference='SilentlyContinue'
 $p = '__PATH__'

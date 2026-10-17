@@ -660,6 +660,7 @@
       <option value="5" data-i18n="depth.5">5 层（最慢）</option>
     </select>
     <button id="btnSteam" data-i18n="btn.steam">Steam 游戏库</button>
+    <button id="btnBigFiles" data-i18n="btn.bigFiles">大文件排行</button>
     <button id="btnAll" data-i18n="btn.all">全选</button>
     <button id="btnNone" data-i18n="btn.none">全不选</button>
     <span style="color:var(--dim2);font-size:12px" data-i18n="scope.label">清理范围</span>
@@ -941,6 +942,13 @@
           <code>Windows\Installer</code>、<code>WinSxS</code> 组件存储。<br>
           删除目标受内置保护名单拦截，即使配置文件被改坏也不会越界。
         </div>
+        <div style="margin-top:11px;padding-top:11px;border-top:1px solid var(--line);
+                    display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="color:var(--dim);font-size:12.5px" data-i18n="up.current">当前版本</span>
+          <b id="upCur" style="font-size:12.5px"></b>
+          <button id="btnUpCheck" class="tiny" data-i18n="up.check">检查更新</button>
+          <span id="upMsg" style="color:var(--dim2);font-size:11.5px"></span>
+        </div>
       </div>
     </div>
   </aside>
@@ -1025,6 +1033,7 @@ function qs() {
 async function loadState() {
   STATE = await apiJSON(`${API}/__oc__/state?${qs()}`);
   $("ver").textContent = STATE.app?.version ? "v" + STATE.app.version : "";
+  $("upCur").textContent = $("ver").textContent || "";
   // 后端 tagline 是中文；英文界面下用字典文案，避免覆盖掉翻译
   if (STATE.app?.tagline) {
     const tg = $("tag");
@@ -2282,11 +2291,32 @@ function renderHistory() {
       .map(r => t("hist.lockedN","{label}（{n} 项被占用）").replace("{label}", r.label).replace("{n}", r.failed));
     return `<div class="logrow">
       <div class="t"><span>${esc(h.time)} · ${esc(h.trigger || "")}</span>
-        <span class="freed">${t("hist.freed","释放 {v}").replace("{v}", esc(h.freed_h || fmt(h.freed)))}</span></div>
+        <span class="freed">${t("hist.freed","释放 {v}").replace("{v}", esc(h.freed_h || fmt(h.freed)))}</span>
+        <a href="javascript:void(0)" class="rcpt" data-t="${esc(h.time)}"
+           title="${t("hist.receipt","导出本次清理的逐项回执（JSON）")}">⬇ ${t("hist.receiptBtn","回执")}</a></div>
       <div class="d">${names.length ? esc(names.join("、")) : t("hist.nothing","没有可清理的内容")}</div>
       ${fails.length ? `<div class="d failed">${t("hist.skipped","跳过：")}${esc(fails.join("、"))}</div>` : ""}
     </div>`;
   }).join("");
+  [...document.querySelectorAll("#history .rcpt")].forEach(a =>
+    a.addEventListener("click", () => exportReceipt(a.dataset.t)));
+}
+
+/* 导出清理回执：从服务端取完整记录（界面只带最近 10 条），前端生成 JSON 文件 */
+async function exportReceipt(timeStr) {
+  try {
+    const hist = await apiJSON(`${API}/__oc__/history`);
+    const e = (Array.isArray(hist) ? hist : []).find(x => x.time === timeStr);
+    if (!e) { toast(t("hist.receiptNone", "找不到这条记录的完整数据")); return; }
+    const blob = new Blob([JSON.stringify(e, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "O-Cleaner-receipt-" + timeStr.replace(/[^0-9]/g, "").slice(0, 14) + ".json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    toast(t("hist.receiptNone", "找不到这条记录的完整数据"));
+  }
 }
 
 /* ==================== 确认与执行 ==================== */
@@ -4114,6 +4144,59 @@ document.querySelectorAll("#viewNav button").forEach(b => b.addEventListener("cl
   switchView("steam");
   loadSteam();
 }));
+/* 大文件排行：单独一次全盘遍历，列出「占空间的最大单个文件」。
+   目录树沿最粗分支展开偏向目录聚合，视频 / 镜像 / 安装包这类
+   真正的大头往往就是一个文件，这里直接把它们排出来。只读不删。 */
+async function openBigFiles() {
+  $("modal").innerHTML = `<h2>${t("bf.title", "全盘大文件排行")}</h2>
+    <div class="mbody"><div class="empty"><span class="spin"></span>
+      ${t("bf.loading", "正在全盘遍历大文件（装了 WizTree 会快很多）…")}</div></div>`;
+  $("mask").classList.add("on");
+  let r;
+  try {
+    r = await apiJSON(`${API}/__oc__/bigfiles`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ drive }),
+    });
+  } catch (e) {
+    r = { error: String(e) };
+  }
+  if (!r || r.error) {
+    $("modal").innerHTML = `<h2>${t("bf.title", "全盘大文件排行")}</h2>
+      <div class="mbody"><div class="empty">${esc((r && r.error) || t("up.fail", "检查失败"))}</div>
+      <div style="text-align:right;padding-top:10px">
+        <button class="tiny" id="bfClose">${t("cc.close", "关闭")}</button></div></div>`;
+    $("bfClose").addEventListener("click", closeModal);
+    return;
+  }
+  const rows = (r.files || []).map((f, i) => `
+    <div class="logrow">
+      <div class="t"><b>${i + 1}</b>. <span>${esc(f.name)}</span>
+        <span class="freed">${fmt(f.size)}</span></div>
+      <div class="d" style="word-break:break-all">${esc(f.dir)}
+        ${f.title ? ` · ${esc(f.title)}` : ""}
+        ${f.cleanable ? `<span class="vbadge clean">${t("badge.clean", "可清理")}</span>` : ""}
+        ${f.what ? `<br><span style="color:var(--dim2)">${esc(f.what)}</span>` : ""}</div>
+      <div class="d"><a href="javascript:void(0)" class="rcpt" data-p="${esc(f.path)}">
+        ${t("bf.reveal", "在资源管理器中打开位置")}</a></div>
+    </div>`).join("");
+  $("modal").innerHTML = `<h2>${t("bf.title", "全盘大文件排行")}
+      <span class="hint">${t("bf.n", "前 {n} 名").replace("{n}", (r.files || []).length)}
+        · ${r.engine === "wiztree" ? "WizTree MFT" : "PowerShell"}</span></h2>
+    <div class="mbody">${rows || `<div class="empty">${t("bf.empty", "没有超过门槛的大文件")}</div>`}
+    <div style="text-align:right;padding-top:10px">
+      <button class="tiny" id="bfClose">${t("cc.close", "关闭")}</button></div></div>`;
+  $("bfClose").addEventListener("click", closeModal);
+  [...document.querySelectorAll("#modal .rcpt")].forEach(a =>
+    a.addEventListener("click", () => {
+      apiJSON(`${API}/__oc__/reveal`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: a.dataset.p, select: true }),
+      });
+    }));
+}
+$("btnBigFiles").addEventListener("click", openBigFiles);
+
 $("btnSteam").addEventListener("click", () => {
   if (view === "steam") { switchView("full"); return; }
   switchView("steam");
@@ -4311,6 +4394,29 @@ $("btnPackUpdate").addEventListener("click", async () => {
   await packOp("update", {});
 });
 
+/* 检查应用更新：只读 GitHub Releases；是否下载/升级永远由用户自己决定 */
+$("btnUpCheck").addEventListener("click", async () => {
+  const btn = $("btnUpCheck"), msg = $("upMsg");
+  btn.disabled = true;
+  msg.textContent = t("up.checking", "检查中…");
+  try {
+    const r = await apiJSON(`${API}/__oc__/app/update_check`, { method: "POST" });
+    if (!r.ok) {
+      msg.textContent = r.error || t("up.fail", "检查失败");
+    } else if (r.newer) {
+      const tag = "v" + (r.latest || "?") + (r.published ? " · " + r.published : "");
+      msg.innerHTML = `<a href="${esc(r.url || r.download)}" target="_blank" rel="noopener"
+        style="color:var(--ok)">${esc(tag)} — ${esc(t("up.newer", "有新版本，点击前往下载页"))}</a>`;
+    } else {
+      msg.textContent = t("up.uptodate", "已是最新") + (r.parse_note ? " · " + r.parse_note : "");
+    }
+  } catch (e) {
+    msg.textContent = t("up.fail", "检查失败");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 $("btnAiSave").addEventListener("click", () => aiSave());
 $("btnAiTest").addEventListener("click", async () => {
   await aiSave();                          // 先存再测，避免测的还是旧配置
@@ -4469,6 +4575,7 @@ const I18N_EN = {
   "adminwarn.a": "Running without administrator rights. Items in system directories will ask for admin permission. Restart ",
   "adminwarn.b": " as administrator to clean them.",
   "btn.scan": "Rescan", "btn.fullScan": "Full-disk scan", "btn.steam": "Steam Library",
+  "btn.bigFiles": "Largest files",
   "btn.all": "Select all", "btn.none": "Select none", "btn.save": "Save",
   "scope.label": "Cleanup scope",
   "scope.all": "Current drive + user-level caches",
@@ -4778,6 +4885,8 @@ const I18N_EN = {
   "sch.every": "Every", "sch.hoursPreset": "hours, with preset",
   "hist.none": "No records yet", "hist.lockedN": "{label} ({n} items in use)",
   "hist.freed": "Released {v}", "hist.nothing": "Nothing cleanable", "hist.skipped": "Skipped: ",
+  "hist.receiptBtn": "receipt", "hist.receiptNone": "Full record for this entry not found",
+  "hist.receipt": "Export per-item receipt (JSON) for this cleanup",
   "foot.afterClean": "after cleaning {drive}: would have about",
   "stat.runs": "{n} runs recorded",
   "stat.empty": "No cleaning history yet. After the first clean, this shows the cumulative release converted into everyday units.",
@@ -4902,7 +5011,19 @@ const I18N_EN = {
   "unit.clearAll": "Clear all",
   "fs.mftStat": "WizTree exported {n} rows, parsed in {s}s",
   "help.body1": "The \"?\" on each card expands the full description of that category: what it is, whether it rebuilds automatically, the impact of deletion, and when to keep it.",
-  "help.body2": "<b style=\"color:var(--fg)\">Never touched</b><br>Your documents / pictures / Desktop, installed programs, downloaded AI models, <code>Windows\\Installer</code>, and the <code>WinSxS</code> component store.<br>Cleanup targets are guarded by the built-in protection list — the tool stays inside its bounds even if its config gets corrupted."
+  "help.body2": "<b style=\"color:var(--fg)\">Never touched</b><br>Your documents / pictures / Desktop, installed programs, downloaded AI models, <code>Windows\\Installer</code>, and the <code>WinSxS</code> component store.<br>Cleanup targets are guarded by the built-in protection list — the tool stays inside its bounds even if its config gets corrupted.",
+  "up.current": "Current version",
+  "up.check": "Check for updates",
+  "up.checking": "Checking…",
+  "up.uptodate": "Up to date",
+  "up.newer": "new version available — open the release page",
+  "up.fail": "Check failed",
+  "bf.title": "Largest files on this drive",
+  "bf.loading": "Scanning the whole drive for the biggest files (much faster with WizTree)…",
+  "bf.n": "top {n}",
+  "bf.empty": "No files above the size floor",
+  "bf.reveal": "Open location in Explorer",
+  "cc.close": "Close"
 };
 /* 动态文案取词：en 界面且有词条时用译文，否则回落到调用处的中文原文。
    词条支持 {n}/{m}/{v}/{h} 占位，调用侧 .replace 填值。

@@ -44,9 +44,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request as _UrlRequest, urlopen as _urlopen
-from ps_scripts import (PS_DIR_KIND, PS_LOCK_HOLDERS, PS_MEASURE_GLOB,
-                        PS_MEASURE_TREE, PS_RECYCLE, PS_STEAM,
-                        PS_STEAM_ORPHAN_SIZE, PS_TREE_WALK, PS_UTF8_PREAMBLE)
+from ps_scripts import (PS_BIG_FILES, PS_DIR_KIND, PS_LOCK_HOLDERS,
+                        PS_MEASURE_GLOB, PS_MEASURE_TREE, PS_RECYCLE,
+                        PS_STEAM, PS_STEAM_ORPHAN_SIZE, PS_TREE_WALK,
+                        PS_UTF8_PREAMBLE)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -74,7 +75,7 @@ WEB_DIR = BASE_DIR / "web"
 # config/drives.json 的 app.version），2026-10-12 升 v2.3 时漏改了后两处，
 # 结果界面显示的仍是 2.2。收敛成一个常量后，drives.json 与打包脚本由自测断言
 # 强制保持一致（见 tools/selftest.py 的「版本号三处一致」）。
-APP_VERSION = "2.6"
+APP_VERSION = "2.7"
 APP_UA = f"O-Cleaner/{APP_VERSION}"
 
 TARGETS_PATH = CONFIG_DIR / "targets.json"
@@ -2031,6 +2032,35 @@ def append_history(entry: dict) -> None:
         hist = load_history()
         hist.insert(0, entry)
         _atomic_write(HISTORY_PATH, hist[:200])
+    # 同步落一份独立回执：history.json 只保留最近 200 条且可能被清空，
+    # 回执文件是每次清理的永久凭据（路径/体积/文件数/结果），用户可单独拷走。
+    try:
+        _write_receipt(entry)
+    except Exception:
+        traceback.print_exc()  # 回执失败不影响清理本身，也不影响历史入账
+
+
+RECEIPT_DIR = DATA_DIR / "receipts"
+
+
+def _write_receipt(entry: dict) -> None:
+    """把一次清理的逐项结果写成独立 JSON 回执，落在数据目录 receipts/ 下。
+
+    文件名取自清理记录自身的时间戳（与 history.json 里的条目一一对应）；
+    解析不出时退回当前时间。
+    """
+    RECEIPT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = str(entry.get("time") or "")
+    stamp = re.sub(r"[^0-9]", "", stamp)[:15]  # YYYYMMDD-HHMMSS
+    if len(stamp) < 14:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S").replace("-", "")[:14]
+    path = RECEIPT_DIR / f"cleanup-{stamp}.json"
+    n = 0
+    while path.exists():  # 同一秒多次清理时加序号，绝不覆盖
+        n += 1
+        path = RECEIPT_DIR / f"cleanup-{stamp}-{n}.json"
+    receipt = {"tool": "O-Cleaner", "app_version": APP_VERSION, **entry}
+    _atomic_write(path, receipt)
 
 
 # ======================================================================
@@ -4765,7 +4795,8 @@ _PACKS_CACHE: dict = {"key": None, "data": None}
 PACK_TYPE_LABELS = {"games": "游戏", "system": "系统", "apps": "软件",
                     "custom": "自定义"}
 # packs 分发仓库（公开）：只放资源包数据，不放代码。
-# 主仓库是私有的，raw 链接对外不可达，所以「从 GitHub 检查更新」指向这个独立公开仓库。
+# 资源包更新指向独立公开仓库（历史上主仓库私有时 raw 不可达而设立；
+# 主仓库现已公开， packs 仓保留以维持既有用户配置与分发节奏不变）。
 # 本仓库 packs/ 与它保持同内容，lint 的 index.json ↔ 磁盘一致性检查两边都适用。
 DEFAULT_PACKS_REMOTE = ("https://raw.githubusercontent.com/"
                         "2847439483-beep/O-Cleaner-packs/main")
@@ -5179,6 +5210,174 @@ def ai_list_models() -> dict:
         return {"ok": False,
                 "error": "接口没有返回可识别的模型列表（不是 OpenAI 兼容的 /models？），仍可手动填写模型名"}
     return {"ok": True, "models": ids}
+
+
+_APP_REPO = "2847439483-beep/O-Cleaner"
+
+
+def _version_tuple(v: str) -> tuple[int, ...] | None:
+    """把 "2.6" / "v2.7.1" 之类的版本串解析成可比较的整数元组；解析不出返回 None。"""
+    parts = re.findall(r"\d+", str(v))
+    return tuple(int(p) for p in parts) if parts else None
+
+
+def app_update_check() -> dict:
+    """从 GitHub Releases 读取最新版本并与 APP_VERSION 比较。
+
+    只读不改：是否下载、是否升级永远由用户自己点；网络不可达时如实报错，
+    绝不静默当作「已是最新」。版本比较按数字逐段比，无法解析时如实说明。
+    """
+    url = f"https://api.github.com/repos/{_APP_REPO}/releases/latest"
+    try:
+        req = _UrlRequest(url, headers={"User-Agent": APP_UA})
+        with _urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception as e:
+        return {"ok": False, "current": APP_VERSION,
+                "error": f"无法连接 GitHub（{e}）；也可以直接到仓库 Releases 页查看"}
+    tag = str(data.get("tag_name") or "").lstrip("vV")
+    latest = _version_tuple(tag)
+    cur = _version_tuple(APP_VERSION)
+    assets = [a for a in (data.get("assets") or []) if isinstance(a, dict)]
+    download = next((a.get("browser_download_url") for a in assets
+                     if str(a.get("name") or "").lower().endswith(".zip")), "")
+    return {"ok": True, "current": APP_VERSION, "latest": tag or None,
+            "newer": bool(latest and cur and latest > cur),
+            "parse_note": None if (latest and cur) else "版本号无法解析，请自行到发布页核对",
+            "name": data.get("name") or "",
+            "url": data.get("html_url") or "",
+            "download": download,
+            "published": (data.get("published_at") or "")[:10]}
+
+
+# ---- 大文件排行 -------------------------------------------------------
+# 目录树沿「最粗的分支」逐层展开，天然偏向目录聚合；视频、镜像、安装包
+# 这类真正的大头往往就是单个文件。这里用一次专门的全盘遍历把它们直接列出。
+BIG_FILES_FLOOR_PS = 10 * 1024 * 1024     # PowerShell 兜底路径的体积地板
+BIG_FILES_FLOOR_WIZ = 512 * 1024          # WizTree 明细全量，地板可以更低
+BIG_FILES_LIMIT = 30
+_BIGFILES_LOCK = threading.Lock()
+
+
+def _wiztree_big_files(csv_path: str, floor: int) -> list:
+    """从 WizTree 导出的 CSV 里抽取文件行（目录行以 \\ 结尾，直接跳过）。
+
+    只保留达到地板的行——C 盘 77 万行里超过 512 KB 的通常只有几千行，
+    全量留内存没有压力。切分方式与 _wiztree_parse 相同：路径必被双引号
+    包住，按「第一个引号闭合」切，避免路径内逗号把行切坏。
+    """
+    rows: list = []
+    with open(csv_path, "r", encoding="utf-8-sig", errors="replace") as fh:
+        fh.readline()                  # WizTree 版本与捐赠提示
+        fh.readline()                  # 列名
+        for line in fh:
+            if not line.startswith('"'):
+                continue
+            end = line.find('"', 1)
+            if end <= 1:
+                continue
+            path = line[1:end]
+            if path.endswith("\\"):    # 目录行
+                continue
+            parts = line[end + 1:].lstrip(",").split(",", 1)
+            try:
+                size = int(parts[0].strip().strip('"'))
+            except (ValueError, IndexError):
+                continue
+            if size >= floor:
+                rows.append((path, size))
+    return rows
+
+
+def big_files(drive: str, limit: int = BIG_FILES_LIMIT) -> dict:
+    """全盘最大的单个文件排行。只读，不删任何东西。
+
+    两条路径：装了 WizTree 走 MFT 明细（快），否则 PowerShell 全盘遍历
+    （与目录树的兜底路径同量级耗时）。同一个盘同时只跑一份，重复请求
+    如实报「进行中」而不是静默叠扫。
+    """
+    letter = (drive or "C").rstrip(":").upper()
+    root = letter + ":\\"
+    if not IS_WINDOWS or not os.path.exists(root):
+        return {"error": f"盘符 {letter}: 不存在", "files": []}
+    if not _BIGFILES_LOCK.acquire(blocking=False):
+        return {"error": "已有大文件扫描在进行，请稍候", "files": []}
+    try:
+        rows: list = []
+        engine = "powershell"
+        if _wiz_ok():
+            prog_set("wiz", f"正在用 WizTree 读取 {letter}: 盘的 MFT 明细", 10,
+                     indeterminate=True)
+            csv_path, _werr = _wiztree_export(letter)
+            if csv_path:
+                engine = "wiztree"
+                try:
+                    rows = _wiztree_big_files(csv_path, BIG_FILES_FLOOR_WIZ)
+                finally:
+                    _wiztree_cleanup(csv_path)
+        if engine == "powershell":
+            prog_file = os.path.join(
+                tempfile.gettempdir(), f"oc-bigfiles-{os.getpid()}-{letter}.txt")
+            if os.path.exists(prog_file):
+                try:
+                    os.remove(prog_file)
+                except OSError:
+                    pass
+            script = (PS_BIG_FILES
+                      .replace("__ROOT__", root.replace("'", "''"))
+                      .replace("__FLOOR__", str(BIG_FILES_FLOOR_PS))
+                      .replace("__PROGFILE__", prog_file.replace("'", "''")))
+            prog_set("walk", "正在全盘遍历大文件（未装 WizTree，耗时更长）",
+                     10, indeterminate=True)
+            stop = threading.Event()
+            watcher = threading.Thread(target=_watch_bigfiles,
+                                       args=(prog_file, stop), daemon=True)
+            if prog_file:
+                watcher.start()
+            try:
+                r = run_ps(script, timeout=1800)
+            finally:
+                stop.set()
+                if prog_file:
+                    try:
+                        os.remove(prog_file)
+                    except OSError:
+                        pass
+            if isinstance(r, dict) and "error" in r:
+                return {"error": r["error"], "files": []}
+            items = r if isinstance(r, list) else ([] if not r else [r])
+            rows = [(str(x.get("p") or ""), int(x.get("s") or 0))
+                    for x in items if isinstance(x, dict)]
+        rows.sort(key=lambda x: -x[1])
+        files = []
+        for path, size in rows[:max(1, min(int(limit or BIG_FILES_LIMIT), 100))]:
+            name = os.path.basename(path)
+            info = identify(name, path, "file")
+            info.pop("match_score", None)
+            files.append({"path": path, "name": name,
+                          "dir": os.path.dirname(path), "size": size,
+                          "title": info.get("title") or "",
+                          "cleanable": bool(info.get("cleanable")),
+                          "what": info.get("what") or "",
+                          "tip": info.get("tip") or ""})
+        return {"ok": True, "engine": engine, "files": files}
+    finally:
+        _BIGFILES_LOCK.release()
+
+
+def _watch_bigfiles(prog_file: str, stop: threading.Event) -> None:
+    """PS 大文件遍历的进度上报：地板之上每多 200 个文件写一次计数。
+
+    总数事先未知，进度只能做成「已发现 N 个」的指示而不是百分比。
+    """
+    while not stop.wait(0.5):
+        try:
+            with open(prog_file, "r", encoding="utf-8", errors="replace") as fh:
+                n = int(fh.read().strip() or 0)
+            prog_set("walk", f"已发现 {n} 个超过门槛的大文件…", 40,
+                     indeterminate=True)
+        except Exception:
+            pass
 
 
 def ai_chat(messages: list[dict], timeout: int | None = None) -> tuple[bool, str]:
@@ -5713,6 +5912,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "paths 必须是路径数组"}, 400)
             return self._json(find_lock_holders(paths))
 
+        # ---- 大文件排行（只读全盘遍历，列出最大的单个文件）----
+        if route == "/__oc__/bigfiles":
+            return self._json(big_files(str(body.get("drive") or ""),
+                                        limit=int(body.get("limit") or 0)))
+
         # ---- 一键清空「所选项」的回收站 ----
         # 按原始路径精确匹配回收站条目，只删配对的 $I/$R 文件，不动回收站
         # 里的其它内容（用户自己删的文件原样保留）。请求里的路径只用于
@@ -6235,6 +6439,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(ai_explain(body or {}))
         if route == "/__oc__/ai/plan":
             return self._json(ai_plan(body or {}))
+
+        # ---- 检查应用更新（只读 GitHub Releases，不自动下载） ----
+        if route == "/__oc__/app/update_check":
+            return self._json(app_update_check())
 
         return self._json({"error": "not found"}, 404)
 
