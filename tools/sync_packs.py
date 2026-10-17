@@ -3,7 +3,7 @@
 """sync_packs.py —— 主仓库 packs/ 与公开分发仓 O-Cleaner-packs 的同步工具
 
 背景：主仓库是私有的，raw 链接对外不可达；「从 GitHub 检查更新」指向独立的
-公开仓库 2847439483-beep/O-Cleaner-packs。两个仓库存着同一份 packs 数据，
+公开仓库 Oerian/O-Cleaner-packs。两个仓库存着同一份 packs 数据，
 **改包必须两边同步** —— 这个脚本把「同步」从手工记忆变成一条命令。
 
 用法:
@@ -28,7 +28,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PACKS_DIR = HERE.parent / "packs"
 
-REPO = "2847439483-beep/O-Cleaner-packs"
+REPO = "Oerian/O-Cleaner-packs"
 BRANCH = "main"
 RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}"
 API_BASE = f"https://api.github.com/repos/{REPO}/contents"

@@ -322,7 +322,7 @@ The "Resource Packs" (资源包) panel in the sidebar lists currently loaded res
 | Operation | Explanation |
 |---|---|
 | Import a resource pack | Choose a local `.json` file; after validation it is written to `config/packs-user/` |
-| Check updates from GitHub | Downloads and imports each pack listed in the remote `packs/index.json`; when the id matches a built-in pack, it overrides the built-in version. The default remote is the public [O-Cleaner-packs](https://github.com/2847439483-beep/O-Cleaner-packs) repository, and you can change it to your own address in the interface |
+| Check updates from GitHub | Downloads and imports each pack listed in the remote `packs/index.json`; when the id matches a built-in pack, it overrides the built-in version. The default remote is the public [O-Cleaner-packs](https://github.com/Oerian/O-Cleaner-packs) repository, and you can change it to your own address in the interface |
 | Enable / disable | A disabled pack stops participating in identification, and the built-in list takes effect immediately (no restart needed) |
 
 Matching and overriding rules:

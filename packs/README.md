@@ -115,7 +115,7 @@
 ```
 
 界面上的「从 GitHub 检查更新」会按这个清单逐个下载并导入。
-默认远端是**独立的公开仓库 [`O-Cleaner-packs`](https://github.com/2847439483-beep/O-Cleaner-packs)**
+默认远端是**独立的公开仓库 [`O-Cleaner-packs`](https://github.com/Oerian/O-Cleaner-packs)**
 （与本目录保持同内容），任何人都可以更新；远端地址也可在界面上改成自己的。
 
 > 历史说明：主仓库是私有的，raw 链接对外不可访问，2026-10-12 起改为

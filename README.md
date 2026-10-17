@@ -1,6 +1,6 @@
 # O-Cleaner
 
-[![CI](https://github.com/2847439483-beep/O-Cleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/2847439483-beep/O-Cleaner/actions/workflows/ci.yml)
+[![CI](https://github.com/Oerian/O-Cleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/Oerian/O-Cleaner/actions/workflows/ci.yml)
 
 Windows 磁盘空间分析与清理工具。本地运行，浏览器访问 Web 界面操作；
 绿色免安装，不写注册表、不安装系统服务，整个目录复制即可在另一台计算机使用。
