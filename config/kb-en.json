@@ -924,391 +924,391 @@
       "label": "Microsoft Store cache"
     },
     "games-titles:the-witcher-3": {
-      "what": "Game files of The Witcher 3: Wild Hunt, including both large expansions.",
-      "advice": "Deleting equals uninstalling; progress saves usually live under Documents, not in this folder. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "The Witcher 3: Wild Hunt — the installed game body, including two major DLC expansions.",
+      "advice": "Deleting equals uninstalling; save games usually live under Documents, not here. Keep it if you still play, or if you keep mods and configurations.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "The Witcher 3: Wild Hunt"
     },
     "games-titles:cyberpunk-2077": {
-      "what": "Game files of Cyberpunk 2077.",
-      "advice": "Deleting equals uninstalling; saves live under Documents\\CD Projekt Red and are not deleted with it. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Cyberpunk 2077 — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\CD Projekt Red and will not be removed with it. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Cyberpunk 2077"
     },
     "games-titles:gta-v": {
-      "what": "Game files of Grand Theft Auto V, including Online.",
-      "advice": "Deleting equals uninstalling; Online character data lives on the servers and is unaffected. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Grand Theft Auto V — the installed game body, including the online mode.",
+      "advice": "Deleting equals uninstalling; online-mode character data lives on servers and is unaffected. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Grand Theft Auto V"
     },
     "games-titles:rdr2": {
-      "what": "Game files of Red Dead Redemption 2.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Red Dead Redemption 2 — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Red Dead Redemption 2"
     },
     "games-titles:elden-ring": {
-      "what": "Game files of ELDEN RING.",
-      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\EldenRing. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "ELDEN RING — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\EldenRing. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Elden Ring"
     },
     "games-titles:baldurs-gate-3": {
-      "what": "Game files of Baldur's Gate 3.",
-      "advice": "Deleting equals uninstalling; saves live under AppData\\Local\\Larian Studios. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Baldur's Gate 3 — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live under AppData\\Local\\Larian Studios. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Baldur's Gate 3"
     },
     "games-titles:starfield": {
-      "what": "Game files of Starfield.",
-      "advice": "Deleting equals uninstalling; mods and saves must be rebuilt as well. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Starfield — the installed game body.",
+      "advice": "Deleting equals uninstalling; mods and saves all need to be rebuilt. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Starfield"
     },
     "games-titles:hogwarts-legacy": {
-      "what": "Game files of Hogwarts Legacy.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Hogwarts Legacy — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Hogwarts Legacy"
     },
     "games-titles:cs2": {
-      "what": "Game files of Counter-Strike 2, still using the old CS:GO folder name.",
-      "advice": "Deleting equals uninstalling; about 30 GB must be re-downloaded. Keep while you still play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Counter-Strike 2 — the installed game body, still using the old CS:GO folder name.",
+      "advice": "Deleting equals uninstalling; about 30 GB would need to be downloaded again. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Counter-Strike 2"
     },
     "games-titles:dota2": {
-      "what": "Game files of Dota 2; the folder name still carries the beta suffix.",
-      "advice": "Deleting equals uninstalling. Keep while you still play it.",
-      "tip": "N/A: re-download to play again."
+      "what": "Dota 2 — the installed game body; the folder name still carries the beta suffix.",
+      "advice": "Deleting equals uninstalling. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again."
     },
     "games-titles:pubg": {
-      "what": "Game files of PUBG: BATTLEGROUNDS.",
-      "advice": "Deleting equals uninstalling. Keep while you still play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "PUBG: BATTLEGROUNDS — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "PUBG: Battlegrounds"
     },
     "games-titles:apex": {
-      "what": "Game files of Apex Legends.",
-      "advice": "Deleting equals uninstalling. Keep while you still play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Apex Legends — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Apex Legends"
     },
     "games-titles:destiny2": {
-      "what": "Game files of Destiny 2.",
-      "advice": "Deleting equals uninstalling. Keep while you still play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Destiny 2 — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Destiny 2"
     },
     "games-titles:mhw": {
-      "what": "Game files of Monster Hunter: World.",
-      "advice": "Deleting equals uninstalling; saves live in Steam Cloud or the local userdata folder. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Monster Hunter: World — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live in Steam Cloud or the local userdata folder. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Monster Hunter: World"
     },
     "games-titles:mh-wilds": {
-      "what": "Game files of Monster Hunter Wilds.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Monster Hunter Wilds — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Monster Hunter Wilds"
     },
     "games-titles:sekiro": {
-      "what": "Game files of Sekiro: Shadows Die Twice.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Sekiro: Shadows Die Twice — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Sekiro: Shadows Die Twice"
     },
     "games-titles:dark-souls-3": {
-      "what": "Game files of Dark Souls III.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Dark Souls III — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Dark Souls III"
     },
     "games-titles:terraria": {
-      "what": "Game files of Terraria; the install is small.",
-      "advice": "Deleting equals uninstalling; saves live under Documents\\My Games\\Terraria. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Terraria — the installed game body, quite small in size.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\My Games\\Terraria. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Terraria"
     },
     "games-titles:stardew-valley": {
-      "what": "Game files of Stardew Valley.",
-      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\StardewValley. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Stardew Valley — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\StardewValley. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Stardew Valley"
     },
     "games-titles:hollow-knight": {
-      "what": "Game files of Hollow Knight.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Hollow Knight — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Hollow Knight"
     },
     "games-titles:hades": {
-      "what": "Game files of Hades.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Hades — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Hades"
     },
     "games-titles:rimworld": {
-      "what": "Game files of RimWorld.",
-      "advice": "Deleting equals uninstalling; mods and saves live under AppData\\LocalLow\\Ludeon Studios and stop working with it. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "RimWorld — the installed game body.",
+      "advice": "Deleting equals uninstalling; mods and saves live under AppData\\LocalLow\\Ludeon Studios and stop working with it. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "RimWorld"
     },
     "games-titles:factorio": {
-      "what": "Game files of Factorio.",
-      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\Factorio. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Factorio — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\Factorio. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Factorio"
     },
     "games-titles:cities-skylines-2": {
-      "what": "Game files of Cities: Skylines II.",
-      "advice": "Deleting equals uninstalling; mods and saves need to be set up again. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Cities: Skylines II — the installed game body.",
+      "advice": "Deleting equals uninstalling; mods and saves need to be set up again. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Cities: Skylines II"
     },
     "games-titles:total-war-wh3": {
-      "what": "Game files of Total War: WARHAMMER III.",
-      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\The Creative Assembly. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Total War: WARHAMMER III — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live under AppData\\Roaming\\The Creative Assembly. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Total War: WARHAMMER III"
     },
     "games-titles:ac-valhalla": {
-      "what": "Game files of Assassin's Creed Valhalla.",
-      "advice": "Deleting equals uninstalling; Ubisoft Connect cloud saves can usually be restored. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Assassin's Creed Valhalla — the installed game body.",
+      "advice": "Deleting equals uninstalling; Ubisoft Connect cloud saves can usually be recovered. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Assassin's Creed Valhalla"
     },
     "games-titles:far-cry-6": {
-      "what": "Game files of Far Cry 6.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Far Cry 6 — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Far Cry 6"
     },
     "games-titles:forza-horizon-5": {
-      "what": "Game files of Forza Horizon 5.",
-      "advice": "Deleting equals uninstalling; saves live in the Microsoft account cloud. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Forza Horizon 5 — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live in the Microsoft account cloud. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Forza Horizon 5"
     },
     "games-titles:aoe4": {
-      "what": "Game files of Age of Empires IV.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Age of Empires IV — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Age of Empires IV"
     },
     "games-titles:it-takes-two": {
-      "what": "Game files of It Takes Two.",
-      "advice": "Deleting equals uninstalling; both players must re-download to play online again. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "It Takes Two — the installed game body.",
+      "advice": "Deleting equals uninstalling; both players must re-download to play online again. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "It Takes Two"
     },
     "games-titles:palworld": {
-      "what": "Game files of Palworld.",
-      "advice": "Deleting equals uninstalling; self-hosted servers and saves live under Pal\\Saved and may be lost with it. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Palworld — the installed game body.",
+      "advice": "Deleting equals uninstalling; dedicated-server data and saves live under Pal\\Saved and may be lost with it. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Palworld"
     },
     "games-titles:black-myth-wukong": {
-      "what": "Game files of Black Myth: Wukong.",
-      "advice": "Deleting equals uninstalling; saves live under Documents\\BlackMythWukong or in Steam Cloud. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Black Myth: Wukong — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\BlackMythWukong or in Steam Cloud. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Black Myth: Wukong"
     },
     "games-titles:naraka": {
-      "what": "Game files of Naraka: Bladepoint.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Naraka: Bladepoint — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Naraka: Bladepoint"
     },
     "games-titles:genshin": {
-      "what": "Game files of Genshin Impact.",
-      "advice": "Deleting equals uninstalling, with tens of GB to re-download. Keep while you still play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Genshin Impact — the installed game body.",
+      "advice": "Deleting equals uninstalling; tens of GB would need to be downloaded again. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Genshin Impact"
     },
     "games-titles:star-rail": {
-      "what": "Game files of Honkai: Star Rail.",
-      "advice": "Deleting equals uninstalling. Keep while you still play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Honkai: Star Rail — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Honkai: Star Rail"
     },
     "games-titles:wuthering-waves": {
-      "what": "Game files of Wuthering Waves.",
-      "advice": "Deleting equals uninstalling. Keep while you still play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Wuthering Waves — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Wuthering Waves"
     },
     "games-titles:zenless-zone-zero": {
-      "what": "Game files of Zenless Zone Zero.",
-      "advice": "Deleting equals uninstalling. Keep while you still play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Zenless Zone Zero — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Zenless Zone Zero"
     },
     "games-titles:ffxiv": {
-      "what": "Client files of FINAL FANTASY XIV.",
-      "advice": "Deleting equals uninstalling; re-downloading takes a long time. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again, and patches are large.",
+      "what": "FINAL FANTASY XIV — the launcher client itself.",
+      "advice": "Deleting equals uninstalling; re-downloading takes a while. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again, with heavy update traffic on top.",
       "label": "Final Fantasy XIV"
     },
     "games-titles:lost-ark": {
-      "what": "Game files of Lost Ark.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Lost Ark — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Lost Ark"
     },
     "games-titles:path-of-exile": {
-      "what": "Game files of Path of Exile.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Path of Exile — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Path of Exile"
     },
     "games-titles:warframe": {
-      "what": "Game files of Warframe.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Warframe — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Warframe"
     },
     "games-titles:wot": {
-      "what": "Game files of World of Tanks.",
-      "advice": "Deleting equals uninstalling; progress lives on the servers and is unaffected. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "World of Tanks — the installed game body.",
+      "advice": "Deleting equals uninstalling; progress lives on servers and is unaffected. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "World of Tanks"
     },
     "games-titles:lol": {
-      "what": "Client and game files of League of Legends.",
-      "advice": "Deletion breaks the client; a reinstall and re-download are required. Keep while you still play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "League of Legends — the launcher client and the installed game body.",
+      "advice": "Deleting breaks the client; it must be reinstalled and re-downloaded. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "League of Legends"
     },
     "games-titles:valorant": {
-      "what": "Game files of VALORANT, installed together with the Vanguard anti-cheat component.",
-      "advice": "Deletion breaks the client; Vanguard must be reinstalled and the system rebooted. Keep while you still play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "VALORANT — the installed game body, bundled with the Vanguard anti-cheat component.",
+      "advice": "Deleting breaks the client; Vanguard must be reinstalled and the system rebooted. Keep it while you are still playing.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "VALORANT"
     },
     "games-titles:overwatch": {
-      "what": "Game files of Overwatch 2.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Overwatch 2 — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Overwatch 2"
     },
     "games-titles:ea-sports-fc": {
-      "what": "Game files of the EA SPORTS FC series (formerly FIFA).",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again."
+      "what": "The installed game body of the EA SPORTS FC series (formerly FIFA).",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again."
     },
     "games-titles:call-of-duty": {
-      "what": "Files of the Call of Duty series; new entries install under the Call of Duty HQ folder and often exceed 100 GB.",
-      "advice": "Deleting equals uninstalling, and re-downloading takes a very long time. Recommended to keep — the re-download cost is high.",
-      "tip": "N/A: re-download to play again.",
+      "what": "The game body of the Call of Duty series — new titles all go under the Call of Duty HQ folder, often exceeding 100 GB.",
+      "advice": "Deleting equals uninstalling; re-downloading takes a long time. Better kept — re-downloading is very costly.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Call of Duty"
     },
     "games-titles:civilization-6": {
-      "what": "Game files of Sid Meier's Civilization VI.",
-      "advice": "Deleting equals uninstalling; saves live under Documents\\My Games. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Sid Meier's Civilization VI — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\My Games. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Sid Meier's Civilization VI"
     },
     "games-titles:rust": {
-      "what": "Game files of Rust; the client grows further when you host your own server.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Rust — the installed game body; the client grows larger if you host your own servers.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Rust"
     },
     "games-titles:valheim": {
-      "what": "Game files of Valheim.",
-      "advice": "Deleting equals uninstalling; world saves live under AppData\\LocalLow\\IronGate. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Valheim — the installed game body.",
+      "advice": "Deleting equals uninstalling; world saves live under AppData\\LocalLow\\IronGate. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Valheim"
     },
     "games-titles:ark": {
-      "what": "Game files of the ARK series, with large amounts of map and mod data; often over 200 GB.",
-      "advice": "Deleting equals uninstalling; if you hosted a local server, its saves are lost too. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "The installed game body of the ARK series — includes large amounts of maps and mod data, often exceeding 200 GB.",
+      "advice": "Deleting equals uninstalling; locally hosted server saves are lost with it. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "ARK: Survival Evolved"
     },
     "games-titles:no-mans-sky": {
-      "what": "Game files of No Man's Sky.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "No Man's Sky — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "No Man's Sky"
     },
     "games-titles:subnautica": {
-      "what": "Game files of Subnautica.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Subnautica — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Subnautica"
     },
     "games-titles:the-sims-4": {
-      "what": "Game files and expansions of The Sims 4.",
-      "advice": "Deleting equals uninstalling; household and build saves live under Documents\\Electronic Arts. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "The Sims 4 — the installed game body and its expansions.",
+      "advice": "Deleting equals uninstalling; character and house saves live under Documents\\Electronic Arts. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "The Sims 4"
     },
     "games-titles:ets2": {
-      "what": "Game files of Euro Truck Simulator 2; large with map DLCs.",
-      "advice": "Deleting equals uninstalling; saves live under Documents\\Euro Truck Simulator 2. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Euro Truck Simulator 2 — the installed game body; fairly large once map DLC is included.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\Euro Truck Simulator 2. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Euro Truck Simulator 2"
     },
     "games-titles:helldivers-2": {
-      "what": "Game files of Helldivers 2.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Helldivers 2 — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "HELLDIVERS 2"
     },
     "games-titles:ghost-of-tsushima": {
-      "what": "Game files of Ghost of Tsushima Director's Cut.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Ghost of Tsushima — the installed game body of the Director's Cut edition.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Ghost of Tsushima"
     },
     "games-titles:god-of-war": {
-      "what": "Game files of the PC version of God of War.",
-      "advice": "Deleting equals uninstalling; saves live under Documents\\God of War. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "God of War — the installed game body of the PC version.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\God of War. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "God of War"
     },
     "games-titles:persona-5-royal": {
-      "what": "Game files of Persona 5 Royal.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Persona 5 Royal — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Persona 5 Royal"
     },
     "games-titles:nier-automata": {
-      "what": "Game files of NieR:Automata.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "NieR:Automata — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "NieR: Automata"
     },
     "games-titles:death-stranding": {
-      "what": "Game files of Death Stranding.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Death Stranding — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Death Stranding"
     },
     "games-titles:deep-rock-galactic": {
-      "what": "Game files of Deep Rock Galactic.",
-      "advice": "Deleting equals uninstalling. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Deep Rock Galactic — the installed game body.",
+      "advice": "Deleting equals uninstalling. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Deep Rock Galactic"
     },
     "games-titles:dont-starve-together": {
-      "what": "Game files of Don't Starve Together.",
-      "advice": "Deleting equals uninstalling; world saves of locally hosted games go with it. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Don't Starve Together — the installed game body.",
+      "advice": "Deleting equals uninstalling; locally hosted world saves are removed with it. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Don't Starve Together"
     },
     "games-titles:oxygen-not-included": {
-      "what": "Game files of Oxygen Not Included.",
-      "advice": "Deleting equals uninstalling; saves live under Documents\\Klei. Keep while you still want to play it.",
-      "tip": "N/A: re-download to play again.",
+      "what": "Oxygen Not Included — the installed game body.",
+      "advice": "Deleting equals uninstalling; saves live under Documents\\Klei. Keep it if you still play.",
+      "tip": "Not applicable: it would have to be downloaded again.",
       "label": "Oxygen Not Included"
     },
     "games-titles:msfs": {
-      "what": "Game files of Microsoft Flight Simulator.",
-      "advice": "Deleting equals uninstalling; reinstalling means re-downloading over 100 GB of scenery data. Recommended to keep — the re-download cost is high.",
-      "tip": "N/A: re-download to play again, and the download is very large.",
+      "what": "Microsoft Flight Simulator — the installed game body.",
+      "advice": "Deleting equals uninstalling; reinstalling means downloading hundreds of GB of scenery data again. Better kept — re-downloading is very costly.",
+      "tip": "Not applicable: it would have to be downloaded again, and it is very large.",
       "label": "Microsoft Flight Simulator"
     },
     "target:uv-cache": {
