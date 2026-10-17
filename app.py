@@ -217,20 +217,10 @@ def _kill_ps_tree(p) -> None:
 
 
 def run_ps(script: str, timeout: int = 300):
-    """执行一段 PowerShell，返回其输出的 JSON（原样、不做类型强制）。
+    """执行一段 PowerShell，原样返回其输出的 JSON，不做类型强制。
 
-    返回类型取决于脚本：输出单个对象就是 dict，输出数组就是 list。
-    调用方用 `"error" in r` 判失败、用 `r.get(...)` 取字段时，
-    两种类型都成立（list 上的 `in` 是成员检查、`.get` 不存在会抛错），
-    所以**取字段前先确认拿到的是 dict**，或改用 _as_list() 归一化。
-
-    这里曾经写成「如果是 list 就返回 data[0]」，是个代价很高的错误：
-    PS_STEAM_ORPHAN_SIZE 返回的是 `[{path,size},…]` 数组，
-    被折成首元素后，analyze_dir_partition 里除第一个以外的目录体积**全变 0**，
-    表现为「浏览器缓存目录识别对了但显示 0 B」。
-    教训：解析层不要替调用方猜形状，原样返回、由调用方显式归一化。
-
-    超时路径见 _kill_ps_tree()：它保证本函数一定会返回，不会无限阻塞。
+    输出单个对象是 dict、数组是 list；调用方取字段前先确认类型，
+    或用 _as_list() 归一化。超时路径见 _kill_ps_tree()，保证一定返回。
     """
     cmd = ["powershell.exe", "-NoProfile", "-NonInteractive",
            "-ExecutionPolicy", "Bypass", "-Command", PS_UTF8_PREAMBLE + script]
@@ -704,10 +694,8 @@ def cleanup_stale_wiztree_exports() -> int:
 def _wiztree_export(drive: str, timeout: int = 300) -> tuple[str | None, str]:
     """调用 WizTree 导出整盘明细 CSV。返回 (csv 路径, 错误信息)。
 
-    命令行：WizTree64.exe <盘符> /export="<csv>"
-    这个语法是实测出来的 —— 官方文档在本环境不可达（DNS 被拦），
-    而 `/exportfiles` 那种写法会直接弹 GUI 并挂住不返回。
-    导出完成后 WizTree 自己退出（实测 exit=0），无需我们杀进程。
+    命令行：WizTree64.exe <盘符> /export="<csv>" —— 该写法导出后
+    WizTree 自动退出（exit=0），无需杀进程。
     """
     exe = (wiztree_available().get("path") or "")
     if not exe:
@@ -952,12 +940,9 @@ def _wiztree_raw_nodes(root: str, table: dict,
 # ======================================================================
 #  扫描进度
 # ======================================================================
-# 界面上那条进度条必须对应**真实发生的阶段**。曾经的写法是
-# `1 - exp(-已用秒数 / 90)`：它只是把时间映射成一条平滑曲线，
-# 90 秒就到 63%、几分钟后停在 97% —— 无论扫描实际走到哪一步。
-# 结果是「看着快满格了却一直不出来」或「刚开始就已过半」，用户据此判断不了要不要等。
-#
-# 现在只记录真实阶段：
+# 界面上的进度条必须对应**真实发生的阶段**：纯按时间推算的百分比
+# （如 `1 - exp(-已用秒数/90)`）与扫描实际进度无关，无法作为等待依据。
+# 只记录真实阶段：
 #   * 有确定分母的（已解析行数 / 已建节点数 / 已用预算）给精确百分比；
 #   * 没有分母的（WizTree 读 MFT、PowerShell 递归）标 indeterminate，
 #     界面画成流动条纹 + 显示当前阶段文案，不伪造百分比。
@@ -1081,16 +1066,12 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
     两条扫描路径，优先用快的那条：
 
     1. **WizTree**（若本机装了它）：调用 `WizTree64.exe <盘> /export=<csv>`，
-       借它读 NTFS MFT 的能力拿全盘明细。导出的 CSV 含每个文件的完整路径，
-       于是「任意目录逐层拆子项」也变成内存查表。
-    2. **PowerShell 递归**（兜底，用户没装 WizTree 时）：整棵树在**一个**
-       PowerShell 进程内递归完成。早期版本每个目录起一个进程来回测量，
-       进程启动开销成了主要成本；合并进单进程后这部分开销明显下降。
+       借它读 NTFS MFT 的能力拿全盘明细，「任意目录逐层拆子项」变成内存查表。
+    2. **PowerShell 递归**（兜底）：整棵树在单个 PS 进程内递归完成。
 
-    两条路径用**同一套展开参数与同一套节点形状**，所以界面表现一致。
+    两条路径用同一套展开参数与同一套节点形状，界面表现一致。
     展开策略：沿「体积最粗的几条分支」逐层深入，
-    这样才能挖到 …\\steamapps\\common\\某款大型游戏
-    这种第 4 层、单个体积上百 GB 的大项。
+    才能挖到 …\\steamapps\\common\\某款大型游戏 这种第 4 层的大项。
     """
     letter = (drive or "C").rstrip(":").upper()
     root = letter + ":\\"
@@ -1135,8 +1116,7 @@ def _scan_overview_impl(drive: str, max_depth: int = DISK_TREE_MAX_DEPTH) -> dic
                 # 导出的 CSV 很大（C 盘约 120 MB，含 77 万行），
                 # 表已经进内存了就必须删掉它 —— 否则一个「磁盘清理工具」
                 # 每扫一次就往临时目录塞一百多 MB，自己变成垃圾制造者。
-                # 这条是被实测打脸后加的：连扫十几次后临时目录里攒了 24 个
-                # 导出文件、约 1.2 GB。
+                # CSV 高达上百 MB，表进内存后必须立刻删，别让清理工具自己制造垃圾
                 _wiztree_cleanup(csv_path)
         if engine != "wiztree":
             # 加速路径失败不影响可用性，静默回退到 PowerShell；失败原因记在 payload 里
@@ -2070,9 +2050,8 @@ def _write_receipt(entry: dict) -> None:
 def _match_rule(rule: dict, name: str, ext: str, is_dir: bool) -> int:
     """给单条规则打分。0 表示不匹配；分越高越可信。
 
-    短英文关键词（<=4 字符）必须整词匹配，否则会误伤：
-    例如 "tim" 会命中 "opTIMization"，曾因此把 DeliveryOptimization
-    误判成微信数据。
+    短英文关键词（<=4 字符）必须整词匹配，避免子串误伤
+    （如 "tim" 命中 "opTIMization"）。
     """
     keys = rule.get("match") or []
     how = rule.get("kind", "substring")
@@ -2125,13 +2104,11 @@ def _in_game_install(path: str) -> bool:
     return any(m in low for m in GAME_INSTALL_MARKERS)
 
 
-# ---- 内容特征判定（P0 修复：删除决策不能只看目录名，还要看目录里装的是什么）----
-# 名称规则（cache/temp/quark/download…）只是**猜测**，目录内容才是**证据**。
-# 实测教训（外部审计报告 2026-10-13）：D:\Quark\Webui（SD-WebUI 整合包，
-# 内含完整 Python 运行时与模型）被祖先路径里的 "quark" 判成
-# 「云盘数据目录 · 可清理 · high」—— 15 GB 的程序本体差一点就能被整目录永久删除。
-# 对策：凡是名称规则判出「可清理」的目录，都过一遍内容特征；命中程序本体
-# 特征就强制改判不可清理（宁可少删，也不误删）。
+# ---- 内容特征判定：删除决策不能只看目录名，还要看目录里装的是什么 ----
+# 名称规则（cache/temp/quark/download…）只是猜测，目录内容才是证据。
+# 祖先路径里一个 "quark" 就能把装着完整 Python 运行时与模型的程序目录
+# 判成「云盘数据目录 · 可清理」，因此凡是名称规则判出「可清理」的目录，
+# 都要过一遍内容特征；命中程序本体特征就强制改判不可清理（宁可少删，也不误删）。
 _PROGRAM_WEIGHT_EXTS = {".safetensors", ".ckpt", ".gguf", ".pth"}
 _WEIGHT_MIN_BYTES = 1024 ** 3          # 1 GB 的权重文件 = AI 模型，不是缓存
 _PROGRAM_EXE_DLL_MIN = 15              # 顶层 exe+dll 超过它视为程序本体
@@ -2235,11 +2212,8 @@ def _looks_like_browser_profile(path: str) -> bool:
 def _identify_builtin(name: str, path: str, kind: str) -> dict:
     """按知识库识别一个文件/目录，返回分类、风险、说明与清理建议。
 
-    两路证据：名称/扩展名，与「所在路径」，分开算，互不污染。
-      * 目录没有扩展名线索，一律优先用名称结果；
-      * 文件只在扩展名说明不了问题（.bin/.dat/无扩展名）时才用路径兜底。
-    这条规则的由来：曾把 …\\某聊天软件目录\\...\\x.7z 判成「下载目录」、
-    把 .rar 判成「软件安装目录」，都是路径把扩展名压过了。
+    两路证据独立算分：路径不得压过扩展名，否则安装包会被
+    所在目录的「下载目录」规则吞掉分类。
     """
     kb = load_filetypes()
     is_dir = (kind == "dir")
@@ -2427,27 +2401,23 @@ def identify(name: str, path: str, kind: str) -> dict:
 # 浏览器数据目录同时装着两类东西：
 #   可安全清理的缓存（Cache / Code Cache / GPUCache / ShaderCache …）
 #   绝不能删的：书签、密码、Cookie、登录状态、扩展、历史记录
-# 因此**整目录绝不可标为可清理**，只能把缓存子目录单独列出来。
-# 这条规则是被实测逼出来的：一个与浏览器同名的目录有上百 GB，
-# 早期把整目录标成「可清理」，勾选就会删掉整个浏览器资料。
+# 因此**整目录绝不可标为可清理**，只能把缓存子目录单独列出来
+# （把整目录标成可清理会连带删掉书签、密码与登录状态）。
 BROWSER_CACHE_DIRS = {
     "cache", "code cache", "gpucache", "shadercache", "grshadercache",
     "dawngcache", "dawngraphitecache", "component crx cache",
     "media cache", "application cache", "service worker",
     "cachestorage", "scriptcache", "jscache", "blob_storage",
 }
-# 注意：**不要**再加一个「命中这些名字就是浏览器资料目录」的常量来辅助判断。
-# 只看名字会把一个与浏览器同名、实则装着论文 + ComfyUI 归档的目录误判成浏览器资料，
-# 所以判定统一走 _looks_like_browser_profile()：必须在目录内部
-# 真的看到 Cache / Code Cache 这类缓存子目录才认。
+# 判定不依赖目录名单：与浏览器同名的目录可能装着完全无关的数据，
+# 统一走 _looks_like_browser_profile()，必须在目录内部真看到
+# Cache / Code Cache 这类缓存子目录才认。
 
 def _looks_like_game_install(path: str) -> bool:
     """判断目录是否是一个游戏本体（而非缓存）。
 
-    为什么要在分区里单独认它：全盘扫描实测最大的实体就是游戏
-    （单款 3A 大作常达上百 GB），而它们**不是垃圾**。
-    只把它们归进「建议保留」等于什么都没说，用户还会以为工具漏扫了。
-    认出来之后就能给一句有用的话：「想回收请用启动器卸载」。
+    全盘扫描中最大的实体就是游戏（单款 3A 大作常达上百 GB），且它们不是垃圾；
+    单独认出来才能给出有用的指引：「想回收请用启动器卸载」。
 
     判定顺序（先便宜后昂贵）：
       1. 路径里出现 steamapps/common/steamlibrary 等标志段 —— 最可靠也最快；
@@ -4238,27 +4208,20 @@ def _auto_excluded(path: str, segments: list[str]) -> bool:
 def _looks_like_installed_program(path: str) -> bool:
     """判断目录里装的是**程序本体**（而不是缓存）。
 
-    为什么必须有这道判断：自动发现按「目录名命中知识库」来判定可清理，
-    但知识库的关键词是给「缓存目录」写的，撞上安装目录就出事。实测：
-      * 某盘根下一个名字很短的目录（名字里带短词 "ps"）命中 photoshop 规则，
-        （match 里有短词 "ps"），里面其实是 Adobe 的安装目录；
-      * C:\\Program Files (x86)\\Adobe、C:\\Program Files\\Microsoft OneDrive
-        同样被判成「可清理」，勾选等于卸载软件。
+    知识库关键词是给「缓存目录」写的，撞上安装目录会误判
+    （短名目录可命中 photoshop 规则，Program Files 下的目录同样会），
+    所以自动发现判出「可清理」前必须先排除程序本体。
 
-    判定只看通用特征，不看名字（看名字正是出问题的原因）：
+    判定只看通用特征，不看名字（名字正是误判来源）：
       * 顶层存在 Uninstall*.exe / unins*.exe —— 安装器留下的卸载程序；
-      * **两个以上「版本号形态」的子目录** —— 同时覆盖年份命名
+      * 两个以上「版本号形态」的子目录 —— 同时覆盖年份命名
         （Adobe Photoshop 2024 / …2023）与四段式版号
         （WPS Office\\12.1.0.x 与 12.1.0.y）。
-        实测：装机目录命中 2 个，而下载目录与云盘临时目录都是 0 个
-        —— 这是区分度最好的一条判据。
 
-    刻意**不用**的两条判据（都是实测踩出来的）：
-      * 「顶层 .exe 数量」——下载目录里躺着一堆安装包（实测某下载目录顶层就有
-        5 个 setup.exe），按数量算会把下载目录误判成程序安装；
-      * 「子目录里有卸载程序」——下载目录里每个装过又留下的软件目录都带卸载器，
-        同样会误伤。
-    卸载程序只在**顶层**出现才算数（如 WPS Office\\ksolaunch.exe 那种）。
+    刻意**不用**的两条判据：
+      * 「顶层 .exe 数量」——下载目录里堆着安装包，按数量算会误判成程序安装；
+      * 「子目录里有卸载程序」——装过又留下的软件目录都带卸载器，同样误判。
+    卸载程序只在**顶层**出现才算数。
     """
     if not os.path.isdir(path):
         return False
@@ -4795,8 +4758,7 @@ _PACKS_CACHE: dict = {"key": None, "data": None}
 PACK_TYPE_LABELS = {"games": "游戏", "system": "系统", "apps": "软件",
                     "custom": "自定义"}
 # packs 分发仓库（公开）：只放资源包数据，不放代码。
-# 资源包更新指向独立公开仓库（历史上主仓库私有时 raw 不可达而设立；
-# 主仓库现已公开， packs 仓保留以维持既有用户配置与分发节奏不变）。
+# 资源包更新指向独立公开仓库：只放资源包数据，不放代码，与主仓库解耦分发。
 # 本仓库 packs/ 与它保持同内容，lint 的 index.json ↔ 磁盘一致性检查两边都适用。
 DEFAULT_PACKS_REMOTE = ("https://raw.githubusercontent.com/"
                         "Oerian/O-Cleaner-packs/main")
@@ -4852,13 +4814,10 @@ def _pack_tokens(entry: dict) -> tuple[list[str], list[str]]:
 def pack_score(rec: dict, name: str, path: str):
     """一条包条目对「这个节点」的匹配得分。不命中返回 None。
 
-    排序规则：先比**匹配在路径里的结束位置**（越靠后越贴近当前节点），
-    同一位置再比匹配串长度。这条规则是实测逼出来的：
-    原先按「匹配串长度」排序，于是 `\\steamlibrary\\steamapps`（22 字符，
-    容器规则）盖过了 `steamapps\\shadercache`（21 字符，叶子规则），
-    结果着色器缓存被打上「Steam 游戏库根目录」的名字。
-    改成先看位置后，叶子规则天然排在容器规则前面；同在末尾时
-    `\\nvidia\\dxcache` 又靠更长的匹配串胜过泛化的 `\\dxcache`。
+    排序三元组 (匹配在路径里的结束位置, 匹配串长度, 路径末尾位置)：
+    位置优先，叶子规则（steamapps\\shadercache）天然排在容器规则
+    （\\steamlibrary\\steamapps）前面；同在末尾时更长的匹配串胜过
+    泛化的短匹配（\\nvidia\\dxcache > \\dxcache）。
     """
     any_t, all_t = rec.get("any") or [], rec.get("all") or []
 
@@ -6448,12 +6407,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def pick_port(preferred: int) -> int:
-    """找一个真正空闲的端口。探测时绝不能带 SO_REUSEADDR —— Windows 上带了它，
-    别的进程正活着监听的端口也能 bind 成功，新实例与旧实例就会静默双绑定：
-    请求随机落到旧实例上，表现为「扫描失败、行为诡异」却查不出原因
-    （实测 8770 上同时挂着 3 个实例，扫描线程被人人喊打的旧代码接走）。
-    裸 bind 才是「这个端口此刻真的没人用」的判定；代价是刚关闭的端口会
-    进入 TIME_WAIT 而被跳过 —— 顺延到下一个端口正是想要的行为。
+    """找一个真正空闲的端口。探测必须用裸 bind，不能带 SO_REUSEADDR：
+    Windows 上带了它，已被其他进程监听的端口也能 bind 成功，
+    新旧实例会静默双绑定同一端口（请求随机落到旧实例上）。
+    裸 bind 才是「这个端口此刻真的没人用」的判定；代价是刚关闭的端口
+    会进入 TIME_WAIT 而被跳过 —— 顺延到下一个端口正是想要的行为。
     """
     for port in range(preferred, preferred + 30):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

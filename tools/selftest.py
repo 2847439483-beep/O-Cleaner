@@ -395,7 +395,7 @@ def phase1() -> None:
             wrong.append((name, r["category"], r["cleanable"]))
     check("真实名称识别正确（分类与可清理判断）", not wrong, str(wrong))
 
-    # 回归：短关键词不能误伤（曾把 DeliveryOptimization 判成微信数据，因 'tim' 命中）
+    # 回归：短关键词必须整词匹配，不能被子串误伤（如 'tim' 命中 DeliveryOptimization）
     for bad in ("optimization", "estimation", "legitimate"):
         r = app.identify(bad, "D:\\" + bad, "dir")
         if r["category"] == "个人数据":
@@ -1144,8 +1144,8 @@ def phase3_http() -> None:
               f"{len(scan_drive['results'])} 项")
 
         # CI runner 负载波动很大：同样的常规扫描上次 90 秒、这次能超 180 秒。
-        # 扫描是「逐个起 PowerShell 量体积」的重活，给足 10 分钟，别把慢机器
-        # 误判成回归（这条曾经就是 60 秒超时，注释见 get() 定义处）。
+        # 扫描是「逐个起 PS 量体积」的重活，给足 10 分钟，避免慢机器被
+        # 误判成回归（超时口径的机制说明见 get() 定义处）。
         scan = get("/__oc__/scan?drive=C", timeout=600)
         sizes = {r.get("base_id", r["id"]): r["size"] for r in scan["results"]}
         check("scan 正确统计 tree 大小", sizes.get("sandbox-tree") == 14336, str(sizes))
@@ -1486,7 +1486,7 @@ def phase4_repo() -> None:
     # 注：CSRF 与畸形请求体的回归测试在 phase3_http 里（需要运行中的服务）
 
     # 安全回归：浏览器数据目录绝不能被整体标为可清理
-    # （会删掉书签、密码、全部登录状态）—— 这条是被上百 GB 的实测逼出来的
+    # （会连带删掉书签、密码、全部登录状态）
     kb2 = app.load_filetypes()
     bd = next((r for r in kb2.get("folder_rules", [])
                if r.get("id") == "browser-data"), None)
@@ -1909,10 +1909,10 @@ def phase6b_multiplatform() -> None:
 def phase6c_packs() -> None:
     """资源包加载的「用户包覆盖内置」语义（load_packs 同 id 去重）。
 
-    回归背景：packs_update_from_remote 把与内置同 id 的更新包写进
-    config/packs-user/，load_packs 曾经把两份都列出来 —— 界面同名包出现
-    两行、匹配条目翻倍，与「覆盖」的文档承诺不符。全程用临时目录 +
-    模块属性打补丁，不往仓库 packs/ 或 config/packs-user/ 写任何文件。
+    覆盖语义：packs_update_from_remote 会把与内置同 id 的更新包写进
+    config/packs-user/，load_packs 必须按同 id 去重，否则同名包出现
+    两行、匹配条目翻倍。全程用临时目录 + 模块属性打补丁，不往仓库
+    packs/ 或 config/packs-user/ 写任何文件。
     """
     print("\n=== 阶段六C：资源包覆盖语义（临时目录）===")
     saved = (app.PACKS_DIR, app.USER_PACKS_DIR, dict(app._PACKS_CACHE))

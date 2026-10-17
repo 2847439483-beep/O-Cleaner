@@ -109,13 +109,10 @@
      这样做是因为两栏内容长度差异很大：左列卡片动辄几十屏，右列较短，
      整页滚动时右列总有一段被带出视野。
 
-     历史坑一：工具栏用 grid-column 显式占位后，若不给出列，grid 的
-     auto-placement 会把两个栏位对调，卡片被塞进 392px 窄列。现在左右两栏
-     都是显式定位的 grid item，不依赖自动排布。
-     历史坑二：早期给 aside 写过 max-height + overflow-y:auto，但当时滚动条
-     不显眼、长文案像被裁掉，用户反馈「文字被遮挡」。这次把滚动条显式画出来
-     （见 ::-webkit-scrollbar 与 scrollbar-width），并且两栏都滚，
-     不会再出现「内容看不见又找不到滚动条」。
+     两栏都是显式定位的 grid item，不依赖自动排布（grid-column 显式占位后
+     若缺省某栏，auto-placement 会把两个栏位对调，卡片被塞进 392px 窄列）。
+     滚动条显式画出（见 ::-webkit-scrollbar 与 scrollbar-width），两栏都滚，
+     避免长文案看起来像被裁掉。
      坑三：grid 的隐式行是 auto，会被内容撑高而溢出容器；必须用
      grid-template-rows:minmax(0,1fr) 把唯一一行钉死在容器高度上，
      子项才能成为真正的滚动容器。 */
@@ -2116,8 +2113,7 @@ function renderSteamPage() {
   if (!games.length) {
     $("stGames").innerHTML = `<div class="empty" style="margin:0">${t("st.noMatch","没有匹配的游戏。")}</div>`;
   } else {
-    // stale 计算抽成函数复用：早期版本在 showDetail 的选项对象里引用了
-    // 模板字符串回调内的局部变量 stale，点击时抛 ReferenceError。
+    // stale 计算抽成具名函数，避免在模板字符串回调里引用局部变量
     const staleOf = g => {
       const d = daysSince(g.last_played);
       return d === null ? t("st.neverPlayed","从没玩过") : (d > 180 ? t("st.staleDays","{n} 天没玩").replace("{n}", d) : "");
@@ -2752,12 +2748,10 @@ async function startFullScan() {
   $("fsChart").innerHTML = `<div class="empty" style="margin:0"><span class="spin" style="width:13px;height:13px;border-width:2px;display:inline-block;vertical-align:-2px;margin-right:7px"></span>${t("fs.chartPending","扫描完成后，这里会显示占用排行与下钻入口。")}</div>`;
   $("fsModes").innerHTML = "";
 
-  // 系统盘（小文件极多）可能要几分钟。这里必须给出**真实**进度：
-  // 早期版本用 `1 - exp(-已用时/90)` 把时间换算成百分比，与扫描实际走到哪一步
-  // 毫无关系 —— 90 秒就显示 63%，几分钟后停在 97%，用户据此判断不了要不要继续等。
-  // 现在改成向后端轮询真实阶段：
+  // 系统盘（小文件极多）可能要几分钟。进度必须反映真实阶段：
   //   * 能算出分母的阶段（解析行数、已建节点、已用预算）给精确百分比；
-  //   * 算不出分母的阶段（读 MFT、PowerShell 递归）显示流动条纹 + 当前阶段文案。
+  //   * 算不出分母的阶段（读 MFT、PS 递归）显示流动条纹 + 当前阶段文案。
+  //   * 纯按时间推算的假百分比会让用户无法判断要不要继续等。
   // 结构只渲染一次，之后只改文字与宽度，避免每次重绘把 CSS 动画打断。
   const t0 = Date.now();
   $("fsOverview").innerHTML = `
